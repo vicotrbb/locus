@@ -751,6 +751,18 @@ impl MappedScratchArena {
             .map_err(MappedScratchAllocError::TouchPages)
     }
 
+    /// Applies Linux `MPOL_BIND` to the mapped arena region.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the node mask is invalid or the Linux `mbind`
+    /// syscall fails.
+    #[cfg(target_os = "linux")]
+    pub fn bind_to_node(&self, node: NodeId) -> Result<(), MappedScratchAllocError> {
+        locus_sys::linux::bind_region_to_node(&self.region, node.0)
+            .map_err(MappedScratchAllocError::LinuxNumaPolicy)
+    }
+
     /// Returns current arena accounting.
     #[must_use]
     pub fn stats(&self) -> ScratchArenaStats {
@@ -828,6 +840,9 @@ pub enum MappedScratchAllocError {
     PageSize(PageSizeError),
     /// Page touching failed.
     TouchPages(TouchPagesError),
+    /// Linux NUMA policy application failed.
+    #[cfg(target_os = "linux")]
+    LinuxNumaPolicy(locus_sys::linux::LinuxNumaPolicyError),
 }
 
 /// KV block pool failures.
@@ -933,6 +948,10 @@ impl fmt::Display for MappedScratchAllocError {
             Self::TouchPages(source) => {
                 write!(f, "mapped scratch arena page touching failed: {source}")
             }
+            #[cfg(target_os = "linux")]
+            Self::LinuxNumaPolicy(source) => {
+                write!(f, "mapped scratch arena NUMA policy failed: {source}")
+            }
         }
     }
 }
@@ -943,6 +962,8 @@ impl std::error::Error for MappedScratchAllocError {
             Self::Map(source) => Some(source),
             Self::PageSize(source) => Some(source),
             Self::TouchPages(source) => Some(source),
+            #[cfg(target_os = "linux")]
+            Self::LinuxNumaPolicy(source) => Some(source),
             Self::UnsupportedAlignment { .. }
             | Self::CapacityOverflow
             | Self::OutOfMemory { .. } => None,
@@ -1142,6 +1163,22 @@ mod tests {
         let touched = arena.write_touch_pages().expect("touch pages");
 
         assert!(touched >= 1);
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn mapped_scratch_arena_rejects_invalid_bind_node() {
+        let arena = MappedScratchArena::new(NodeId(0), 4096).expect("arena");
+        let error = arena
+            .bind_to_node(NodeId(4096))
+            .expect_err("invalid node should fail before syscall");
+
+        assert!(matches!(
+            error,
+            MappedScratchAllocError::LinuxNumaPolicy(
+                locus_sys::linux::LinuxNumaPolicyError::InvalidNode(4096)
+            )
+        ));
     }
 
     #[test]
