@@ -30,6 +30,7 @@ This note summarizes the allocator benchmark coverage currently recorded in expe
 | Persistent-worker handoff through explicit system allocator | None | `system_vec_persistent_worker_handoff_256x4k` | 69.073 us to 70.371 us | `documentation/experiments/0053-allocator-specific-persistent-handoff.md` |
 | Locus remote-free queue persistent handoff | `remote_free_queue_persistent_handoff_256x4k` | `vec_persistent_worker_handoff_256x4k` | 54.873 us to 55.169 us vs 71.012 us to 72.160 us | `documentation/experiments/0055-remote-free-queue-benchmark.md` |
 | KV block remote-free queue release | `kv_remote_free_queue_release_256x4k` | `kv_block_pool_cycle_256x4k` | 20.391 us to 20.782 us vs 1.1982 us to 1.2193 us | `documentation/experiments/0056-kv-remote-free-queue-benchmark.md` |
+| KV block remote-free queue batch-size sweep | `kv_remote_free_queue_release_batch8_256x4k`, `kv_remote_free_queue_release_256x4k`, `kv_remote_free_queue_release_batch64_256x4k` | None | 36.920 us to 38.124 us, 20.059 us to 20.257 us, 14.637 us to 14.913 us | `documentation/experiments/0057-kv-remote-free-batch-size.md` |
 
 ## Interpretation
 
@@ -45,4 +46,4 @@ This note summarizes the allocator benchmark coverage currently recorded in expe
 
 ## Next Benchmarking Step
 
-The next benchmark increment should refine domain remote-free batching, either by increasing batch size experiments, adding request arena return, or reducing handoff overhead in the KV handle release path.
+The next benchmark increment should add request arena return or explore the release-latency tradeoff of larger KV remote-free batches.

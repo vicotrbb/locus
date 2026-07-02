@@ -419,9 +419,33 @@ fn remote_free_queue_persistent_handoff_cycle(c: &mut Criterion) {
 }
 
 fn kv_remote_free_queue_release_cycle(c: &mut Criterion) {
-    c.bench_function("kv_remote_free_queue_release_256x4k", |bench| {
+    kv_remote_free_queue_release_cycle_with_batch(c, "kv_remote_free_queue_release_256x4k", 32);
+}
+
+fn kv_remote_free_queue_release_batch8_cycle(c: &mut Criterion) {
+    kv_remote_free_queue_release_cycle_with_batch(
+        c,
+        "kv_remote_free_queue_release_batch8_256x4k",
+        8,
+    );
+}
+
+fn kv_remote_free_queue_release_batch64_cycle(c: &mut Criterion) {
+    kv_remote_free_queue_release_cycle_with_batch(
+        c,
+        "kv_remote_free_queue_release_batch64_256x4k",
+        64,
+    );
+}
+
+fn kv_remote_free_queue_release_cycle_with_batch(
+    c: &mut Criterion,
+    name: &'static str,
+    batch_limit: usize,
+) {
+    c.bench_function(name, |bench| {
         let mut pool = KvBlockPool::new(NodeId(0), 4096, 256).expect("pool");
-        let mut queue = RemoteFreeQueue::new(32, 32).expect("queue");
+        let mut queue = RemoteFreeQueue::new(batch_limit, batch_limit).expect("queue");
         let sink = queue.sink();
         let (command_sender, command_receiver) = sync_channel::<KvRemoteFreeCommand>(1);
 
@@ -491,6 +515,8 @@ criterion_group!(
     vec_producer_consumer_handoff_cycle,
     vec_persistent_worker_handoff_cycle,
     remote_free_queue_persistent_handoff_cycle,
-    kv_remote_free_queue_release_cycle
+    kv_remote_free_queue_release_cycle,
+    kv_remote_free_queue_release_batch8_cycle,
+    kv_remote_free_queue_release_batch64_cycle
 );
 criterion_main!(benches);
