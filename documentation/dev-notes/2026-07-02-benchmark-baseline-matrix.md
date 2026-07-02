@@ -31,6 +31,7 @@ This note summarizes the allocator benchmark coverage currently recorded in expe
 | Locus remote-free queue persistent handoff | `remote_free_queue_persistent_handoff_256x4k` | `vec_persistent_worker_handoff_256x4k` | 54.873 us to 55.169 us vs 71.012 us to 72.160 us | `documentation/experiments/0055-remote-free-queue-benchmark.md` |
 | KV block remote-free queue release | `kv_remote_free_queue_release_256x4k` | `kv_block_pool_cycle_256x4k` | 20.391 us to 20.782 us vs 1.1982 us to 1.2193 us | `documentation/experiments/0056-kv-remote-free-queue-benchmark.md` |
 | KV block remote-free queue batch-size sweep | `kv_remote_free_queue_release_batch8_256x4k`, `kv_remote_free_queue_release_256x4k`, `kv_remote_free_queue_release_batch64_256x4k` | None | 36.920 us to 38.124 us, 20.059 us to 20.257 us, 14.637 us to 14.913 us | `documentation/experiments/0057-kv-remote-free-batch-size.md` |
+| KV block remote-free queue large-batch sweep | `kv_remote_free_queue_release_batch128_256x4k`, `kv_remote_free_queue_release_batch256_256x4k` | None | 10.894 us to 11.011 us, 5.5519 us to 5.7110 us | `documentation/experiments/0059-kv-remote-free-large-batches.md` |
 | Request scratch remote-free queue return | `request_remote_free_queue_return_16x64x256b` | `request_scratch_pool_cycle_16x64x256b` | 6.7133 us to 6.8108 us vs 3.0811 us to 3.0954 us | `documentation/experiments/0058-request-remote-free-queue-return.md` |
 
 ## Interpretation
@@ -47,4 +48,4 @@ This note summarizes the allocator benchmark coverage currently recorded in expe
 
 ## Next Benchmarking Step
 
-The next benchmark increment should explore the release-latency tradeoff of larger KV remote-free batches or start tying locality evidence to these domain allocator benchmarks.
+The next benchmark increment should start tying locality evidence to these domain allocator benchmarks or add a latency-sensitive mixed release workload.

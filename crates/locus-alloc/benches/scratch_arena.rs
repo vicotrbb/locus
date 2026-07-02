@@ -443,6 +443,22 @@ fn kv_remote_free_queue_release_batch64_cycle(c: &mut Criterion) {
     );
 }
 
+fn kv_remote_free_queue_release_batch128_cycle(c: &mut Criterion) {
+    kv_remote_free_queue_release_cycle_with_batch(
+        c,
+        "kv_remote_free_queue_release_batch128_256x4k",
+        128,
+    );
+}
+
+fn kv_remote_free_queue_release_batch256_cycle(c: &mut Criterion) {
+    kv_remote_free_queue_release_cycle_with_batch(
+        c,
+        "kv_remote_free_queue_release_batch256_256x4k",
+        256,
+    );
+}
+
 fn kv_remote_free_queue_release_cycle_with_batch(
     c: &mut Criterion,
     name: &'static str,
@@ -590,6 +606,8 @@ criterion_group!(
     kv_remote_free_queue_release_cycle,
     kv_remote_free_queue_release_batch8_cycle,
     kv_remote_free_queue_release_batch64_cycle,
+    kv_remote_free_queue_release_batch128_cycle,
+    kv_remote_free_queue_release_batch256_cycle,
     request_remote_free_queue_return_cycle
 );
 criterion_main!(benches);
