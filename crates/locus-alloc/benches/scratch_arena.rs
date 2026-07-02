@@ -4,7 +4,7 @@ use std::{alloc::Layout, mem::MaybeUninit, sync::mpsc::sync_channel, thread};
 
 use criterion::{black_box, criterion_group, criterion_main, BatchSize, Criterion};
 use locus_alloc::{
-    KvBlockPool, KvBlockTable, KvSequenceId, MappedScratchArena, RequestScratch,
+    KvBlockPool, KvBlockTable, KvSequenceId, MappedScratchArena, RemoteFreeQueue, RequestScratch,
     RequestScratchPool, ScratchArena,
 };
 use locus_core::{NodeId, RequestHome, RequestId};
@@ -366,6 +366,53 @@ fn vec_persistent_worker_handoff_cycle(c: &mut Criterion) {
     });
 }
 
+fn remote_free_queue_persistent_handoff_cycle(c: &mut Criterion) {
+    c.bench_function("remote_free_queue_persistent_handoff_256x4k", |bench| {
+        let mut queue = RemoteFreeQueue::new(32, 32).expect("queue");
+        let sink = queue.sink();
+        let (command_sender, command_receiver) = sync_channel::<ProducerCommand>(1);
+
+        let producer = thread::spawn(move || {
+            while let Ok(command) = command_receiver.recv() {
+                match command {
+                    ProducerCommand::Run(blocks) => {
+                        for _ in 0..blocks {
+                            let mut block = vec![0_u8; 4096];
+                            black_box(block.as_mut_ptr());
+                            sink.enqueue(block).expect("enqueue block");
+                        }
+                    }
+                    ProducerCommand::Stop => break,
+                }
+            }
+        });
+
+        bench.iter(|| {
+            command_sender
+                .send(ProducerCommand::Run(256))
+                .expect("send run");
+
+            let mut released = 0_usize;
+            while released < 256 {
+                let stats = queue.drain_batch(|mut block| {
+                    black_box(block.as_mut_ptr());
+                });
+                if stats.drained == 0 {
+                    thread::yield_now();
+                }
+                released += stats.drained;
+            }
+
+            black_box(queue.stats());
+        });
+
+        command_sender
+            .send(ProducerCommand::Stop)
+            .expect("send stop");
+        producer.join().expect("producer thread");
+    });
+}
+
 criterion_group!(
     benches,
     scratch_arena_reset_cycle,
@@ -383,6 +430,7 @@ criterion_group!(
     kv_block_table_append_release_cycle,
     kv_vec_table_allocation_cycle,
     vec_producer_consumer_handoff_cycle,
-    vec_persistent_worker_handoff_cycle
+    vec_persistent_worker_handoff_cycle,
+    remote_free_queue_persistent_handoff_cycle
 );
 criterion_main!(benches);

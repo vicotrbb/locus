@@ -28,6 +28,7 @@ This note summarizes the allocator benchmark coverage currently recorded in expe
 | Persistent-worker handoff through mimalloc | None | `mimalloc_vec_persistent_worker_handoff_256x4k` | 45.707 us to 47.076 us | `documentation/experiments/0053-allocator-specific-persistent-handoff.md` |
 | Persistent-worker handoff through jemalloc | None | `jemalloc_vec_persistent_worker_handoff_256x4k` | 61.359 us to 63.812 us | `documentation/experiments/0053-allocator-specific-persistent-handoff.md` |
 | Persistent-worker handoff through explicit system allocator | None | `system_vec_persistent_worker_handoff_256x4k` | 69.073 us to 70.371 us | `documentation/experiments/0053-allocator-specific-persistent-handoff.md` |
+| Locus remote-free queue persistent handoff | `remote_free_queue_persistent_handoff_256x4k` | `vec_persistent_worker_handoff_256x4k` | 54.873 us to 55.169 us vs 71.012 us to 72.160 us | `documentation/experiments/0055-remote-free-queue-benchmark.md` |
 
 ## Interpretation
 
@@ -38,9 +39,9 @@ This note summarizes the allocator benchmark coverage currently recorded in expe
 
 ## Missing Baselines
 
-- Locus-owned remote-free batching behavior is still missing.
+- Domain allocator remote-free batching behavior is still missing.
 - End-to-end LLM serving traces are still missing.
 
 ## Next Benchmarking Step
 
-The next benchmark increment should prototype a small Locus-owned remote-free batching primitive or add a benchmark harness that can compare such a primitive against the persistent-worker allocator baselines.
+The next benchmark increment should connect the remote-free queue to a domain allocator workload such as KV block handle release or request arena return.
