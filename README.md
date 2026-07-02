@@ -35,7 +35,7 @@ docker run --rm -v "$PWD":/work -w /work rust:1.96 cargo test -p locus-sys
 docker run --rm -v "$PWD":/work -w /work rust:1.96 cargo run -p locus-sys --example mbind_region
 ```
 
-The `mbind_region` example reports whether the current Linux environment permits `mbind`, then write-touches the mapped pages. Some containers return `EPERM`; that is recorded as environment evidence, not treated as placement success.
+The `mbind_region` example reports whether the current Linux environment permits `mbind`, then write-touches the mapped pages. Some containers return `EPERM` as `memory_policy_readiness=not_ready reason=permission_denied`. In the current seccomp-unconfined Docker environment, `mbind` returns `ENOSYS` as `memory_policy_readiness=not_ready reason=syscall_unavailable`. Both are recorded as environment evidence, not treated as placement success.
 
 Run the current locality evidence probes:
 
