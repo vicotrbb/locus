@@ -22,6 +22,12 @@ fn main() -> Result<(), Box<dyn Error>> {
     for (node, pages) in summary.pages_by_node {
         println!("node={} pages={}", node.0, pages);
     }
+    for (policy, mappings) in summary.mappings_by_policy {
+        println!("policy={policy} mappings={mappings}");
+    }
+    for (page_kb, pages) in summary.pages_by_kernel_page_kb {
+        println!("kernel_page_kb={page_kb} pages={pages}");
+    }
 
     Ok(())
 }
