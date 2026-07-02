@@ -97,6 +97,16 @@ pub mod linux {
                 Self::NotReady => "not_ready",
             }
         }
+
+        /// Parses a stable machine-readable readiness status string.
+        #[must_use]
+        pub fn from_str_token(value: &str) -> Option<Self> {
+            match value {
+                "ready" => Some(Self::Ready),
+                "not_ready" => Some(Self::NotReady),
+                _ => None,
+            }
+        }
     }
 
     impl fmt::Display for LinuxNumaPolicyReadinessStatus {
@@ -129,6 +139,18 @@ pub mod linux {
                 Self::SyscallFailed => "syscall_failed",
             }
         }
+
+        /// Parses a stable machine-readable readiness reason string.
+        #[must_use]
+        pub fn from_str_token(value: &str) -> Option<Self> {
+            match value {
+                "ready" => Some(Self::Ready),
+                "invalid_node" => Some(Self::InvalidNode),
+                "permission_denied" => Some(Self::PermissionDenied),
+                "syscall_failed" => Some(Self::SyscallFailed),
+                _ => None,
+            }
+        }
     }
 
     impl fmt::Display for LinuxNumaPolicyReadinessReason {
@@ -145,6 +167,47 @@ pub mod linux {
         /// Reason for the status.
         pub reason: LinuxNumaPolicyReadinessReason,
     }
+
+    /// Error returned when parsing a Linux memory-policy readiness line.
+    #[derive(Debug, Clone, PartialEq, Eq)]
+    pub enum LinuxNumaPolicyReadinessLineParseError {
+        /// The line does not contain a `memory_policy_readiness=` token.
+        MissingStatus,
+        /// The line does not contain a `reason=` token.
+        MissingReason,
+        /// The line contains a duplicate `memory_policy_readiness=` token.
+        DuplicateStatus,
+        /// The line contains a duplicate `reason=` token.
+        DuplicateReason,
+        /// The line contains a token outside the memory-policy readiness schema.
+        InvalidToken(String),
+        /// The readiness status token is not recognized.
+        UnknownStatus(String),
+        /// The readiness reason token is not recognized.
+        UnknownReason(String),
+    }
+
+    impl fmt::Display for LinuxNumaPolicyReadinessLineParseError {
+        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+            match self {
+                Self::MissingStatus => f.write_str("missing memory_policy_readiness token"),
+                Self::MissingReason => f.write_str("missing reason token"),
+                Self::DuplicateStatus => f.write_str("duplicate memory_policy_readiness token"),
+                Self::DuplicateReason => f.write_str("duplicate reason token"),
+                Self::InvalidToken(token) => {
+                    write!(f, "invalid memory policy readiness token: {token}")
+                }
+                Self::UnknownStatus(status) => {
+                    write!(f, "unknown memory policy readiness status: {status}")
+                }
+                Self::UnknownReason(reason) => {
+                    write!(f, "unknown memory policy readiness reason: {reason}")
+                }
+            }
+        }
+    }
+
+    impl std::error::Error for LinuxNumaPolicyReadinessLineParseError {}
 
     impl LinuxNumaPolicyReadiness {
         /// Builds a readiness verdict from an `mbind` attempt result.
@@ -181,6 +244,63 @@ pub mod linux {
         }
     }
 
+    /// Parses a Linux memory-policy readiness line.
+    ///
+    /// The expected format is `memory_policy_readiness=<status> reason=<reason>`.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the line is missing required tokens, contains duplicate
+    /// tokens, contains unsupported tokens, or uses an unknown status or reason.
+    pub fn parse_linux_numa_policy_readiness_line(
+        line: &str,
+    ) -> Result<LinuxNumaPolicyReadiness, LinuxNumaPolicyReadinessLineParseError> {
+        let mut status_token = None;
+        let mut reason_token = None;
+
+        for token in line.split_whitespace() {
+            let Some((key, value)) = token.split_once('=') else {
+                return Err(LinuxNumaPolicyReadinessLineParseError::InvalidToken(
+                    token.to_owned(),
+                ));
+            };
+
+            match key {
+                "memory_policy_readiness" => {
+                    if status_token.replace(value).is_some() {
+                        return Err(LinuxNumaPolicyReadinessLineParseError::DuplicateStatus);
+                    }
+                }
+                "reason" => {
+                    if reason_token.replace(value).is_some() {
+                        return Err(LinuxNumaPolicyReadinessLineParseError::DuplicateReason);
+                    }
+                }
+                _ => {
+                    return Err(LinuxNumaPolicyReadinessLineParseError::InvalidToken(
+                        token.to_owned(),
+                    ));
+                }
+            }
+        }
+
+        let status_token =
+            status_token.ok_or(LinuxNumaPolicyReadinessLineParseError::MissingStatus)?;
+        let reason_token =
+            reason_token.ok_or(LinuxNumaPolicyReadinessLineParseError::MissingReason)?;
+
+        let status =
+            LinuxNumaPolicyReadinessStatus::from_str_token(status_token).ok_or_else(|| {
+                LinuxNumaPolicyReadinessLineParseError::UnknownStatus(status_token.to_owned())
+            })?;
+        let reason =
+            LinuxNumaPolicyReadinessReason::from_str_token(reason_token).ok_or_else(|| {
+                LinuxNumaPolicyReadinessLineParseError::UnknownReason(reason_token.to_owned())
+            })?;
+
+        Ok(LinuxNumaPolicyReadiness { status, reason })
+    }
+
     fn node_mask_words(node: u32) -> Result<Vec<libc::c_ulong>, LinuxNumaPolicyError> {
         if node >= MAX_NODE_BITS {
             return Err(LinuxNumaPolicyError::InvalidNode(node));
@@ -200,7 +320,8 @@ pub mod linux {
         use std::io::ErrorKind;
 
         use super::{
-            node_mask_words, LinuxNumaPolicyError, LinuxNumaPolicyReadiness,
+            node_mask_words, parse_linux_numa_policy_readiness_line, LinuxNumaPolicyError,
+            LinuxNumaPolicyReadiness, LinuxNumaPolicyReadinessLineParseError,
             LinuxNumaPolicyReadinessReason, LinuxNumaPolicyReadinessStatus,
         };
 
@@ -262,6 +383,78 @@ pub mod linux {
             assert_eq!(
                 LinuxNumaPolicyReadiness::from_bind_result(Err(&other)).reason,
                 LinuxNumaPolicyReadinessReason::SyscallFailed
+            );
+        }
+
+        #[test]
+        fn parses_linux_numa_policy_readiness_lines() {
+            assert_eq!(
+                parse_linux_numa_policy_readiness_line(
+                    "memory_policy_readiness=ready reason=ready"
+                )
+                .expect("ready"),
+                LinuxNumaPolicyReadiness {
+                    status: LinuxNumaPolicyReadinessStatus::Ready,
+                    reason: LinuxNumaPolicyReadinessReason::Ready,
+                }
+            );
+            assert_eq!(
+                parse_linux_numa_policy_readiness_line(
+                    "memory_policy_readiness=not_ready reason=permission_denied"
+                )
+                .expect("not ready"),
+                LinuxNumaPolicyReadiness {
+                    status: LinuxNumaPolicyReadinessStatus::NotReady,
+                    reason: LinuxNumaPolicyReadinessReason::PermissionDenied,
+                }
+            );
+        }
+
+        #[test]
+        fn rejects_invalid_linux_numa_policy_readiness_lines() {
+            assert_eq!(
+                parse_linux_numa_policy_readiness_line("reason=ready").expect_err("missing status"),
+                LinuxNumaPolicyReadinessLineParseError::MissingStatus
+            );
+            assert_eq!(
+                parse_linux_numa_policy_readiness_line("memory_policy_readiness=ready")
+                    .expect_err("missing reason"),
+                LinuxNumaPolicyReadinessLineParseError::MissingReason
+            );
+            assert_eq!(
+                parse_linux_numa_policy_readiness_line(
+                    "memory_policy_readiness=maybe reason=ready"
+                )
+                .expect_err("unknown status"),
+                LinuxNumaPolicyReadinessLineParseError::UnknownStatus("maybe".to_owned())
+            );
+            assert_eq!(
+                parse_linux_numa_policy_readiness_line(
+                    "memory_policy_readiness=ready reason=maybe"
+                )
+                .expect_err("unknown reason"),
+                LinuxNumaPolicyReadinessLineParseError::UnknownReason("maybe".to_owned())
+            );
+            assert_eq!(
+                parse_linux_numa_policy_readiness_line(
+                    "memory_policy_readiness=ready reason=ready extra=true"
+                )
+                .expect_err("extra token"),
+                LinuxNumaPolicyReadinessLineParseError::InvalidToken("extra=true".to_owned())
+            );
+            assert_eq!(
+                parse_linux_numa_policy_readiness_line(
+                    "memory_policy_readiness=ready memory_policy_readiness=not_ready reason=ready"
+                )
+                .expect_err("duplicate status"),
+                LinuxNumaPolicyReadinessLineParseError::DuplicateStatus
+            );
+            assert_eq!(
+                parse_linux_numa_policy_readiness_line(
+                    "memory_policy_readiness=ready reason=ready reason=permission_denied"
+                )
+                .expect_err("duplicate reason"),
+                LinuxNumaPolicyReadinessLineParseError::DuplicateReason
             );
         }
     }
