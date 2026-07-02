@@ -259,6 +259,17 @@ impl NumaPlacementProofStatus {
             Self::Unavailable => "unavailable",
         }
     }
+
+    /// Parses a stable machine-readable proof status string.
+    #[must_use]
+    pub fn from_str_token(value: &str) -> Option<Self> {
+        match value {
+            "verified" => Some(Self::Verified),
+            "unverified" => Some(Self::Unverified),
+            "unavailable" => Some(Self::Unavailable),
+            _ => None,
+        }
+    }
 }
 
 impl fmt::Display for NumaPlacementProofStatus {
@@ -300,6 +311,21 @@ impl NumaPlacementProofReason {
             Self::NumaMapsUnavailable => "numa_maps_unavailable",
         }
     }
+
+    /// Parses a stable machine-readable proof reason string.
+    #[must_use]
+    pub fn from_str_token(value: &str) -> Option<Self> {
+        match value {
+            "verified" => Some(Self::Verified),
+            "policy_not_applied" => Some(Self::PolicyNotApplied),
+            "mapping_missing" => Some(Self::MappingMissing),
+            "no_pages_reported" => Some(Self::NoPagesReported),
+            "partial_pages_on_expected_node" => Some(Self::PartialPagesOnExpectedNode),
+            "no_pages_on_expected_node" => Some(Self::NoPagesOnExpectedNode),
+            "numa_maps_unavailable" => Some(Self::NumaMapsUnavailable),
+            _ => None,
+        }
+    }
 }
 
 impl fmt::Display for NumaPlacementProofReason {
@@ -331,6 +357,41 @@ pub struct NumaPlacementProof {
     /// Reason for the status.
     pub reason: NumaPlacementProofReason,
 }
+
+/// Error returned when parsing a probe placement proof line.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum NumaPlacementProofLineParseError {
+    /// The line does not contain a `placement_proof=` token.
+    MissingStatus,
+    /// The line does not contain a `reason=` token.
+    MissingReason,
+    /// The line contains a duplicate `placement_proof=` token.
+    DuplicateStatus,
+    /// The line contains a duplicate `reason=` token.
+    DuplicateReason,
+    /// The line contains a token outside the placement proof line schema.
+    InvalidToken(String),
+    /// The proof status token is not recognized.
+    UnknownStatus(String),
+    /// The proof reason token is not recognized.
+    UnknownReason(String),
+}
+
+impl fmt::Display for NumaPlacementProofLineParseError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::MissingStatus => f.write_str("missing placement_proof token"),
+            Self::MissingReason => f.write_str("missing reason token"),
+            Self::DuplicateStatus => f.write_str("duplicate placement_proof token"),
+            Self::DuplicateReason => f.write_str("duplicate reason token"),
+            Self::InvalidToken(token) => write!(f, "invalid placement proof token: {token}"),
+            Self::UnknownStatus(status) => write!(f, "unknown placement proof status: {status}"),
+            Self::UnknownReason(reason) => write!(f, "unknown placement proof reason: {reason}"),
+        }
+    }
+}
+
+impl std::error::Error for NumaPlacementProofLineParseError {}
 
 impl NumaMapsSummary {
     /// Builds a summary from parsed `numa_maps` entries.
@@ -474,6 +535,57 @@ impl NumaPlacementProof {
             reason,
         }
     }
+}
+
+/// Parses a mapped scratch bind probe placement proof line.
+///
+/// The expected format is `placement_proof=<status> reason=<reason>`.
+///
+/// # Errors
+///
+/// Returns an error when the line is missing required tokens, contains duplicate
+/// tokens, contains unsupported tokens, or uses an unknown status or reason.
+pub fn parse_numa_placement_proof_line(
+    line: &str,
+) -> Result<NumaPlacementProof, NumaPlacementProofLineParseError> {
+    let mut status_token = None;
+    let mut reason_token = None;
+
+    for token in line.split_whitespace() {
+        let Some((key, value)) = token.split_once('=') else {
+            return Err(NumaPlacementProofLineParseError::InvalidToken(
+                token.to_owned(),
+            ));
+        };
+
+        match key {
+            "placement_proof" => {
+                if status_token.replace(value).is_some() {
+                    return Err(NumaPlacementProofLineParseError::DuplicateStatus);
+                }
+            }
+            "reason" => {
+                if reason_token.replace(value).is_some() {
+                    return Err(NumaPlacementProofLineParseError::DuplicateReason);
+                }
+            }
+            _ => {
+                return Err(NumaPlacementProofLineParseError::InvalidToken(
+                    token.to_owned(),
+                ));
+            }
+        }
+    }
+
+    let status_token = status_token.ok_or(NumaPlacementProofLineParseError::MissingStatus)?;
+    let reason_token = reason_token.ok_or(NumaPlacementProofLineParseError::MissingReason)?;
+
+    let status = NumaPlacementProofStatus::from_str_token(status_token)
+        .ok_or_else(|| NumaPlacementProofLineParseError::UnknownStatus(status_token.to_owned()))?;
+    let reason = NumaPlacementProofReason::from_str_token(reason_token)
+        .ok_or_else(|| NumaPlacementProofLineParseError::UnknownReason(reason_token.to_owned()))?;
+
+    Ok(NumaPlacementProof { status, reason })
 }
 
 /// Summary of cgroup NUMA bytes for one or more metrics.
@@ -1025,12 +1137,13 @@ mod tests {
     use super::{
         numa_maps_entry_by_start_address, numa_maps_entry_containing_address,
         numa_maps_entry_for_address, parse_cgroup_numa_stat, parse_node_numastat, parse_numa_maps,
-        parse_numa_maps_line, read_cgroup_numa_stat, read_cgroup_numa_summary, read_node_numastat,
-        read_node_numastat_system_snapshot, read_numa_maps,
-        resolve_cgroup_v2_memory_numa_stat_path, CgroupNumaDelta, CgroupNumaSummary,
-        CgroupPathError, NodeNumastatSnapshot, NodeNumastatSystemSnapshot,
+        parse_numa_maps_line, parse_numa_placement_proof_line, read_cgroup_numa_stat,
+        read_cgroup_numa_summary, read_node_numastat, read_node_numastat_system_snapshot,
+        read_numa_maps, resolve_cgroup_v2_memory_numa_stat_path, CgroupNumaDelta,
+        CgroupNumaSummary, CgroupPathError, NodeNumastatSnapshot, NodeNumastatSystemSnapshot,
         NumaMapsAddressMatchKind, NumaMapsSummary, NumaPlacementEvidence, NumaPlacementProof,
-        NumaPlacementProofReason, NumaPlacementProofStatus, NumaPlacementStatus, ObserveParseError,
+        NumaPlacementProofLineParseError, NumaPlacementProofReason, NumaPlacementProofStatus,
+        NumaPlacementStatus, ObserveParseError,
     };
 
     #[test]
@@ -1413,6 +1526,78 @@ mod tests {
         assert_eq!(unavailable.status.to_string(), "unavailable");
         assert_eq!(unavailable.reason.to_string(), "numa_maps_unavailable");
         assert!(!unavailable.is_verified());
+    }
+
+    #[test]
+    fn parses_numa_placement_proof_lines() {
+        assert_eq!(
+            parse_numa_placement_proof_line("placement_proof=verified reason=verified")
+                .expect("verified proof"),
+            NumaPlacementProof {
+                status: NumaPlacementProofStatus::Verified,
+                reason: NumaPlacementProofReason::Verified,
+            }
+        );
+        assert_eq!(
+            parse_numa_placement_proof_line("placement_proof=unverified reason=policy_not_applied")
+                .expect("unverified proof"),
+            NumaPlacementProof {
+                status: NumaPlacementProofStatus::Unverified,
+                reason: NumaPlacementProofReason::PolicyNotApplied,
+            }
+        );
+        assert_eq!(
+            parse_numa_placement_proof_line(
+                "placement_proof=unavailable reason=numa_maps_unavailable"
+            )
+            .expect("unavailable proof"),
+            NumaPlacementProof {
+                status: NumaPlacementProofStatus::Unavailable,
+                reason: NumaPlacementProofReason::NumaMapsUnavailable,
+            }
+        );
+    }
+
+    #[test]
+    fn rejects_invalid_numa_placement_proof_lines() {
+        assert_eq!(
+            parse_numa_placement_proof_line("reason=verified").expect_err("missing status"),
+            NumaPlacementProofLineParseError::MissingStatus
+        );
+        assert_eq!(
+            parse_numa_placement_proof_line("placement_proof=verified")
+                .expect_err("missing reason"),
+            NumaPlacementProofLineParseError::MissingReason
+        );
+        assert_eq!(
+            parse_numa_placement_proof_line("placement_proof=maybe reason=verified")
+                .expect_err("unknown status"),
+            NumaPlacementProofLineParseError::UnknownStatus("maybe".to_owned())
+        );
+        assert_eq!(
+            parse_numa_placement_proof_line("placement_proof=verified reason=maybe")
+                .expect_err("unknown reason"),
+            NumaPlacementProofLineParseError::UnknownReason("maybe".to_owned())
+        );
+        assert_eq!(
+            parse_numa_placement_proof_line("placement_proof=verified reason=verified extra=true")
+                .expect_err("extra token"),
+            NumaPlacementProofLineParseError::InvalidToken("extra=true".to_owned())
+        );
+        assert_eq!(
+            parse_numa_placement_proof_line(
+                "placement_proof=verified placement_proof=unverified reason=verified"
+            )
+            .expect_err("duplicate status"),
+            NumaPlacementProofLineParseError::DuplicateStatus
+        );
+        assert_eq!(
+            parse_numa_placement_proof_line(
+                "placement_proof=verified reason=verified reason=policy_not_applied"
+            )
+            .expect_err("duplicate reason"),
+            NumaPlacementProofLineParseError::DuplicateReason
+        );
     }
 
     #[test]
