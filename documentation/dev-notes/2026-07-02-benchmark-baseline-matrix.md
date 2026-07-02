@@ -21,6 +21,9 @@ This note summarizes the allocator benchmark coverage currently recorded in expe
 | Small default allocation through explicit system allocator | None | `system_vec_allocation_cycle_64x256b` and `system_vec_uninit_capacity_allocation_cycle_64x256b` | 585.33 ns to 589.16 ns zero-filled, 583.12 ns to 587.23 ns uninitialized capacity | `documentation/experiments/0049-system-allocator-benchmark-baseline.md` |
 | KV-sized default allocation through explicit system allocator | None | `system_kv_vec_allocation_cycle_256x4k` and `system_kv_vec_uninit_capacity_allocation_cycle_256x4k` | 16.631 us to 16.681 us zero-filled, 5.5373 us to 5.5732 us uninitialized capacity | `documentation/experiments/0049-system-allocator-benchmark-baseline.md` |
 | Producer and consumer handoff, 256 blocks of 4096 bytes | None | `vec_producer_consumer_handoff_256x4k` | 90.980 us to 92.328 us | `documentation/experiments/0050-producer-consumer-handoff-benchmark.md` |
+| Producer and consumer handoff through mimalloc | None | `mimalloc_vec_producer_consumer_handoff_256x4k` | 64.717 us to 66.059 us | `documentation/experiments/0051-allocator-specific-handoff-benchmarks.md` |
+| Producer and consumer handoff through jemalloc | None | `jemalloc_vec_producer_consumer_handoff_256x4k` | 99.773 us to 100.11 us | `documentation/experiments/0051-allocator-specific-handoff-benchmarks.md` |
+| Producer and consumer handoff through explicit system allocator | None | `system_vec_producer_consumer_handoff_256x4k` | 93.158 us to 93.941 us | `documentation/experiments/0051-allocator-specific-handoff-benchmarks.md` |
 
 ## Interpretation
 
@@ -31,9 +34,9 @@ This note summarizes the allocator benchmark coverage currently recorded in expe
 
 ## Missing Baselines
 
-- Remote-free or cross-thread release behavior is still missing.
+- Persistent-worker remote-free or cross-thread release behavior is still missing.
 - End-to-end LLM serving traces are still missing.
 
 ## Next Benchmarking Step
 
-The next benchmark increment should refine cross-thread release measurements by reusing worker threads across iterations or by adding matching producer and consumer handoff targets for mimalloc, jemalloc, and the explicit system allocator.
+The next benchmark increment should refine cross-thread release measurements by reusing worker threads across iterations so the benchmark isolates allocation, handoff, and remote drop costs from thread spawn costs.

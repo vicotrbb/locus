@@ -1,6 +1,6 @@
 #![allow(missing_docs)]
 
-use std::mem::MaybeUninit;
+use std::{mem::MaybeUninit, sync::mpsc::sync_channel, thread};
 
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use mimalloc::MiMalloc;
@@ -74,11 +74,42 @@ fn mimalloc_kv_vec_uninit_capacity_allocation_cycle(c: &mut Criterion) {
     );
 }
 
+fn mimalloc_vec_producer_consumer_handoff_cycle(c: &mut Criterion) {
+    c.bench_function("mimalloc_vec_producer_consumer_handoff_256x4k", |bench| {
+        bench.iter(|| {
+            thread::scope(|scope| {
+                let (sender, receiver) = sync_channel::<Vec<u8>>(32);
+
+                let consumer = scope.spawn(move || {
+                    let mut blocks = 0_usize;
+                    while let Ok(mut block) = receiver.recv() {
+                        black_box(block.as_mut_ptr());
+                        blocks += 1;
+                    }
+                    black_box(blocks);
+                });
+
+                let producer = scope.spawn(move || {
+                    for _ in 0..256 {
+                        let mut block = vec![0_u8; 4096];
+                        black_box(block.as_mut_ptr());
+                        sender.send(block).expect("send block");
+                    }
+                });
+
+                producer.join().expect("producer thread");
+                consumer.join().expect("consumer thread");
+            });
+        });
+    });
+}
+
 criterion_group!(
     benches,
     mimalloc_vec_allocation_cycle,
     mimalloc_vec_uninit_capacity_allocation_cycle,
     mimalloc_kv_vec_allocation_cycle,
-    mimalloc_kv_vec_uninit_capacity_allocation_cycle
+    mimalloc_kv_vec_uninit_capacity_allocation_cycle,
+    mimalloc_vec_producer_consumer_handoff_cycle
 );
 criterion_main!(benches);
