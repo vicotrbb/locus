@@ -393,6 +393,36 @@ impl fmt::Display for NumaPlacementProofLineParseError {
 
 impl std::error::Error for NumaPlacementProofLineParseError {}
 
+/// Error returned when extracting a placement proof from multiline probe output.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum NumaPlacementProofOutputParseError {
+    /// The output does not contain a `placement_proof=` line.
+    MissingProofLine,
+    /// The output contains more than one `placement_proof=` line.
+    DuplicateProofLine,
+    /// The discovered proof line is malformed.
+    Line(NumaPlacementProofLineParseError),
+}
+
+impl fmt::Display for NumaPlacementProofOutputParseError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::MissingProofLine => f.write_str("missing placement_proof line"),
+            Self::DuplicateProofLine => f.write_str("duplicate placement_proof line"),
+            Self::Line(source) => write!(f, "invalid placement_proof line: {source}"),
+        }
+    }
+}
+
+impl std::error::Error for NumaPlacementProofOutputParseError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Line(source) => Some(source),
+            Self::MissingProofLine | Self::DuplicateProofLine => None,
+        }
+    }
+}
+
 /// Final readiness status for a NUMA placement validation environment.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum NumaPlacementValidationReadinessStatus {
@@ -714,6 +744,35 @@ pub fn parse_numa_placement_proof_line(
         .ok_or_else(|| NumaPlacementProofLineParseError::UnknownReason(reason_token.to_owned()))?;
 
     Ok(NumaPlacementProof { status, reason })
+}
+
+/// Extracts the final placement proof verdict from multiline probe output.
+///
+/// # Errors
+///
+/// Returns an error when the output has no placement proof line, has more than
+/// one placement proof line, or contains a malformed placement proof line.
+pub fn parse_numa_placement_proof_output(
+    output: &str,
+) -> Result<NumaPlacementProof, NumaPlacementProofOutputParseError> {
+    let mut proof = None;
+
+    for line in output.lines().map(str::trim) {
+        if !line.starts_with("placement_proof=") {
+            continue;
+        }
+
+        if proof.is_some() {
+            return Err(NumaPlacementProofOutputParseError::DuplicateProofLine);
+        }
+
+        proof = Some(
+            parse_numa_placement_proof_line(line)
+                .map_err(NumaPlacementProofOutputParseError::Line)?,
+        );
+    }
+
+    proof.ok_or(NumaPlacementProofOutputParseError::MissingProofLine)
 }
 
 impl NumaPlacementValidationReadiness {
@@ -1362,16 +1421,17 @@ mod tests {
     use super::{
         numa_maps_entry_by_start_address, numa_maps_entry_containing_address,
         numa_maps_entry_for_address, parse_cgroup_numa_stat, parse_node_numastat, parse_numa_maps,
-        parse_numa_maps_line, parse_numa_placement_proof_line, parse_numa_placement_readiness_line,
-        read_cgroup_numa_stat, read_cgroup_numa_summary, read_node_numastat,
-        read_node_numastat_system_snapshot, read_numa_maps,
+        parse_numa_maps_line, parse_numa_placement_proof_line, parse_numa_placement_proof_output,
+        parse_numa_placement_readiness_line, read_cgroup_numa_stat, read_cgroup_numa_summary,
+        read_node_numastat, read_node_numastat_system_snapshot, read_numa_maps,
         resolve_cgroup_v2_memory_numa_stat_path, CgroupNumaDelta, CgroupNumaSummary,
         CgroupPathError, NodeNumastatSnapshot, NodeNumastatSystemSnapshot,
         NumaMapsAddressMatchKind, NumaMapsSummary, NumaPlacementEvidence, NumaPlacementProof,
-        NumaPlacementProofLineParseError, NumaPlacementProofReason, NumaPlacementProofStatus,
-        NumaPlacementReadinessLineParseError, NumaPlacementStatus,
-        NumaPlacementValidationReadiness, NumaPlacementValidationReadinessReason,
-        NumaPlacementValidationReadinessStatus, ObserveParseError,
+        NumaPlacementProofLineParseError, NumaPlacementProofOutputParseError,
+        NumaPlacementProofReason, NumaPlacementProofStatus, NumaPlacementReadinessLineParseError,
+        NumaPlacementStatus, NumaPlacementValidationReadiness,
+        NumaPlacementValidationReadinessReason, NumaPlacementValidationReadinessStatus,
+        ObserveParseError,
     };
 
     #[test]
@@ -1825,6 +1885,53 @@ mod tests {
             )
             .expect_err("duplicate reason"),
             NumaPlacementProofLineParseError::DuplicateReason
+        );
+    }
+
+    #[test]
+    fn parses_numa_placement_proof_from_probe_output() {
+        let output = "\
+mapping_start=0xffffb9222000
+mapping_len=20479
+mapped_scratch_bind=error mapped scratch arena NUMA policy failed: mbind syscall failed: Operation not permitted (os error 1)
+memory_policy_readiness=not_ready reason=permission_denied
+touched=5
+home_node=0
+cgroup_numa_delta=unavailable
+node_numastat_delta=unavailable
+numa_maps=unavailable
+placement_proof=unavailable reason=numa_maps_unavailable
+";
+
+        assert_eq!(
+            parse_numa_placement_proof_output(output).expect("proof"),
+            NumaPlacementProof {
+                status: NumaPlacementProofStatus::Unavailable,
+                reason: NumaPlacementProofReason::NumaMapsUnavailable,
+            }
+        );
+    }
+
+    #[test]
+    fn rejects_invalid_numa_placement_proof_output() {
+        assert_eq!(
+            parse_numa_placement_proof_output("numa_maps=unavailable\n")
+                .expect_err("missing proof"),
+            NumaPlacementProofOutputParseError::MissingProofLine
+        );
+        assert_eq!(
+            parse_numa_placement_proof_output(
+                "placement_proof=verified reason=verified\nplacement_proof=unverified reason=mapping_missing\n",
+            )
+            .expect_err("duplicate proof"),
+            NumaPlacementProofOutputParseError::DuplicateProofLine
+        );
+        assert_eq!(
+            parse_numa_placement_proof_output("placement_proof=maybe reason=verified\n")
+                .expect_err("bad proof"),
+            NumaPlacementProofOutputParseError::Line(
+                NumaPlacementProofLineParseError::UnknownStatus("maybe".to_owned())
+            )
         );
     }
 
