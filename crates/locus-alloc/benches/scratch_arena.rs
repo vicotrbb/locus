@@ -4,8 +4,8 @@ use std::{alloc::Layout, mem::MaybeUninit, sync::mpsc::sync_channel, thread};
 
 use criterion::{black_box, criterion_group, criterion_main, BatchSize, Criterion};
 use locus_alloc::{
-    KvBlockPool, KvBlockTable, KvSequenceId, MappedScratchArena, RemoteFreeQueue, RequestScratch,
-    RequestScratchPool, ScratchArena,
+    KvBlockHandle, KvBlockPool, KvBlockTable, KvSequenceId, MappedScratchArena, RemoteFreeQueue,
+    RequestScratch, RequestScratchPool, ScratchArena,
 };
 use locus_core::{NodeId, RequestHome, RequestId};
 
@@ -17,6 +17,11 @@ enum ProducerCommand {
 enum HandoffMessage {
     Block(Vec<u8>),
     EndBatch,
+    Stop,
+}
+
+enum KvRemoteFreeCommand {
+    Run(Vec<KvBlockHandle>),
     Stop,
 }
 
@@ -413,6 +418,60 @@ fn remote_free_queue_persistent_handoff_cycle(c: &mut Criterion) {
     });
 }
 
+fn kv_remote_free_queue_release_cycle(c: &mut Criterion) {
+    c.bench_function("kv_remote_free_queue_release_256x4k", |bench| {
+        let mut pool = KvBlockPool::new(NodeId(0), 4096, 256).expect("pool");
+        let mut queue = RemoteFreeQueue::new(32, 32).expect("queue");
+        let sink = queue.sink();
+        let (command_sender, command_receiver) = sync_channel::<KvRemoteFreeCommand>(1);
+
+        let remote_completion = thread::spawn(move || {
+            while let Ok(command) = command_receiver.recv() {
+                match command {
+                    KvRemoteFreeCommand::Run(handles) => {
+                        for handle in handles {
+                            sink.enqueue(handle).expect("enqueue handle");
+                        }
+                    }
+                    KvRemoteFreeCommand::Stop => break,
+                }
+            }
+        });
+
+        bench.iter(|| {
+            let mut handles = Vec::with_capacity(256);
+            for _ in 0..256 {
+                let handle = pool.allocate().expect("block");
+                black_box(pool.block_mut(handle).expect("block").as_mut_ptr());
+                handles.push(handle);
+            }
+
+            command_sender
+                .send(KvRemoteFreeCommand::Run(handles))
+                .expect("send handles");
+
+            let mut released = 0_usize;
+            while released < 256 {
+                let stats = queue.drain_batch(|handle| {
+                    pool.free(handle).expect("free block");
+                });
+                if stats.drained == 0 {
+                    thread::yield_now();
+                }
+                released += stats.drained;
+            }
+
+            black_box(pool.stats());
+            black_box(queue.stats());
+        });
+
+        command_sender
+            .send(KvRemoteFreeCommand::Stop)
+            .expect("send stop");
+        remote_completion.join().expect("remote completion thread");
+    });
+}
+
 criterion_group!(
     benches,
     scratch_arena_reset_cycle,
@@ -431,6 +490,7 @@ criterion_group!(
     kv_vec_table_allocation_cycle,
     vec_producer_consumer_handoff_cycle,
     vec_persistent_worker_handoff_cycle,
-    remote_free_queue_persistent_handoff_cycle
+    remote_free_queue_persistent_handoff_cycle,
+    kv_remote_free_queue_release_cycle
 );
 criterion_main!(benches);
