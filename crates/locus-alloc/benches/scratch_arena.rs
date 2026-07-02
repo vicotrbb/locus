@@ -4,7 +4,8 @@ use std::alloc::Layout;
 
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use locus_alloc::{
-    KvBlockPool, KvBlockTable, KvSequenceId, RequestScratch, RequestScratchPool, ScratchArena,
+    KvBlockPool, KvBlockTable, KvSequenceId, MappedScratchArena, RequestScratch,
+    RequestScratchPool, ScratchArena,
 };
 use locus_core::{NodeId, RequestHome, RequestId};
 
@@ -38,6 +39,24 @@ fn vec_allocation_cycle(c: &mut Criterion) {
             }
 
             black_box(buffers.len());
+        });
+    });
+}
+
+fn mapped_scratch_arena_reset_cycle(c: &mut Criterion) {
+    c.bench_function("mapped_scratch_arena_reset_cycle_64x256b", |bench| {
+        let mut arena = MappedScratchArena::new(NodeId(0), 32 * 1024).expect("arena");
+        let layout = Layout::from_size_align(256, 64).expect("layout");
+
+        bench.iter(|| {
+            arena.reset();
+
+            for _ in 0..64 {
+                let allocation = arena.alloc_bytes(layout).expect("allocation");
+                black_box(allocation.as_mut_ptr());
+            }
+
+            black_box(arena.stats());
         });
     });
 }
@@ -191,6 +210,7 @@ criterion_group!(
     benches,
     scratch_arena_reset_cycle,
     vec_allocation_cycle,
+    mapped_scratch_arena_reset_cycle,
     request_scratch_cycle,
     request_vec_allocation_cycle,
     request_scratch_pool_cycle,

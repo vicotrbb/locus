@@ -6,6 +6,7 @@ use std::collections::BTreeMap;
 use std::fmt;
 
 use locus_core::{NodeId, RequestHome, RequestId};
+use locus_sys::{MappedRegion, MappedRegionError};
 
 const MAX_SUPPORTED_ALIGN: usize = 4096;
 
@@ -52,6 +53,18 @@ pub struct KvBlockTable {
 pub struct ScratchArena {
     home_node: NodeId,
     backing: Vec<u8>,
+    usable_capacity: usize,
+    offset: usize,
+    high_water_mark: usize,
+    allocation_count: u64,
+    reset_count: u64,
+}
+
+/// Mmap-backed scratch arena tagged with the NUMA node it is intended to serve.
+#[derive(Debug)]
+pub struct MappedScratchArena {
+    home_node: NodeId,
+    region: MappedRegion,
     usable_capacity: usize,
     offset: usize,
     high_water_mark: usize,
@@ -644,6 +657,102 @@ pub struct KvBlockPoolStats {
     pub free_count: u64,
 }
 
+impl MappedScratchArena {
+    /// Creates an mmap-backed scratch arena with `usable_capacity` bytes.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when capacity plus alignment slack overflows `usize` or
+    /// anonymous mapping creation fails.
+    pub fn new(home_node: NodeId, usable_capacity: usize) -> Result<Self, MappedScratchAllocError> {
+        let mapping_len = usable_capacity
+            .checked_add(MAX_SUPPORTED_ALIGN - 1)
+            .ok_or(MappedScratchAllocError::CapacityOverflow)?;
+        let region = MappedRegion::anonymous(mapping_len).map_err(MappedScratchAllocError::Map)?;
+
+        Ok(Self {
+            home_node,
+            region,
+            usable_capacity,
+            offset: 0,
+            high_water_mark: 0,
+            allocation_count: 0,
+            reset_count: 0,
+        })
+    }
+
+    /// Returns the arena home node.
+    #[must_use]
+    pub fn home_node(&self) -> NodeId {
+        self.home_node
+    }
+
+    /// Returns usable arena capacity in bytes.
+    #[must_use]
+    pub fn capacity(&self) -> usize {
+        self.usable_capacity
+    }
+
+    /// Allocates a byte slice with the requested layout.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when alignment is unsupported, allocation math
+    /// overflows, or the arena does not have enough remaining capacity.
+    pub fn alloc_bytes(&mut self, layout: Layout) -> Result<&mut [u8], MappedScratchAllocError> {
+        if layout.align() > MAX_SUPPORTED_ALIGN {
+            return Err(MappedScratchAllocError::UnsupportedAlignment {
+                requested: layout.align(),
+                max: MAX_SUPPORTED_ALIGN,
+            });
+        }
+
+        let base = self.region.as_slice().as_ptr() as usize;
+        let raw_start = base
+            .checked_add(self.offset)
+            .ok_or(MappedScratchAllocError::CapacityOverflow)?;
+        let aligned_start = align_up(raw_start, layout.align());
+        let start = aligned_start
+            .checked_sub(base)
+            .ok_or(MappedScratchAllocError::CapacityOverflow)?;
+        let end = start
+            .checked_add(layout.size())
+            .ok_or(MappedScratchAllocError::CapacityOverflow)?;
+
+        if end > self.usable_capacity {
+            return Err(MappedScratchAllocError::OutOfMemory {
+                requested: layout.size(),
+                remaining: self.usable_capacity.saturating_sub(self.offset),
+            });
+        }
+
+        self.offset = end;
+        self.high_water_mark = self.high_water_mark.max(self.offset);
+        self.allocation_count = self.allocation_count.saturating_add(1);
+
+        Ok(&mut self.region.as_mut_slice()[start..end])
+    }
+
+    /// Resets the arena and makes previous allocations unavailable to callers.
+    pub fn reset(&mut self) {
+        self.offset = 0;
+        self.reset_count = self.reset_count.saturating_add(1);
+    }
+
+    /// Returns current arena accounting.
+    #[must_use]
+    pub fn stats(&self) -> ScratchArenaStats {
+        ScratchArenaStats {
+            home_node: self.home_node,
+            capacity: self.usable_capacity,
+            used: self.offset,
+            high_water_mark: self.high_water_mark,
+            allocation_count: self.allocation_count,
+            reset_count: self.reset_count,
+        }
+    }
+}
+
 /// Scratch arena accounting snapshot.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ScratchArenaStats {
@@ -680,6 +789,29 @@ pub enum ScratchAllocError {
         /// Remaining unaligned bytes.
         remaining: usize,
     },
+}
+
+/// Mmap-backed scratch allocation failures.
+#[derive(Debug)]
+pub enum MappedScratchAllocError {
+    /// Requested alignment is larger than the arena currently supports.
+    UnsupportedAlignment {
+        /// Requested alignment.
+        requested: usize,
+        /// Maximum supported alignment.
+        max: usize,
+    },
+    /// Arena capacity or allocation math overflowed.
+    CapacityOverflow,
+    /// Arena did not have enough remaining space.
+    OutOfMemory {
+        /// Requested allocation size.
+        requested: usize,
+        /// Remaining unaligned bytes.
+        remaining: usize,
+    },
+    /// System mapping failed.
+    Map(MappedRegionError),
 }
 
 /// KV block pool failures.
@@ -761,6 +893,39 @@ impl fmt::Display for ScratchAllocError {
 
 impl std::error::Error for ScratchAllocError {}
 
+impl fmt::Display for MappedScratchAllocError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::UnsupportedAlignment { requested, max } => {
+                write!(
+                    f,
+                    "unsupported mapped scratch alignment {requested}, maximum is {max}"
+                )
+            }
+            Self::CapacityOverflow => f.write_str("mapped scratch arena capacity overflow"),
+            Self::OutOfMemory {
+                requested,
+                remaining,
+            } => write!(
+                f,
+                "mapped scratch arena out of memory: requested {requested}, remaining {remaining}"
+            ),
+            Self::Map(source) => write!(f, "mapped scratch arena mapping failed: {source}"),
+        }
+    }
+}
+
+impl std::error::Error for MappedScratchAllocError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Map(source) => Some(source),
+            Self::UnsupportedAlignment { .. }
+            | Self::CapacityOverflow
+            | Self::OutOfMemory { .. } => None,
+        }
+    }
+}
+
 /// Request-scoped scratch allocation failures.
 #[derive(Debug, PartialEq, Eq)]
 pub enum RequestScratchError {
@@ -839,7 +1004,8 @@ mod tests {
 
     use super::{
         KvBlockPool, KvBlockPoolError, KvBlockTable, KvBlockTableError, KvSequenceId,
-        RequestScratch, RequestScratchError, RequestScratchPool, ScratchAllocError, ScratchArena,
+        MappedScratchAllocError, MappedScratchArena, RequestScratch, RequestScratchError,
+        RequestScratchPool, ScratchAllocError, ScratchArena,
     };
 
     #[test]
@@ -901,6 +1067,48 @@ mod tests {
                 max: 4096,
             }
         );
+    }
+
+    #[test]
+    fn mapped_scratch_arena_allocates_aligned_slices() {
+        let mut arena = MappedScratchArena::new(NodeId(0), 256).expect("arena");
+        let allocation = arena
+            .alloc_bytes(Layout::from_size_align(32, 64).expect("layout"))
+            .expect("allocation");
+
+        assert_eq!(allocation.len(), 32);
+        assert_eq!(allocation.as_ptr() as usize % 64, 0);
+        allocation[0] = 3;
+        assert_eq!(allocation[0], 3);
+    }
+
+    #[test]
+    fn mapped_scratch_arena_resets_and_tracks_stats() {
+        let mut arena = MappedScratchArena::new(NodeId(1), 128).expect("arena");
+        arena
+            .alloc_bytes(Layout::from_size_align(96, 8).expect("layout"))
+            .expect("allocation");
+        arena.reset();
+        arena
+            .alloc_bytes(Layout::from_size_align(16, 8).expect("layout"))
+            .expect("allocation");
+
+        let stats = arena.stats();
+        assert_eq!(stats.home_node, NodeId(1));
+        assert_eq!(stats.used, 16);
+        assert_eq!(stats.allocation_count, 2);
+        assert_eq!(stats.reset_count, 1);
+    }
+
+    #[test]
+    fn mapped_scratch_arena_reports_out_of_memory() {
+        let mut arena = MappedScratchArena::new(NodeId(0), 64).expect("arena");
+
+        let error = arena
+            .alloc_bytes(Layout::from_size_align(128, 8).expect("layout"))
+            .expect_err("allocation should fail");
+
+        assert!(matches!(error, MappedScratchAllocError::OutOfMemory { .. }));
     }
 
     #[test]

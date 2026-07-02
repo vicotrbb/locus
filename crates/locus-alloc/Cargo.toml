@@ -8,6 +8,7 @@ rust-version.workspace = true
 
 [dependencies]
 locus-core = { path = "../locus-core" }
+locus-sys = { path = "../locus-sys" }
 
 [dev-dependencies]
 criterion = "0.5"
