@@ -55,6 +55,12 @@ cargo run -p locus-validate --example placement_validation_gate -- \
   placement-proof.out
 ```
 
+Or run the live combined gate directly on a Linux host or container:
+
+```sh
+docker run --rm -v "$PWD":/work -w /work rust:1.96 cargo run -p locus-validate --example live_placement_validation_gate
+```
+
 Successful NUMA placement is not claimed unless a permitted policy operation is followed by page-touching and matching placement evidence for the specific mapping.
 
 ## Research Loop

@@ -16,6 +16,18 @@ Locus validation probes now print stable final verdict lines. This note maps eac
 
 ## Combined Gate
 
+The live combined gate runs the mapped scratch validation path in one process:
+
+```sh
+cargo run -p locus-validate --example live_placement_validation_gate
+```
+
+It prints:
+
+```text
+placement_validation_gate=<status> reason=<reason>
+```
+
 Captured probe outputs can be evaluated together with:
 
 ```sh
@@ -43,7 +55,7 @@ Successful placement validation requires all of the following parsed verdicts:
 
 - `memory_policy_readiness=ready reason=ready`;
 - `placement_validation_readiness=ready reason=ready`;
-- `placement_proof=verified reason=verified`.
+- `placement_proof=verified reason=verified`;
 - `placement_validation_gate=verified reason=verified`.
 
 Any `not_ready`, `unavailable`, or `unverified` verdict is a useful validation result, but it is not proof of successful NUMA placement.
@@ -55,5 +67,6 @@ The current Docker environment still produces:
 - `memory_policy_readiness=not_ready reason=permission_denied`;
 - `placement_validation_readiness=not_ready reason=numa_maps_unavailable`;
 - `placement_proof=unavailable reason=numa_maps_unavailable`.
+- `placement_validation_gate=not_ready reason=memory_policy_not_ready`.
 
 Those verdicts validate failure handling, parser coverage, and output stability. They do not validate page placement.
