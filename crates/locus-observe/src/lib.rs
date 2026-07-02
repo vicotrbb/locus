@@ -116,6 +116,34 @@ pub struct NumaMapsSummary {
     pub pages_by_kernel_page_kb: BTreeMap<u64, u64>,
 }
 
+/// Classification of observed page placement for one mapping.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NumaPlacementStatus {
+    /// The mapping entry did not report per-node pages yet.
+    NoPagesReported,
+    /// Every reported page is on the expected node.
+    AllPagesOnExpectedNode,
+    /// Some reported pages are on the expected node and some are elsewhere.
+    PartialPagesOnExpectedNode,
+    /// Reported pages exist, but none are on the expected node.
+    NoPagesOnExpectedNode,
+}
+
+/// Placement evidence for one `numa_maps` entry against an expected node.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NumaPlacementEvidence {
+    /// Expected NUMA node.
+    pub expected_node: NodeId,
+    /// Total pages reported by the entry.
+    pub total_pages: u64,
+    /// Pages reported on the expected node.
+    pub expected_node_pages: u64,
+    /// Pages reported on nodes other than the expected node.
+    pub other_node_pages: BTreeMap<NodeId, u64>,
+    /// Placement classification.
+    pub status: NumaPlacementStatus,
+}
+
 impl NumaMapsSummary {
     /// Builds a summary from parsed `numa_maps` entries.
     #[must_use]
@@ -151,6 +179,43 @@ impl NumaMapsSummary {
         }
 
         summary
+    }
+}
+
+impl NumaPlacementEvidence {
+    /// Builds placement evidence from one parsed `numa_maps` entry.
+    #[must_use]
+    pub fn from_entry(entry: &NumaMapsEntry, expected_node: NodeId) -> Self {
+        let mut total_pages = 0_u64;
+        let mut expected_node_pages = 0_u64;
+        let mut other_node_pages = BTreeMap::new();
+
+        for (node, pages) in &entry.node_pages {
+            total_pages = total_pages.saturating_add(*pages);
+            if *node == expected_node {
+                expected_node_pages = expected_node_pages.saturating_add(*pages);
+            } else {
+                other_node_pages.insert(*node, *pages);
+            }
+        }
+
+        let status = if total_pages == 0 {
+            NumaPlacementStatus::NoPagesReported
+        } else if expected_node_pages == total_pages {
+            NumaPlacementStatus::AllPagesOnExpectedNode
+        } else if expected_node_pages > 0 {
+            NumaPlacementStatus::PartialPagesOnExpectedNode
+        } else {
+            NumaPlacementStatus::NoPagesOnExpectedNode
+        };
+
+        Self {
+            expected_node,
+            total_pages,
+            expected_node_pages,
+            other_node_pages,
+            status,
+        }
     }
 }
 
@@ -573,7 +638,8 @@ mod tests {
         parse_cgroup_numa_stat, parse_node_numastat, parse_numa_maps, parse_numa_maps_line,
         read_cgroup_numa_stat, read_node_numastat, read_numa_maps,
         resolve_cgroup_v2_memory_numa_stat_path, CgroupNumaSummary, CgroupPathError,
-        NodeNumastatSnapshot, NumaMapsSummary, ObserveParseError,
+        NodeNumastatSnapshot, NumaMapsSummary, NumaPlacementEvidence, NumaPlacementStatus,
+        ObserveParseError,
     };
 
     #[test]
@@ -753,6 +819,36 @@ mod tests {
         assert_eq!(summary.mappings_by_policy.get("bind:1"), Some(&1));
         assert_eq!(summary.pages_by_kernel_page_kb.get(&4), Some(&4));
         assert_eq!(summary.pages_by_kernel_page_kb.get(&2048), Some(&4));
+    }
+
+    #[test]
+    fn classifies_numa_placement_evidence() {
+        let entries = parse_numa_maps(
+            "1000 bind:0 anon=4 N0=4\n\
+             2000 bind:0 anon=4 N0=1 N1=3\n\
+             3000 bind:0 anon=4 N1=4\n\
+             4000 default anon=0\n",
+        )
+        .expect("valid numa maps");
+
+        let all_local = NumaPlacementEvidence::from_entry(&entries[0], NodeId(0));
+        let partial = NumaPlacementEvidence::from_entry(&entries[1], NodeId(0));
+        let remote = NumaPlacementEvidence::from_entry(&entries[2], NodeId(0));
+        let no_pages = NumaPlacementEvidence::from_entry(&entries[3], NodeId(0));
+
+        assert_eq!(
+            all_local.status,
+            NumaPlacementStatus::AllPagesOnExpectedNode
+        );
+        assert_eq!(all_local.total_pages, 4);
+        assert_eq!(all_local.expected_node_pages, 4);
+        assert_eq!(
+            partial.status,
+            NumaPlacementStatus::PartialPagesOnExpectedNode
+        );
+        assert_eq!(partial.other_node_pages.get(&NodeId(1)), Some(&3));
+        assert_eq!(remote.status, NumaPlacementStatus::NoPagesOnExpectedNode);
+        assert_eq!(no_pages.status, NumaPlacementStatus::NoPagesReported);
     }
 
     #[test]
