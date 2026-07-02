@@ -13,12 +13,17 @@ locus-sys = { path = "../locus-sys" }
 [dev-dependencies]
 criterion = "0.5"
 locus-observe = { path = "../locus-observe" }
+mimalloc = "0.1.52"
 
 [lib]
 path = "src/lib.rs"
 
 [[bench]]
 name = "scratch_arena"
+harness = false
+
+[[bench]]
+name = "scratch_arena_mimalloc"
 harness = false
 
 [lints]
