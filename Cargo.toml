@@ -5,6 +5,7 @@ members = [
     "crates/locus-observe",
     "crates/locus-sys",
     "crates/locus-topology",
+    "crates/locus-validate",
 ]
 resolver = "2"
 
