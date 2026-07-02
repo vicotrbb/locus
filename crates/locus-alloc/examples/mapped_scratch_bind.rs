@@ -7,6 +7,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let mut arena = MappedScratchArena::new(NodeId(0), 16 * 1024)?;
 
+    println!("mapping_start=0x{:x}", arena.mapping_start_address());
+    println!("mapping_len={}", arena.mapping_len());
+
     match arena.bind_to_node(NodeId(0)) {
         Ok(()) => println!("mapped_scratch_bind=ok"),
         Err(error) => println!("mapped_scratch_bind=error {error}"),

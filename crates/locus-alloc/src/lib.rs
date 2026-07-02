@@ -693,6 +693,18 @@ impl MappedScratchArena {
         self.usable_capacity
     }
 
+    /// Returns the start address of the underlying mapping.
+    #[must_use]
+    pub fn mapping_start_address(&self) -> usize {
+        self.region.as_ptr() as usize
+    }
+
+    /// Returns the underlying mapping length in bytes.
+    #[must_use]
+    pub fn mapping_len(&self) -> usize {
+        self.region.len()
+    }
+
     /// Allocates a byte slice with the requested layout.
     ///
     /// # Errors
@@ -1163,6 +1175,14 @@ mod tests {
         let touched = arena.write_touch_pages().expect("touch pages");
 
         assert!(touched >= 1);
+    }
+
+    #[test]
+    fn mapped_scratch_arena_reports_mapping_identity() {
+        let arena = MappedScratchArena::new(NodeId(0), 8192).expect("arena");
+
+        assert_ne!(arena.mapping_start_address(), 0);
+        assert!(arena.mapping_len() >= arena.capacity());
     }
 
     #[cfg(target_os = "linux")]

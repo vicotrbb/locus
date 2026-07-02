@@ -206,6 +206,17 @@ pub fn read_self_numa_maps() -> Result<Vec<NumaMapsEntry>, ObserveReadError> {
     read_numa_maps("/proc/self/numa_maps")
 }
 
+/// Finds the `numa_maps` entry with an exact start address.
+#[must_use]
+pub fn numa_maps_entry_by_start_address(
+    entries: &[NumaMapsEntry],
+    start_address: usize,
+) -> Option<&NumaMapsEntry> {
+    entries.iter().find(|entry| {
+        usize::try_from(entry.start_address).is_ok_and(|entry_start| entry_start == start_address)
+    })
+}
+
 /// Reads and parses cgroup v2 `memory.numa_stat` from an explicit path.
 ///
 /// # Errors
@@ -537,10 +548,10 @@ mod tests {
     use tempfile::TempDir;
 
     use super::{
-        parse_cgroup_numa_stat, parse_node_numastat, parse_numa_maps, parse_numa_maps_line,
-        read_cgroup_numa_stat, read_node_numastat, read_numa_maps,
-        resolve_cgroup_v2_memory_numa_stat_path, CgroupNumaSummary, CgroupPathError,
-        NodeNumastatSnapshot, NumaMapsSummary, ObserveParseError,
+        numa_maps_entry_by_start_address, parse_cgroup_numa_stat, parse_node_numastat,
+        parse_numa_maps, parse_numa_maps_line, read_cgroup_numa_stat, read_node_numastat,
+        read_numa_maps, resolve_cgroup_v2_memory_numa_stat_path, CgroupNumaSummary,
+        CgroupPathError, NodeNumastatSnapshot, NumaMapsSummary, ObserveParseError,
     };
 
     #[test]
@@ -569,6 +580,20 @@ mod tests {
         assert_eq!(entries[0].metric, "anon");
         assert_eq!(entries[0].node_bytes.get(&NodeId(1)), Some(&8192));
         assert_eq!(entries[1].metric, "file");
+    }
+
+    #[test]
+    fn finds_numa_maps_entry_by_start_address() {
+        let entries = parse_numa_maps(
+            "1000 default anon=1 N0=1\n\
+             2000 bind:0 anon=2 N0=2\n",
+        )
+        .expect("valid numa maps");
+
+        let entry = numa_maps_entry_by_start_address(&entries, 0x2000).expect("entry");
+
+        assert_eq!(entry.policy, "bind:0");
+        assert!(numa_maps_entry_by_start_address(&entries, 0x3000).is_none());
     }
 
     #[test]
