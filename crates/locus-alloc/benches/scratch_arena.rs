@@ -1,6 +1,6 @@
 #![allow(missing_docs)]
 
-use std::alloc::Layout;
+use std::{alloc::Layout, mem::MaybeUninit};
 
 use criterion::{black_box, criterion_group, criterion_main, BatchSize, Criterion};
 use locus_alloc::{
@@ -34,6 +34,22 @@ fn vec_allocation_cycle(c: &mut Criterion) {
 
             for _ in 0..64 {
                 let mut allocation = vec![0_u8; 256];
+                black_box(allocation.as_mut_ptr());
+                buffers.push(allocation);
+            }
+
+            black_box(buffers.len());
+        });
+    });
+}
+
+fn vec_uninit_capacity_allocation_cycle(c: &mut Criterion) {
+    c.bench_function("vec_uninit_capacity_allocation_cycle_64x256b", |bench| {
+        bench.iter(|| {
+            let mut buffers = Vec::with_capacity(64);
+
+            for _ in 0..64 {
+                let mut allocation = Vec::<MaybeUninit<u8>>::with_capacity(256);
                 black_box(allocation.as_mut_ptr());
                 buffers.push(allocation);
             }
@@ -202,6 +218,20 @@ fn kv_vec_allocation_cycle(c: &mut Criterion) {
     });
 }
 
+fn kv_vec_uninit_capacity_allocation_cycle(c: &mut Criterion) {
+    c.bench_function("kv_vec_uninit_capacity_allocation_cycle_256x4k", |bench| {
+        bench.iter(|| {
+            let mut blocks = Vec::with_capacity(256);
+            for _ in 0..256 {
+                let mut block = Vec::<MaybeUninit<u8>>::with_capacity(4096);
+                black_box(block.as_mut_ptr());
+                blocks.push(block);
+            }
+            black_box(blocks.len());
+        });
+    });
+}
+
 fn kv_block_table_append_release_cycle(c: &mut Criterion) {
     c.bench_function("kv_block_table_append_release_128x16tokens", |bench| {
         let mut pool = KvBlockPool::new(NodeId(0), 4096, 128).expect("pool");
@@ -236,6 +266,7 @@ criterion_group!(
     benches,
     scratch_arena_reset_cycle,
     vec_allocation_cycle,
+    vec_uninit_capacity_allocation_cycle,
     mapped_scratch_arena_reset_cycle,
     mapped_scratch_write_touch_1mib,
     vec_write_touch_1mib,
@@ -244,6 +275,7 @@ criterion_group!(
     request_scratch_pool_cycle,
     kv_block_pool_cycle,
     kv_vec_allocation_cycle,
+    kv_vec_uninit_capacity_allocation_cycle,
     kv_block_table_append_release_cycle,
     kv_vec_table_allocation_cycle
 );
