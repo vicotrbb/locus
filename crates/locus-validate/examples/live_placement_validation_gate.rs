@@ -107,10 +107,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let gate =
         PlacementValidationGate::from_verdicts(memory_policy, placement_readiness, placement_proof);
-    println!(
-        "placement_validation_gate={} reason={}",
-        gate.status, gate.reason
-    );
+    println!("{gate}");
 
     Ok(())
 }

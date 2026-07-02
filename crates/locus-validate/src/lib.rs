@@ -143,6 +143,26 @@ pub mod linux {
         pub reason: PlacementValidationGateReason,
     }
 
+    impl fmt::Display for PlacementValidationGate {
+        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+            write!(
+                f,
+                "placement_validation_gate={} reason={}",
+                self.status, self.reason
+            )
+        }
+    }
+
+    impl fmt::Display for PlacementValidationGateVerdict {
+        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+            write!(
+                f,
+                "placement_validation_gate={} reason={}",
+                self.status, self.reason
+            )
+        }
+    }
+
     impl PlacementValidationGateVerdict {
         /// Builds a verdict only when the status and reason are coherent.
         ///
@@ -510,6 +530,10 @@ pub mod linux {
             assert_eq!(gate.reason, PlacementValidationGateReason::Verified);
             assert_eq!(gate.status.to_string(), "verified");
             assert_eq!(gate.reason.to_string(), "verified");
+            assert_eq!(
+                gate.to_string(),
+                "placement_validation_gate=verified reason=verified"
+            );
             assert!(gate.is_verified());
         }
 
@@ -608,6 +632,14 @@ placement_proof=unavailable reason=numa_maps_unavailable
                     status: PlacementValidationGateStatus::Verified,
                     reason: PlacementValidationGateReason::Verified,
                 }
+            );
+            assert_eq!(
+                parse_placement_validation_gate_line(
+                    "placement_validation_gate=verified reason=verified"
+                )
+                .expect("verified")
+                .to_string(),
+                "placement_validation_gate=verified reason=verified"
             );
             assert_eq!(
                 parse_placement_validation_gate_line(

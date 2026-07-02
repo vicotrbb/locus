@@ -30,10 +30,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         placement_proof_output: &placement_proof_output,
     })?;
 
-    println!(
-        "placement_validation_gate={} reason={}",
-        gate.status, gate.reason
-    );
+    println!("{gate}");
 
     Ok(())
 }
