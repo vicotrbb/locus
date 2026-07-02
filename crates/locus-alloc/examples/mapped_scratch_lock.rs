@@ -17,10 +17,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             println!("page_lock=ok");
             match arena.unlock_pages() {
                 Ok(()) => println!("page_unlock=ok"),
-                Err(error) => println!("page_unlock=error {error}"),
+                Err(error) => {
+                    println!("page_unlock=error");
+                    println!("page_unlock_error={error}");
+                }
             }
         }
-        Err(error) => println!("page_lock=error {error}"),
+        Err(error) => {
+            println!("page_lock=error");
+            println!("page_lock_error={error}");
+        }
     }
 
     Ok(())
