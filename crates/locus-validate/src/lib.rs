@@ -51,6 +51,18 @@ pub mod linux {
                 Self::Unavailable => "unavailable",
             }
         }
+
+        /// Parses a stable machine-readable status string.
+        #[must_use]
+        pub fn from_str_token(value: &str) -> Option<Self> {
+            match value {
+                "verified" => Some(Self::Verified),
+                "not_ready" => Some(Self::NotReady),
+                "unverified" => Some(Self::Unverified),
+                "unavailable" => Some(Self::Unavailable),
+                _ => None,
+            }
+        }
     }
 
     impl fmt::Display for PlacementValidationGateStatus {
@@ -86,6 +98,19 @@ pub mod linux {
                 Self::PlacementProofUnverified => "placement_proof_unverified",
             }
         }
+
+        /// Parses a stable machine-readable reason string.
+        #[must_use]
+        pub fn from_str_token(value: &str) -> Option<Self> {
+            match value {
+                "verified" => Some(Self::Verified),
+                "memory_policy_not_ready" => Some(Self::MemoryPolicyNotReady),
+                "placement_evidence_not_ready" => Some(Self::PlacementEvidenceNotReady),
+                "placement_proof_unavailable" => Some(Self::PlacementProofUnavailable),
+                "placement_proof_unverified" => Some(Self::PlacementProofUnverified),
+                _ => None,
+            }
+        }
     }
 
     impl fmt::Display for PlacementValidationGateReason {
@@ -107,6 +132,88 @@ pub mod linux {
         pub placement_readiness: NumaPlacementValidationReadiness,
         /// Parsed mapped arena placement proof.
         pub placement_proof: NumaPlacementProof,
+    }
+
+    /// Status and reason parsed from a placement validation gate line.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    pub struct PlacementValidationGateVerdict {
+        /// Parsed gate status.
+        pub status: PlacementValidationGateStatus,
+        /// Parsed gate reason.
+        pub reason: PlacementValidationGateReason,
+    }
+
+    /// Error returned when parsing a placement validation gate line.
+    #[derive(Debug, Clone, PartialEq, Eq)]
+    pub enum PlacementValidationGateLineParseError {
+        /// The line does not contain a `placement_validation_gate=` token.
+        MissingStatus,
+        /// The line does not contain a `reason=` token.
+        MissingReason,
+        /// The line contains a duplicate `placement_validation_gate=` token.
+        DuplicateStatus,
+        /// The line contains a duplicate `reason=` token.
+        DuplicateReason,
+        /// The line contains a token outside the placement validation gate schema.
+        InvalidToken(String),
+        /// The gate status token is not recognized.
+        UnknownStatus(String),
+        /// The gate reason token is not recognized.
+        UnknownReason(String),
+    }
+
+    impl fmt::Display for PlacementValidationGateLineParseError {
+        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+            match self {
+                Self::MissingStatus => f.write_str("missing placement_validation_gate token"),
+                Self::MissingReason => f.write_str("missing reason token"),
+                Self::DuplicateStatus => f.write_str("duplicate placement_validation_gate token"),
+                Self::DuplicateReason => f.write_str("duplicate reason token"),
+                Self::InvalidToken(token) => {
+                    write!(f, "invalid placement validation gate token: {token}")
+                }
+                Self::UnknownStatus(status) => {
+                    write!(f, "unknown placement validation gate status: {status}")
+                }
+                Self::UnknownReason(reason) => {
+                    write!(f, "unknown placement validation gate reason: {reason}")
+                }
+            }
+        }
+    }
+
+    impl std::error::Error for PlacementValidationGateLineParseError {}
+
+    /// Error returned when extracting a placement validation gate from multiline output.
+    #[derive(Debug, Clone, PartialEq, Eq)]
+    pub enum PlacementValidationGateOutputParseError {
+        /// The output does not contain a `placement_validation_gate=` line.
+        MissingGateLine,
+        /// The output contains more than one `placement_validation_gate=` line.
+        DuplicateGateLine,
+        /// The discovered gate line is malformed.
+        Line(PlacementValidationGateLineParseError),
+    }
+
+    impl fmt::Display for PlacementValidationGateOutputParseError {
+        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+            match self {
+                Self::MissingGateLine => f.write_str("missing placement_validation_gate line"),
+                Self::DuplicateGateLine => f.write_str("duplicate placement_validation_gate line"),
+                Self::Line(source) => {
+                    write!(f, "invalid placement_validation_gate line: {source}")
+                }
+            }
+        }
+    }
+
+    impl std::error::Error for PlacementValidationGateOutputParseError {
+        fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+            match self {
+                Self::Line(source) => Some(source),
+                Self::MissingGateLine | Self::DuplicateGateLine => None,
+            }
+        }
     }
 
     impl PlacementValidationGate {
@@ -219,6 +326,93 @@ pub mod linux {
         ))
     }
 
+    /// Parses a placement validation gate verdict line.
+    ///
+    /// The expected format is `placement_validation_gate=<status> reason=<reason>`.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the line is missing required tokens, contains duplicate
+    /// tokens, contains unsupported tokens, or uses an unknown status or reason.
+    pub fn parse_placement_validation_gate_line(
+        line: &str,
+    ) -> Result<PlacementValidationGateVerdict, PlacementValidationGateLineParseError> {
+        let mut status_token = None;
+        let mut reason_token = None;
+
+        for token in line.split_whitespace() {
+            let Some((key, value)) = token.split_once('=') else {
+                return Err(PlacementValidationGateLineParseError::InvalidToken(
+                    token.to_owned(),
+                ));
+            };
+
+            match key {
+                "placement_validation_gate" => {
+                    if status_token.replace(value).is_some() {
+                        return Err(PlacementValidationGateLineParseError::DuplicateStatus);
+                    }
+                }
+                "reason" => {
+                    if reason_token.replace(value).is_some() {
+                        return Err(PlacementValidationGateLineParseError::DuplicateReason);
+                    }
+                }
+                _ => {
+                    return Err(PlacementValidationGateLineParseError::InvalidToken(
+                        token.to_owned(),
+                    ));
+                }
+            }
+        }
+
+        let status_token =
+            status_token.ok_or(PlacementValidationGateLineParseError::MissingStatus)?;
+        let reason_token =
+            reason_token.ok_or(PlacementValidationGateLineParseError::MissingReason)?;
+
+        let status =
+            PlacementValidationGateStatus::from_str_token(status_token).ok_or_else(|| {
+                PlacementValidationGateLineParseError::UnknownStatus(status_token.to_owned())
+            })?;
+        let reason =
+            PlacementValidationGateReason::from_str_token(reason_token).ok_or_else(|| {
+                PlacementValidationGateLineParseError::UnknownReason(reason_token.to_owned())
+            })?;
+
+        Ok(PlacementValidationGateVerdict { status, reason })
+    }
+
+    /// Extracts the final placement validation gate verdict from multiline output.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the output has no placement validation gate line,
+    /// has more than one placement validation gate line, or contains a
+    /// malformed placement validation gate line.
+    pub fn parse_placement_validation_gate_output(
+        output: &str,
+    ) -> Result<PlacementValidationGateVerdict, PlacementValidationGateOutputParseError> {
+        let mut gate = None;
+
+        for line in output.lines().map(str::trim) {
+            if !line.starts_with("placement_validation_gate=") {
+                continue;
+            }
+
+            if gate.is_some() {
+                return Err(PlacementValidationGateOutputParseError::DuplicateGateLine);
+            }
+
+            gate = Some(
+                parse_placement_validation_gate_line(line)
+                    .map_err(PlacementValidationGateOutputParseError::Line)?,
+            );
+        }
+
+        gate.ok_or(PlacementValidationGateOutputParseError::MissingGateLine)
+    }
+
     #[cfg(test)]
     mod tests {
         use locus_observe::{
@@ -232,9 +426,12 @@ pub mod linux {
         };
 
         use super::{
-            evaluate_placement_validation_outputs, PlacementValidationGate,
+            evaluate_placement_validation_outputs, parse_placement_validation_gate_line,
+            parse_placement_validation_gate_output, PlacementValidationGate,
+            PlacementValidationGateLineParseError, PlacementValidationGateOutputParseError,
             PlacementValidationGateParseError, PlacementValidationGateReason,
-            PlacementValidationGateStatus, PlacementValidationOutputs,
+            PlacementValidationGateStatus, PlacementValidationGateVerdict,
+            PlacementValidationOutputs,
         };
 
         #[test]
@@ -343,6 +540,151 @@ placement_proof=unavailable reason=numa_maps_unavailable
                 error,
                 PlacementValidationGateParseError::MemoryPolicy(_)
             ));
+        }
+
+        #[test]
+        fn parses_placement_validation_gate_lines() {
+            assert_eq!(
+                parse_placement_validation_gate_line(
+                    "placement_validation_gate=verified reason=verified"
+                )
+                .expect("verified"),
+                PlacementValidationGateVerdict {
+                    status: PlacementValidationGateStatus::Verified,
+                    reason: PlacementValidationGateReason::Verified,
+                }
+            );
+            assert_eq!(
+                parse_placement_validation_gate_line(
+                    "placement_validation_gate=not_ready reason=memory_policy_not_ready"
+                )
+                .expect("not ready"),
+                PlacementValidationGateVerdict {
+                    status: PlacementValidationGateStatus::NotReady,
+                    reason: PlacementValidationGateReason::MemoryPolicyNotReady,
+                }
+            );
+            assert_eq!(
+                parse_placement_validation_gate_line(
+                    "placement_validation_gate=unverified reason=placement_proof_unverified"
+                )
+                .expect("unverified"),
+                PlacementValidationGateVerdict {
+                    status: PlacementValidationGateStatus::Unverified,
+                    reason: PlacementValidationGateReason::PlacementProofUnverified,
+                }
+            );
+            assert_eq!(
+                parse_placement_validation_gate_line(
+                    "placement_validation_gate=unavailable reason=placement_proof_unavailable"
+                )
+                .expect("unavailable"),
+                PlacementValidationGateVerdict {
+                    status: PlacementValidationGateStatus::Unavailable,
+                    reason: PlacementValidationGateReason::PlacementProofUnavailable,
+                }
+            );
+        }
+
+        #[test]
+        fn rejects_invalid_placement_validation_gate_lines() {
+            assert_eq!(
+                parse_placement_validation_gate_line("reason=verified")
+                    .expect_err("missing status"),
+                PlacementValidationGateLineParseError::MissingStatus
+            );
+            assert_eq!(
+                parse_placement_validation_gate_line("placement_validation_gate=verified")
+                    .expect_err("missing reason"),
+                PlacementValidationGateLineParseError::MissingReason
+            );
+            assert_eq!(
+                parse_placement_validation_gate_line(
+                    "placement_validation_gate=maybe reason=verified"
+                )
+                .expect_err("unknown status"),
+                PlacementValidationGateLineParseError::UnknownStatus("maybe".to_owned())
+            );
+            assert_eq!(
+                parse_placement_validation_gate_line(
+                    "placement_validation_gate=verified reason=maybe"
+                )
+                .expect_err("unknown reason"),
+                PlacementValidationGateLineParseError::UnknownReason("maybe".to_owned())
+            );
+            assert_eq!(
+                parse_placement_validation_gate_line(
+                    "placement_validation_gate=verified reason=verified extra=true"
+                )
+                .expect_err("extra token"),
+                PlacementValidationGateLineParseError::InvalidToken("extra=true".to_owned())
+            );
+            assert_eq!(
+                parse_placement_validation_gate_line(
+                    "placement_validation_gate=verified placement_validation_gate=not_ready reason=verified"
+                )
+                .expect_err("duplicate status"),
+                PlacementValidationGateLineParseError::DuplicateStatus
+            );
+            assert_eq!(
+                parse_placement_validation_gate_line(
+                    "placement_validation_gate=verified reason=verified reason=memory_policy_not_ready"
+                )
+                .expect_err("duplicate reason"),
+                PlacementValidationGateLineParseError::DuplicateReason
+            );
+        }
+
+        #[test]
+        fn parses_placement_validation_gate_from_output() {
+            let output = "\
+mapping_start=0xffff854a3000
+mapping_len=20479
+memory_policy_readiness=not_ready reason=permission_denied
+touched=5
+home_node=0
+numa_maps=unavailable
+cgroup_numa_stat=unavailable
+node_numastat=unavailable
+placement_validation_readiness=not_ready reason=numa_maps_unavailable
+placement_proof=unavailable reason=numa_maps_unavailable
+placement_validation_gate=not_ready reason=memory_policy_not_ready
+";
+
+            assert_eq!(
+                parse_placement_validation_gate_output(output).expect("gate"),
+                PlacementValidationGateVerdict {
+                    status: PlacementValidationGateStatus::NotReady,
+                    reason: PlacementValidationGateReason::MemoryPolicyNotReady,
+                }
+            );
+        }
+
+        #[test]
+        fn rejects_invalid_placement_validation_gate_output() {
+            assert_eq!(
+                parse_placement_validation_gate_output(
+                    "placement_proof=verified reason=verified\n"
+                )
+                .expect_err("missing gate"),
+                PlacementValidationGateOutputParseError::MissingGateLine
+            );
+            assert_eq!(
+                parse_placement_validation_gate_output(
+                    "placement_validation_gate=verified reason=verified\nplacement_validation_gate=not_ready reason=memory_policy_not_ready\n"
+                )
+                .expect_err("duplicate gate"),
+                PlacementValidationGateOutputParseError::DuplicateGateLine
+            );
+            assert_eq!(
+                parse_placement_validation_gate_output(
+                    "placement_validation_gate=maybe reason=verified\n"
+                )
+                .expect_err("bad gate"),
+                PlacementValidationGateOutputParseError::Line(
+                    PlacementValidationGateLineParseError::UnknownStatus("maybe".to_owned())
+                )
+            );
         }
     }
 }
