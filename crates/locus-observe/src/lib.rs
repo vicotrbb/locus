@@ -129,6 +129,25 @@ pub enum NumaPlacementStatus {
     NoPagesOnExpectedNode,
 }
 
+impl NumaPlacementStatus {
+    /// Returns a stable machine-readable status string.
+    #[must_use]
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::NoPagesReported => "no_pages_reported",
+            Self::AllPagesOnExpectedNode => "all_pages_on_expected_node",
+            Self::PartialPagesOnExpectedNode => "partial_pages_on_expected_node",
+            Self::NoPagesOnExpectedNode => "no_pages_on_expected_node",
+        }
+    }
+}
+
+impl fmt::Display for NumaPlacementStatus {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
 /// Placement evidence for one `numa_maps` entry against an expected node.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct NumaPlacementEvidence {
@@ -849,6 +868,10 @@ mod tests {
         assert_eq!(partial.other_node_pages.get(&NodeId(1)), Some(&3));
         assert_eq!(remote.status, NumaPlacementStatus::NoPagesOnExpectedNode);
         assert_eq!(no_pages.status, NumaPlacementStatus::NoPagesReported);
+        assert_eq!(
+            NumaPlacementStatus::AllPagesOnExpectedNode.to_string(),
+            "all_pages_on_expected_node"
+        );
     }
 
     #[test]

@@ -29,21 +29,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     match read_self_numa_maps() {
         Ok(entries) => {
             if let Some(entry) = numa_maps_entry_by_start_address(&entries, mapping_start) {
-                let pages = entry.node_pages.values().copied().sum::<u64>();
-                println!("numa_maps_match=ok policy={} pages={pages}", entry.policy);
-                for (node, pages) in &entry.node_pages {
-                    println!("numa_maps_node={} pages={pages}", node.0);
-                }
+                print_placement("ok", entry, arena.home_node());
             } else if let Some(entry) = numa_maps_entry_containing_address(&entries, mapping_start)
             {
-                let pages = entry.node_pages.values().copied().sum::<u64>();
-                println!(
-                    "numa_maps_match=containing policy={} pages={pages}",
-                    entry.policy
-                );
-                for (node, pages) in &entry.node_pages {
-                    println!("numa_maps_node={} pages={pages}", node.0);
-                }
+                print_placement("containing", entry, arena.home_node());
             } else {
                 println!("numa_maps_match=missing");
             }
@@ -55,6 +44,26 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     Ok(())
+}
+
+#[cfg(target_os = "linux")]
+fn print_placement(
+    match_status: &str,
+    entry: &locus_observe::NumaMapsEntry,
+    expected_node: locus_core::NodeId,
+) {
+    let evidence = locus_observe::NumaPlacementEvidence::from_entry(entry, expected_node);
+    println!(
+        "numa_maps_match={match_status} policy={} placement_status={} expected_node={} expected_pages={} total_pages={}",
+        entry.policy,
+        evidence.status,
+        evidence.expected_node.0,
+        evidence.expected_node_pages,
+        evidence.total_pages
+    );
+    for (node, pages) in &entry.node_pages {
+        println!("numa_maps_node={} pages={pages}", node.0);
+    }
 }
 
 #[cfg(not(target_os = "linux"))]
