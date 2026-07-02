@@ -59,7 +59,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
         Err(ObserveReadError::Read { source, .. }) if source.kind() == ErrorKind::NotFound => {
             println!("numa_maps=unavailable");
-            println!("placement_proof=unavailable reason=numa_maps_unavailable");
+            print_unavailable_numa_maps_proof();
         }
         Err(error) => return Err(Box::new(error)),
     }
@@ -96,6 +96,14 @@ fn print_placement(
 #[cfg(target_os = "linux")]
 fn print_missing_mapping_proof(policy_applied: bool) {
     let proof = locus_observe::NumaPlacementProof::from_evidence(policy_applied, None);
+    println!("placement_proof={} reason={}", proof.status, proof.reason);
+}
+
+#[cfg(target_os = "linux")]
+fn print_unavailable_numa_maps_proof() {
+    let proof = locus_observe::NumaPlacementProof::unavailable(
+        locus_observe::NumaPlacementProofReason::NumaMapsUnavailable,
+    );
     println!("placement_proof={} reason={}", proof.status, proof.reason);
 }
 

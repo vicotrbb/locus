@@ -245,6 +245,8 @@ pub enum NumaPlacementProofStatus {
     Verified,
     /// Primary evidence is present but does not prove placement.
     Unverified,
+    /// Primary evidence could not be collected.
+    Unavailable,
 }
 
 impl NumaPlacementProofStatus {
@@ -254,6 +256,7 @@ impl NumaPlacementProofStatus {
         match self {
             Self::Verified => "verified",
             Self::Unverified => "unverified",
+            Self::Unavailable => "unavailable",
         }
     }
 }
@@ -279,6 +282,8 @@ pub enum NumaPlacementProofReason {
     PartialPagesOnExpectedNode,
     /// The matched mapping reported pages only on other nodes.
     NoPagesOnExpectedNode,
+    /// The `numa_maps` file was unavailable.
+    NumaMapsUnavailable,
 }
 
 impl NumaPlacementProofReason {
@@ -292,6 +297,7 @@ impl NumaPlacementProofReason {
             Self::NoPagesReported => "no_pages_reported",
             Self::PartialPagesOnExpectedNode => "partial_pages_on_expected_node",
             Self::NoPagesOnExpectedNode => "no_pages_on_expected_node",
+            Self::NumaMapsUnavailable => "numa_maps_unavailable",
         }
     }
 }
@@ -458,6 +464,15 @@ impl NumaPlacementProof {
     #[must_use]
     pub fn is_verified(self) -> bool {
         self.status == NumaPlacementProofStatus::Verified
+    }
+
+    /// Builds a placement proof verdict for unavailable primary evidence.
+    #[must_use]
+    pub fn unavailable(reason: NumaPlacementProofReason) -> Self {
+        Self {
+            status: NumaPlacementProofStatus::Unavailable,
+            reason,
+        }
     }
 }
 
@@ -1387,6 +1402,17 @@ mod tests {
             NumaPlacementProof::from_evidence(true, Some(&no_pages)).reason,
             NumaPlacementProofReason::NoPagesReported
         );
+
+        let unavailable =
+            NumaPlacementProof::unavailable(NumaPlacementProofReason::NumaMapsUnavailable);
+        assert_eq!(unavailable.status, NumaPlacementProofStatus::Unavailable);
+        assert_eq!(
+            unavailable.reason,
+            NumaPlacementProofReason::NumaMapsUnavailable
+        );
+        assert_eq!(unavailable.status.to_string(), "unavailable");
+        assert_eq!(unavailable.reason.to_string(), "numa_maps_unavailable");
+        assert!(!unavailable.is_verified());
     }
 
     #[test]
