@@ -101,6 +101,61 @@ impl NodeNumastatDelta {
     }
 }
 
+/// Snapshot of node `numastat` metrics across NUMA nodes.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct NodeNumastatSystemSnapshot {
+    /// Number of nodes inspected.
+    pub node_count: usize,
+    /// Per-node snapshots.
+    pub nodes: BTreeMap<NodeId, NodeNumastatSnapshot>,
+}
+
+impl NodeNumastatSystemSnapshot {
+    /// Builds a system snapshot from per-node snapshots.
+    #[must_use]
+    pub fn from_nodes(nodes: BTreeMap<NodeId, NodeNumastatSnapshot>) -> Self {
+        Self {
+            node_count: nodes.len(),
+            nodes,
+        }
+    }
+
+    /// Returns one node snapshot.
+    #[must_use]
+    pub fn get(&self, node: NodeId) -> Option<&NodeNumastatSnapshot> {
+        self.nodes.get(&node)
+    }
+
+    /// Computes signed per-node metric deltas from `previous` to `self`.
+    #[must_use]
+    pub fn delta_since(&self, previous: &Self) -> NodeNumastatSystemDelta {
+        let mut nodes = BTreeMap::new();
+
+        for node in previous.nodes.keys().chain(self.nodes.keys()) {
+            let before = previous.nodes.get(node).cloned().unwrap_or_default();
+            let after = self.nodes.get(node).cloned().unwrap_or_default();
+            nodes.insert(*node, after.delta_since(&before));
+        }
+
+        NodeNumastatSystemDelta { nodes }
+    }
+}
+
+/// Signed delta between two system node `numastat` snapshots.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct NodeNumastatSystemDelta {
+    /// Per-node metric deltas.
+    pub nodes: BTreeMap<NodeId, NodeNumastatDelta>,
+}
+
+impl NodeNumastatSystemDelta {
+    /// Returns one node delta.
+    #[must_use]
+    pub fn get(&self, node: NodeId) -> Option<&NodeNumastatDelta> {
+        self.nodes.get(&node)
+    }
+}
+
 /// Summary of page placement derived from `numa_maps`.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct NumaMapsSummary {
@@ -709,8 +764,8 @@ mod tests {
         parse_cgroup_numa_stat, parse_node_numastat, parse_numa_maps, parse_numa_maps_line,
         read_cgroup_numa_stat, read_node_numastat, read_numa_maps,
         resolve_cgroup_v2_memory_numa_stat_path, CgroupNumaDelta, CgroupNumaSummary,
-        CgroupPathError, NodeNumastatSnapshot, NumaMapsSummary, NumaPlacementEvidence,
-        NumaPlacementStatus, ObserveParseError,
+        CgroupPathError, NodeNumastatSnapshot, NodeNumastatSystemSnapshot, NumaMapsSummary,
+        NumaPlacementEvidence, NumaPlacementStatus, ObserveParseError,
     };
 
     #[test]
@@ -825,6 +880,54 @@ mod tests {
         assert_eq!(delta.get("numa_miss"), Some(-1));
         assert_eq!(delta.get("other_node"), Some(-1));
         assert_eq!(delta.get("local_node"), Some(7));
+    }
+
+    #[test]
+    fn summarizes_system_node_numastat_snapshots_and_deltas() {
+        let before_node0 = NodeNumastatSnapshot::from_metrics(
+            &parse_node_numastat("numa_hit 10\nnuma_miss 2\n").expect("node0 before"),
+        );
+        let before_node1 = NodeNumastatSnapshot::from_metrics(
+            &parse_node_numastat("numa_hit 5\nother_node 1\n").expect("node1 before"),
+        );
+        let after_node0 = NodeNumastatSnapshot::from_metrics(
+            &parse_node_numastat("numa_hit 15\nnuma_miss 1\n").expect("node0 after"),
+        );
+        let after_node2 = NodeNumastatSnapshot::from_metrics(
+            &parse_node_numastat("local_node 7\n").expect("node2 after"),
+        );
+
+        let before = NodeNumastatSystemSnapshot::from_nodes(BTreeMap::from([
+            (NodeId(0), before_node0),
+            (NodeId(1), before_node1),
+        ]));
+        let after = NodeNumastatSystemSnapshot::from_nodes(BTreeMap::from([
+            (NodeId(0), after_node0),
+            (NodeId(2), after_node2),
+        ]));
+        let delta = after.delta_since(&before);
+
+        assert_eq!(before.node_count, 2);
+        assert_eq!(
+            before.get(NodeId(1)).and_then(|node| node.get("numa_hit")),
+            Some(5)
+        );
+        assert_eq!(
+            delta.get(NodeId(0)).and_then(|node| node.get("numa_hit")),
+            Some(5)
+        );
+        assert_eq!(
+            delta.get(NodeId(0)).and_then(|node| node.get("numa_miss")),
+            Some(-1)
+        );
+        assert_eq!(
+            delta.get(NodeId(1)).and_then(|node| node.get("numa_hit")),
+            Some(-5)
+        );
+        assert_eq!(
+            delta.get(NodeId(2)).and_then(|node| node.get("local_node")),
+            Some(7)
+        );
     }
 
     #[test]
