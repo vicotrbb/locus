@@ -4,8 +4,8 @@ use std::{alloc::Layout, mem::MaybeUninit, sync::mpsc::sync_channel, thread};
 
 use criterion::{black_box, criterion_group, criterion_main, BatchSize, Criterion};
 use locus_alloc::{
-    KvBlockHandle, KvBlockPool, KvBlockTable, KvSequenceId, MappedScratchArena, RemoteFreeQueue,
-    RequestScratch, RequestScratchPool, ScratchArena,
+    KvBlockHandle, KvBlockPool, KvBlockTable, KvSequenceId, MappedScratchArena, PinnedScratchPool,
+    RemoteFreeQueue, RequestScratch, RequestScratchPool, ScratchArena,
 };
 use locus_core::{NodeId, RequestHome, RequestId};
 
@@ -94,6 +94,38 @@ fn mapped_scratch_arena_reset_cycle(c: &mut Criterion) {
             }
 
             black_box(arena.stats());
+        });
+    });
+}
+
+fn pinned_scratch_pool_reuse_cycle(c: &mut Criterion) {
+    let arena_capacity = 32 * 1024;
+    let arena_mapping_len = arena_capacity + 4096 - 1;
+    let mut pool =
+        PinnedScratchPool::new(NodeId(0), arena_capacity, arena_mapping_len).expect("pool");
+    let handle = match pool.checkout() {
+        Ok(handle) => handle,
+        Err(error) => {
+            eprintln!("skipping pinned_scratch_pool_reuse_cycle_64x256b: {error}");
+            return;
+        }
+    };
+    pool.release(handle).expect("release warm arena");
+
+    c.bench_function("pinned_scratch_pool_reuse_cycle_64x256b", |bench| {
+        let layout = Layout::from_size_align(256, 64).expect("layout");
+
+        bench.iter(|| {
+            let handle = pool.checkout().expect("checkout");
+            {
+                let arena = pool.get_mut(handle).expect("arena");
+                for _ in 0..64 {
+                    let allocation = arena.alloc_bytes(layout).expect("allocation");
+                    black_box(allocation.as_mut_ptr());
+                }
+            }
+            pool.release(handle).expect("release");
+            black_box(pool.stats());
         });
     });
 }
@@ -590,6 +622,7 @@ criterion_group!(
     vec_allocation_cycle,
     vec_uninit_capacity_allocation_cycle,
     mapped_scratch_arena_reset_cycle,
+    pinned_scratch_pool_reuse_cycle,
     mapped_scratch_write_touch_1mib,
     vec_write_touch_1mib,
     request_scratch_cycle,
