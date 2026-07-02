@@ -14,6 +14,8 @@ This note summarizes the allocator benchmark coverage currently recorded in expe
 | First-touch materialization, 1 MiB | `mapped_scratch_write_touch_1mib` | `vec_write_touch_1mib` | 36.140 us to 36.762 us vs 1.8701 us to 2.0037 us | `documentation/experiments/0028-first-touch-materialization-benchmark.md` |
 | Scratch reset cycle, uninitialized-capacity baseline | `scratch_arena_reset_cycle_64x256b` | `vec_uninit_capacity_allocation_cycle_64x256b` | 205.04 ns to 217.84 ns vs 605.70 ns to 608.27 ns | `documentation/experiments/0046-vec-uninit-capacity-benchmark-baseline.md` |
 | KV block churn, uninitialized-capacity baseline | `kv_block_pool_cycle_256x4k` | `kv_vec_uninit_capacity_allocation_cycle_256x4k` | 1.1526 us to 1.1558 us vs 5.5628 us to 5.6642 us | `documentation/experiments/0046-vec-uninit-capacity-benchmark-baseline.md` |
+| Small default allocation through mimalloc | None | `mimalloc_vec_allocation_cycle_64x256b` and `mimalloc_vec_uninit_capacity_allocation_cycle_64x256b` | 378.15 ns to 378.84 ns zero-filled, 260.75 ns to 261.56 ns uninitialized capacity | `documentation/experiments/0047-mimalloc-benchmark-baseline.md` |
+| KV-sized default allocation through mimalloc | None | `mimalloc_kv_vec_allocation_cycle_256x4k` and `mimalloc_kv_vec_uninit_capacity_allocation_cycle_256x4k` | 17.529 us to 17.565 us zero-filled, 6.9389 us to 6.9959 us uninitialized capacity | `documentation/experiments/0047-mimalloc-benchmark-baseline.md` |
 
 ## Interpretation
 
@@ -24,7 +26,7 @@ This note summarizes the allocator benchmark coverage currently recorded in expe
 
 ## Missing Baselines
 
-- jemalloc and mimalloc comparisons are still missing.
+- jemalloc comparison is still missing.
 - A libc malloc baseline is still missing.
 - Multithreaded producer and consumer churn is still missing.
 - Remote-free or cross-thread release behavior is still missing.
@@ -32,4 +34,4 @@ This note summarizes the allocator benchmark coverage currently recorded in expe
 
 ## Next Benchmarking Step
 
-The next benchmark increment should add one industry allocator baseline behind an isolated benchmark configuration, then rerun the scratch, request, and KV churn cases with the same short-sample command shape used in the experiment notes.
+The next benchmark increment should add a jemalloc or libc malloc baseline behind an isolated benchmark configuration, then rerun the scratch, request, and KV churn cases with the same short-sample command shape used in the experiment notes.
