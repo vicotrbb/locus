@@ -17,6 +17,7 @@ A placement proof for one mapped scratch arena requires all of the following:
 - the mapped arena address matches a `numa_maps` entry by exact start or containing range;
 - `NumaPlacementEvidence::is_fully_on_expected_node()` returns true;
 - `placement_verified=true` is printed for that matched mapping.
+- `placement_proof=verified reason=verified` is printed for the attempt.
 
 If any item is missing, the result is attempted placement or unavailable evidence, not verified placement.
 
@@ -38,6 +39,7 @@ The current Docker validation path still reports:
 - `cgroup_numa_delta=unavailable`;
 - `node_numastat_delta=unavailable`;
 - `numa_maps=unavailable`.
+- `placement_proof=unavailable reason=numa_maps_unavailable`.
 
 That environment validates failure handling and probe plumbing. It does not validate successful NUMA placement.
 
