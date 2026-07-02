@@ -18,6 +18,8 @@ This note summarizes the allocator benchmark coverage currently recorded in expe
 | KV-sized default allocation through mimalloc | None | `mimalloc_kv_vec_allocation_cycle_256x4k` and `mimalloc_kv_vec_uninit_capacity_allocation_cycle_256x4k` | 17.529 us to 17.565 us zero-filled, 6.9389 us to 6.9959 us uninitialized capacity | `documentation/experiments/0047-mimalloc-benchmark-baseline.md` |
 | Small default allocation through jemalloc | None | `jemalloc_vec_allocation_cycle_64x256b` and `jemalloc_vec_uninit_capacity_allocation_cycle_64x256b` | 621.46 ns to 624.50 ns zero-filled, 409.60 ns to 412.67 ns uninitialized capacity | `documentation/experiments/0048-jemalloc-benchmark-baseline.md` |
 | KV-sized default allocation through jemalloc | None | `jemalloc_kv_vec_allocation_cycle_256x4k` and `jemalloc_kv_vec_uninit_capacity_allocation_cycle_256x4k` | 19.212 us to 19.360 us zero-filled, 7.2667 us to 7.3276 us uninitialized capacity | `documentation/experiments/0048-jemalloc-benchmark-baseline.md` |
+| Small default allocation through explicit system allocator | None | `system_vec_allocation_cycle_64x256b` and `system_vec_uninit_capacity_allocation_cycle_64x256b` | 585.33 ns to 589.16 ns zero-filled, 583.12 ns to 587.23 ns uninitialized capacity | `documentation/experiments/0049-system-allocator-benchmark-baseline.md` |
+| KV-sized default allocation through explicit system allocator | None | `system_kv_vec_allocation_cycle_256x4k` and `system_kv_vec_uninit_capacity_allocation_cycle_256x4k` | 16.631 us to 16.681 us zero-filled, 5.5373 us to 5.5732 us uninitialized capacity | `documentation/experiments/0049-system-allocator-benchmark-baseline.md` |
 
 ## Interpretation
 
@@ -28,11 +30,10 @@ This note summarizes the allocator benchmark coverage currently recorded in expe
 
 ## Missing Baselines
 
-- A libc malloc baseline is still missing.
 - Multithreaded producer and consumer churn is still missing.
 - Remote-free or cross-thread release behavior is still missing.
 - End-to-end LLM serving traces are still missing.
 
 ## Next Benchmarking Step
 
-The next benchmark increment should add a libc malloc baseline behind an isolated benchmark configuration, then rerun the scratch, request, and KV churn cases with the same short-sample command shape used in the experiment notes.
+The next benchmark increment should add multithreaded producer and consumer churn so allocator comparisons cover a workload closer to inference runtime request handoff.
