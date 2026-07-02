@@ -219,6 +219,28 @@ pub fn read_cgroup_numa_stat(
     parse_cgroup_numa_stat(&input).map_err(ObserveReadError::Parse)
 }
 
+/// Resolves the current cgroup v2 `memory.numa_stat` path from cgroup file
+/// content.
+///
+/// # Errors
+///
+/// Returns an error when no unified cgroup v2 entry is present.
+pub fn resolve_cgroup_v2_memory_numa_stat_path(
+    cgroup_content: &str,
+    cgroup_root: impl AsRef<Path>,
+) -> Result<PathBuf, CgroupPathError> {
+    let cgroup_root = cgroup_root.as_ref();
+    for line in cgroup_content.lines() {
+        let Some(rest) = line.strip_prefix("0::") else {
+            continue;
+        };
+        let relative = rest.trim_start_matches('/');
+        return Ok(cgroup_root.join(relative).join("memory.numa_stat"));
+    }
+
+    Err(CgroupPathError::MissingUnifiedEntry)
+}
+
 /// Reads and parses a node `numastat` file from an explicit path.
 ///
 /// # Errors
@@ -458,6 +480,23 @@ impl std::error::Error for ObserveReadError {
     }
 }
 
+/// Cgroup path resolution failures.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CgroupPathError {
+    /// `/proc/self/cgroup` did not contain a unified cgroup v2 entry.
+    MissingUnifiedEntry,
+}
+
+impl fmt::Display for CgroupPathError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::MissingUnifiedEntry => f.write_str("missing unified cgroup v2 entry"),
+        }
+    }
+}
+
+impl std::error::Error for CgroupPathError {}
+
 fn read_to_string(path: &Path) -> Result<String, ObserveReadError> {
     fs::read_to_string(path).map_err(|source| ObserveReadError::Read {
         path: path.to_path_buf(),
@@ -492,13 +531,15 @@ fn parse_u64(value: &str, token: &str) -> Result<u64, ObserveParseError> {
 #[cfg(test)]
 mod tests {
     use std::fs;
+    use std::path::PathBuf;
 
     use locus_core::NodeId;
     use tempfile::TempDir;
 
     use super::{
         parse_cgroup_numa_stat, parse_node_numastat, parse_numa_maps, parse_numa_maps_line,
-        read_cgroup_numa_stat, read_node_numastat, read_numa_maps, CgroupNumaSummary,
+        read_cgroup_numa_stat, read_node_numastat, read_numa_maps,
+        resolve_cgroup_v2_memory_numa_stat_path, CgroupNumaSummary, CgroupPathError,
         NodeNumastatSnapshot, NumaMapsSummary, ObserveParseError,
     };
 
@@ -528,6 +569,29 @@ mod tests {
         assert_eq!(entries[0].metric, "anon");
         assert_eq!(entries[0].node_bytes.get(&NodeId(1)), Some(&8192));
         assert_eq!(entries[1].metric, "file");
+    }
+
+    #[test]
+    fn resolves_cgroup_v2_memory_numa_stat_path() {
+        let path = resolve_cgroup_v2_memory_numa_stat_path(
+            "11:memory:/legacy\n0::/user.slice/session.scope\n",
+            "/sys/fs/cgroup",
+        )
+        .expect("cgroup path");
+
+        assert_eq!(
+            path,
+            PathBuf::from("/sys/fs/cgroup/user.slice/session.scope/memory.numa_stat")
+        );
+    }
+
+    #[test]
+    fn rejects_missing_cgroup_v2_entry() {
+        let error =
+            resolve_cgroup_v2_memory_numa_stat_path("11:memory:/legacy\n", "/sys/fs/cgroup")
+                .expect_err("missing unified entry");
+
+        assert_eq!(error, CgroupPathError::MissingUnifiedEntry);
     }
 
     #[test]

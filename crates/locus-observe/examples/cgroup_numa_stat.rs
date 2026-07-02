@@ -1,13 +1,19 @@
 #![allow(missing_docs)]
 
 use std::error::Error;
+use std::fs;
 use std::io::ErrorKind;
 use std::path::Path;
 
-use locus_observe::{read_cgroup_numa_stat, CgroupNumaSummary, ObserveReadError};
+use locus_observe::{
+    read_cgroup_numa_stat, resolve_cgroup_v2_memory_numa_stat_path, CgroupNumaSummary,
+    ObserveReadError,
+};
 
 fn main() -> Result<(), Box<dyn Error>> {
-    let path = Path::new("/sys/fs/cgroup/memory.numa_stat");
+    let cgroup_content = fs::read_to_string("/proc/self/cgroup")?;
+    let path =
+        resolve_cgroup_v2_memory_numa_stat_path(&cgroup_content, Path::new("/sys/fs/cgroup"))?;
     let entries = match read_cgroup_numa_stat(path) {
         Ok(entries) => entries,
         Err(ObserveReadError::Read { source, .. }) if source.kind() == ErrorKind::NotFound => {
