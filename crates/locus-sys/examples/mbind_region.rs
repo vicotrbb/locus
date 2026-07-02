@@ -16,10 +16,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         Err(error) => println!("mbind=error {error}"),
     }
     let readiness = LinuxNumaPolicyReadiness::from_bind_result(bind_result.as_ref().map(|_| ()));
-    println!(
-        "memory_policy_readiness={} reason={}",
-        readiness.status, readiness.reason
-    );
+    println!("{readiness}");
     match read_current_process_status_diagnostics() {
         Ok(diagnostics) => println!("{diagnostics}"),
         Err(_) => {

@@ -79,10 +79,7 @@ fn print_memory_policy_readiness(result: &Result<(), locus_alloc::MappedScratchA
         Err(_) => unreachable!("bind_to_node returns only Linux NUMA policy errors"),
     };
 
-    println!(
-        "memory_policy_readiness={} reason={}",
-        readiness.status, readiness.reason
-    );
+    println!("{readiness}");
 }
 
 #[cfg(target_os = "linux")]

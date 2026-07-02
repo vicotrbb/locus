@@ -27,10 +27,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
         Err(_) => unreachable!("bind_to_node returns only Linux NUMA policy errors"),
     };
-    println!(
-        "memory_policy_readiness={} reason={}",
-        memory_policy.status, memory_policy.reason
-    );
+    println!("{memory_policy}");
     match read_current_process_status_diagnostics() {
         Ok(diagnostics) => println!("{diagnostics}"),
         Err(_) => {

@@ -169,6 +169,16 @@ pub mod linux {
         pub reason: LinuxNumaPolicyReadinessReason,
     }
 
+    impl fmt::Display for LinuxNumaPolicyReadiness {
+        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+            write!(
+                f,
+                "memory_policy_readiness={} reason={}",
+                self.status, self.reason
+            )
+        }
+    }
+
     /// Linux seccomp mode parsed from `/proc/self/status`.
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]
     pub enum LinuxSeccompMode {
@@ -580,6 +590,10 @@ pub mod linux {
             assert_eq!(ready.reason, LinuxNumaPolicyReadinessReason::Ready);
             assert_eq!(ready.status.to_string(), "ready");
             assert_eq!(ready.reason.to_string(), "ready");
+            assert_eq!(
+                ready.to_string(),
+                "memory_policy_readiness=ready reason=ready"
+            );
             assert!(ready.is_ready());
 
             let invalid = LinuxNumaPolicyError::InvalidNode(4096);
