@@ -30,6 +30,19 @@ pub struct KvBlockHandle {
     generation: u64,
 }
 
+/// Logical sequence identifier for KV block tables.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct KvSequenceId(pub u64);
+
+/// Logical KV block table for one sequence.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct KvBlockTable {
+    sequence_id: KvSequenceId,
+    tokens_per_block: u16,
+    token_len: u64,
+    blocks: Vec<KvBlockHandle>,
+}
+
 /// Safe bump arena tagged with the NUMA node it is intended to serve.
 ///
 /// This first implementation is intentionally Vec-backed. It validates arena
@@ -179,6 +192,92 @@ impl KvBlockPool {
 
     fn allocated_count(&self) -> usize {
         self.blocks.len() - self.free.len()
+    }
+}
+
+impl KvBlockTable {
+    /// Creates an empty KV block table.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when `tokens_per_block` is zero.
+    pub fn new(
+        sequence_id: KvSequenceId,
+        tokens_per_block: u16,
+    ) -> Result<Self, KvBlockTableError> {
+        if tokens_per_block == 0 {
+            return Err(KvBlockTableError::InvalidTokensPerBlock);
+        }
+
+        Ok(Self {
+            sequence_id,
+            tokens_per_block,
+            token_len: 0,
+            blocks: Vec::new(),
+        })
+    }
+
+    /// Appends tokens and allocates additional blocks as needed.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the backing pool has insufficient free blocks.
+    pub fn append_tokens(
+        &mut self,
+        pool: &mut KvBlockPool,
+        token_count: u64,
+    ) -> Result<(), KvBlockTableError> {
+        if token_count == 0 {
+            return Ok(());
+        }
+
+        let new_token_len = self
+            .token_len
+            .checked_add(token_count)
+            .ok_or(KvBlockTableError::TokenCountOverflow)?;
+        let needed_blocks = blocks_for_tokens(new_token_len, self.tokens_per_block);
+
+        let additional_blocks = needed_blocks.saturating_sub(self.blocks.len());
+        let mut acquired = Vec::with_capacity(additional_blocks);
+        for _ in 0..additional_blocks {
+            match pool.allocate() {
+                Ok(handle) => acquired.push(handle),
+                Err(source) => {
+                    for handle in acquired {
+                        let _ = pool.free(handle);
+                    }
+                    return Err(KvBlockTableError::Pool(source));
+                }
+            }
+        }
+
+        self.blocks.extend(acquired);
+        self.token_len = new_token_len;
+        Ok(())
+    }
+
+    /// Frees all blocks owned by this table and resets it to empty.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if any stored handle is rejected by the backing pool.
+    pub fn release_all(&mut self, pool: &mut KvBlockPool) -> Result<(), KvBlockTableError> {
+        for handle in self.blocks.drain(..) {
+            pool.free(handle).map_err(KvBlockTableError::Pool)?;
+        }
+        self.token_len = 0;
+        Ok(())
+    }
+
+    /// Returns table accounting.
+    #[must_use]
+    pub fn stats(&self) -> KvBlockTableStats {
+        KvBlockTableStats {
+            sequence_id: self.sequence_id,
+            tokens_per_block: self.tokens_per_block,
+            token_len: self.token_len,
+            block_count: self.blocks.len(),
+        }
     }
 }
 
@@ -511,6 +610,19 @@ impl ScratchArena {
     }
 }
 
+/// KV block table accounting snapshot.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct KvBlockTableStats {
+    /// Sequence identifier.
+    pub sequence_id: KvSequenceId,
+    /// Token capacity of one block.
+    pub tokens_per_block: u16,
+    /// Logical token length.
+    pub token_len: u64,
+    /// Number of backing blocks.
+    pub block_count: usize,
+}
+
 /// KV block pool accounting snapshot.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct KvBlockPoolStats {
@@ -581,6 +693,36 @@ pub enum KvBlockPoolError {
     OutOfBlocks,
     /// The block handle is stale, invalid, or not allocated.
     InvalidHandle,
+}
+
+/// KV block table failures.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum KvBlockTableError {
+    /// Token count per block must be non-zero.
+    InvalidTokensPerBlock,
+    /// Token count overflowed.
+    TokenCountOverflow,
+    /// Backing pool operation failed.
+    Pool(KvBlockPoolError),
+}
+
+impl fmt::Display for KvBlockTableError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::InvalidTokensPerBlock => f.write_str("KV tokens per block must be non-zero"),
+            Self::TokenCountOverflow => f.write_str("KV block table token count overflow"),
+            Self::Pool(source) => write!(f, "KV block table pool operation failed: {source}"),
+        }
+    }
+}
+
+impl std::error::Error for KvBlockTableError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Pool(source) => Some(source),
+            Self::InvalidTokensPerBlock | Self::TokenCountOverflow => None,
+        }
+    }
 }
 
 impl fmt::Display for KvBlockPoolError {
@@ -683,6 +825,12 @@ fn align_up(value: usize, align: usize) -> usize {
     (value + align - 1) & !(align - 1)
 }
 
+fn blocks_for_tokens(token_count: u64, tokens_per_block: u16) -> usize {
+    let tokens_per_block = u64::from(tokens_per_block);
+    let blocks = token_count.saturating_add(tokens_per_block - 1) / tokens_per_block;
+    usize::try_from(blocks).unwrap_or(usize::MAX)
+}
+
 #[cfg(test)]
 mod tests {
     use std::alloc::Layout;
@@ -690,8 +838,8 @@ mod tests {
     use locus_core::{NodeId, RequestHome, RequestId};
 
     use super::{
-        KvBlockPool, KvBlockPoolError, RequestScratch, RequestScratchError, RequestScratchPool,
-        ScratchAllocError, ScratchArena,
+        KvBlockPool, KvBlockPoolError, KvBlockTable, KvBlockTableError, KvSequenceId,
+        RequestScratch, RequestScratchError, RequestScratchPool, ScratchAllocError, ScratchArena,
     };
 
     #[test]
@@ -931,6 +1079,54 @@ mod tests {
         assert_eq!(
             KvBlockPool::new(NodeId(0), 4096, 0).expect_err("zero capacity"),
             KvBlockPoolError::InvalidCapacity
+        );
+    }
+
+    #[test]
+    fn grows_and_releases_kv_block_table() {
+        let mut pool = KvBlockPool::new(NodeId(0), 4096, 8).expect("pool");
+        let mut table = KvBlockTable::new(KvSequenceId(99), 16).expect("table");
+
+        table.append_tokens(&mut pool, 1).expect("append first");
+        assert_eq!(table.stats().block_count, 1);
+        table
+            .append_tokens(&mut pool, 15)
+            .expect("fill first block");
+        assert_eq!(table.stats().block_count, 1);
+        table
+            .append_tokens(&mut pool, 1)
+            .expect("open second block");
+        assert_eq!(table.stats().block_count, 2);
+        assert_eq!(pool.stats().allocated, 2);
+
+        table.release_all(&mut pool).expect("release table");
+        assert_eq!(table.stats().token_len, 0);
+        assert_eq!(table.stats().block_count, 0);
+        assert_eq!(pool.stats().free, 8);
+    }
+
+    #[test]
+    fn reports_pool_exhaustion_from_kv_block_table() {
+        let mut pool = KvBlockPool::new(NodeId(0), 4096, 1).expect("pool");
+        let mut table = KvBlockTable::new(KvSequenceId(1), 1).expect("table");
+
+        let error = table
+            .append_tokens(&mut pool, 2)
+            .expect_err("pool should run out of blocks");
+
+        assert_eq!(
+            error,
+            KvBlockTableError::Pool(KvBlockPoolError::OutOfBlocks)
+        );
+        assert_eq!(pool.stats().allocated, 0);
+        assert_eq!(table.stats().block_count, 0);
+    }
+
+    #[test]
+    fn rejects_zero_tokens_per_kv_block() {
+        assert_eq!(
+            KvBlockTable::new(KvSequenceId(1), 0).expect_err("invalid table"),
+            KvBlockTableError::InvalidTokensPerBlock
         );
     }
 }
