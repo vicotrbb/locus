@@ -476,6 +476,45 @@ pub fn read_node_numastat(
     parse_node_numastat(&input).map_err(ObserveReadError::Parse)
 }
 
+/// Reads per-node `numastat` files from a Linux node sysfs root.
+///
+/// # Errors
+///
+/// Returns an error when the root cannot be read or a discovered node
+/// `numastat` file cannot be read or parsed. Missing `numastat` files for
+/// individual node directories are skipped.
+pub fn read_node_numastat_system_snapshot(
+    node_root: impl AsRef<Path>,
+) -> Result<NodeNumastatSystemSnapshot, ObserveReadError> {
+    let node_root = node_root.as_ref();
+    let entries = fs::read_dir(node_root).map_err(|source| ObserveReadError::Read {
+        path: node_root.to_path_buf(),
+        source,
+    })?;
+    let mut nodes = BTreeMap::new();
+
+    for entry in entries {
+        let entry = entry.map_err(|source| ObserveReadError::Read {
+            path: node_root.to_path_buf(),
+            source,
+        })?;
+        let Some(node) = parse_node_dir_name(&entry.file_name().to_string_lossy()) else {
+            continue;
+        };
+        let stat_path = entry.path().join("numastat");
+        match read_node_numastat(&stat_path) {
+            Ok(metrics) => {
+                nodes.insert(node, NodeNumastatSnapshot::from_metrics(&metrics));
+            }
+            Err(ObserveReadError::Read { source, .. })
+                if source.kind() == io::ErrorKind::NotFound => {}
+            Err(error) => return Err(error),
+        }
+    }
+
+    Ok(NodeNumastatSystemSnapshot::from_nodes(nodes))
+}
+
 /// Parses all non-empty lines from `/proc/<pid>/numa_maps`.
 ///
 /// # Errors
@@ -741,6 +780,15 @@ fn parse_node_key(key: &str) -> Result<Option<NodeId>, ObserveParseError> {
     Ok(Some(NodeId(parsed)))
 }
 
+fn parse_node_dir_name(name: &str) -> Option<NodeId> {
+    let rest = name.strip_prefix("node")?;
+    if rest.is_empty() || !rest.chars().all(|value| value.is_ascii_digit()) {
+        return None;
+    }
+
+    rest.parse::<u32>().ok().map(NodeId)
+}
+
 fn parse_u64(value: &str, token: &str) -> Result<u64, ObserveParseError> {
     value
         .parse::<u64>()
@@ -762,10 +810,10 @@ mod tests {
     use super::{
         numa_maps_entry_by_start_address, numa_maps_entry_containing_address,
         parse_cgroup_numa_stat, parse_node_numastat, parse_numa_maps, parse_numa_maps_line,
-        read_cgroup_numa_stat, read_node_numastat, read_numa_maps,
-        resolve_cgroup_v2_memory_numa_stat_path, CgroupNumaDelta, CgroupNumaSummary,
-        CgroupPathError, NodeNumastatSnapshot, NodeNumastatSystemSnapshot, NumaMapsSummary,
-        NumaPlacementEvidence, NumaPlacementStatus, ObserveParseError,
+        read_cgroup_numa_stat, read_node_numastat, read_node_numastat_system_snapshot,
+        read_numa_maps, resolve_cgroup_v2_memory_numa_stat_path, CgroupNumaDelta,
+        CgroupNumaSummary, CgroupPathError, NodeNumastatSnapshot, NodeNumastatSystemSnapshot,
+        NumaMapsSummary, NumaPlacementEvidence, NumaPlacementStatus, ObserveParseError,
     };
 
     #[test]
@@ -971,6 +1019,37 @@ mod tests {
                 .expect("read node stat")
                 .len(),
             2
+        );
+    }
+
+    #[test]
+    fn reads_node_numastat_system_snapshot_from_sysfs_root() {
+        let temp = TempDir::new().expect("tempdir");
+        let node0 = temp.path().join("node0");
+        let node1 = temp.path().join("node1");
+        let node_bad = temp.path().join("nodebad");
+
+        fs::create_dir(&node0).expect("node0");
+        fs::create_dir(&node1).expect("node1");
+        fs::create_dir(&node_bad).expect("nodebad");
+        fs::write(node0.join("numastat"), "numa_hit 10\nother_node 1\n").expect("node0 stat");
+        fs::write(node1.join("numastat"), "numa_hit 20\nlocal_node 7\n").expect("node1 stat");
+        fs::write(temp.path().join("online"), "0-1\n").expect("online");
+
+        let snapshot = read_node_numastat_system_snapshot(temp.path()).expect("snapshot");
+
+        assert_eq!(snapshot.node_count, 2);
+        assert_eq!(
+            snapshot
+                .get(NodeId(0))
+                .and_then(|node| node.get("numa_hit")),
+            Some(10)
+        );
+        assert_eq!(
+            snapshot
+                .get(NodeId(1))
+                .and_then(|node| node.get("local_node")),
+            Some(7)
         );
     }
 
