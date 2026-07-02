@@ -6,7 +6,7 @@ use std::collections::BTreeMap;
 use std::fmt;
 
 use locus_core::{NodeId, RequestHome, RequestId};
-use locus_sys::{MappedRegion, MappedRegionError};
+use locus_sys::{page_size, MappedRegion, MappedRegionError, PageSizeError, TouchPagesError};
 
 const MAX_SUPPORTED_ALIGN: usize = 4096;
 
@@ -739,6 +739,18 @@ impl MappedScratchArena {
         self.reset_count = self.reset_count.saturating_add(1);
     }
 
+    /// Write-touches the underlying mapped pages to materialize them.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when page-size discovery fails or page touching fails.
+    pub fn write_touch_pages(&mut self) -> Result<usize, MappedScratchAllocError> {
+        let size = page_size().map_err(MappedScratchAllocError::PageSize)?;
+        self.region
+            .write_touch_pages(size)
+            .map_err(MappedScratchAllocError::TouchPages)
+    }
+
     /// Returns current arena accounting.
     #[must_use]
     pub fn stats(&self) -> ScratchArenaStats {
@@ -812,6 +824,10 @@ pub enum MappedScratchAllocError {
     },
     /// System mapping failed.
     Map(MappedRegionError),
+    /// Page-size discovery failed.
+    PageSize(PageSizeError),
+    /// Page touching failed.
+    TouchPages(TouchPagesError),
 }
 
 /// KV block pool failures.
@@ -911,6 +927,12 @@ impl fmt::Display for MappedScratchAllocError {
                 "mapped scratch arena out of memory: requested {requested}, remaining {remaining}"
             ),
             Self::Map(source) => write!(f, "mapped scratch arena mapping failed: {source}"),
+            Self::PageSize(source) => {
+                write!(f, "mapped scratch arena page-size lookup failed: {source}")
+            }
+            Self::TouchPages(source) => {
+                write!(f, "mapped scratch arena page touching failed: {source}")
+            }
         }
     }
 }
@@ -919,6 +941,8 @@ impl std::error::Error for MappedScratchAllocError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
             Self::Map(source) => Some(source),
+            Self::PageSize(source) => Some(source),
+            Self::TouchPages(source) => Some(source),
             Self::UnsupportedAlignment { .. }
             | Self::CapacityOverflow
             | Self::OutOfMemory { .. } => None,
@@ -1109,6 +1133,15 @@ mod tests {
             .expect_err("allocation should fail");
 
         assert!(matches!(error, MappedScratchAllocError::OutOfMemory { .. }));
+    }
+
+    #[test]
+    fn mapped_scratch_arena_write_touches_pages() {
+        let mut arena = MappedScratchArena::new(NodeId(0), 8192).expect("arena");
+
+        let touched = arena.write_touch_pages().expect("touch pages");
+
+        assert!(touched >= 1);
     }
 
     #[test]
