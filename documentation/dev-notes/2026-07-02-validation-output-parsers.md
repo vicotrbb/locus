@@ -43,11 +43,16 @@ The example prints:
 placement_validation_gate=<status> reason=<reason>
 ```
 
+The combined gate output parser is:
+
+- `locus_validate::linux::parse_placement_validation_gate_output`.
+
 Line-level parsers are also available when callers already isolated the final verdict line:
 
 - `locus_sys::linux::parse_linux_numa_policy_readiness_line`;
 - `locus_observe::parse_numa_placement_readiness_line`;
-- `locus_observe::parse_numa_placement_proof_line`.
+- `locus_observe::parse_numa_placement_proof_line`;
+- `locus_validate::linux::parse_placement_validation_gate_line`.
 
 ## Acceptance Rules
 
@@ -66,7 +71,7 @@ The current Docker environment still produces:
 
 - `memory_policy_readiness=not_ready reason=permission_denied`;
 - `placement_validation_readiness=not_ready reason=numa_maps_unavailable`;
-- `placement_proof=unavailable reason=numa_maps_unavailable`.
+- `placement_proof=unavailable reason=numa_maps_unavailable`;
 - `placement_validation_gate=not_ready reason=memory_policy_not_ready`.
 
 Those verdicts validate failure handling, parser coverage, and output stability. They do not validate page placement.
