@@ -66,7 +66,7 @@ The combined validation gate reports:
 
 That environment validates failure handling and probe plumbing. It does not validate successful NUMA placement.
 
-With `--security-opt seccomp=unconfined`, Docker reports `seccomp=disabled seccomp_filters=0 no_new_privs=0`, but `mbind` still fails with `Function not implemented` and `memory_policy_readiness=not_ready reason=syscall_failed`. Disabling seccomp alone is not enough in this environment.
+With `--security-opt seccomp=unconfined`, Docker reports `seccomp=disabled seccomp_filters=0 no_new_privs=0`, but `mbind` still fails with `Function not implemented` and `memory_policy_readiness=not_ready reason=syscall_unavailable`. Disabling seccomp alone is not enough in this environment.
 
 ## Next Validation Environment
 

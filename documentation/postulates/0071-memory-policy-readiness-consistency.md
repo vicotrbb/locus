@@ -17,7 +17,7 @@ Rejecting incoherent pairs keeps captured probe output from being treated as val
 Add consistency rules for `LinuxNumaPolicyReadiness`:
 
 - `ready` must use `ready`;
-- `not_ready` must use `invalid_node`, `permission_denied`, or `syscall_failed`.
+- `not_ready` must use `invalid_node`, `permission_denied`, `syscall_unavailable`, or `syscall_failed`.
 
 Update line and output parser tests to reject inconsistent pairs.
 

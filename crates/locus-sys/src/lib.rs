@@ -125,6 +125,8 @@ pub mod linux {
         InvalidNode,
         /// The operating system denied the `mbind` syscall.
         PermissionDenied,
+        /// The running kernel or virtualization layer does not implement `mbind`.
+        SyscallUnavailable,
         /// The `mbind` syscall failed for another reason.
         SyscallFailed,
     }
@@ -137,6 +139,7 @@ pub mod linux {
                 Self::Ready => "ready",
                 Self::InvalidNode => "invalid_node",
                 Self::PermissionDenied => "permission_denied",
+                Self::SyscallUnavailable => "syscall_unavailable",
                 Self::SyscallFailed => "syscall_failed",
             }
         }
@@ -148,6 +151,7 @@ pub mod linux {
                 "ready" => Some(Self::Ready),
                 "invalid_node" => Some(Self::InvalidNode),
                 "permission_denied" => Some(Self::PermissionDenied),
+                "syscall_unavailable" => Some(Self::SyscallUnavailable),
                 "syscall_failed" => Some(Self::SyscallFailed),
                 _ => None,
             }
@@ -410,6 +414,14 @@ pub mod linux {
                         reason: LinuxNumaPolicyReadinessReason::PermissionDenied,
                     }
                 }
+                Err(LinuxNumaPolicyError::Syscall(source))
+                    if source.raw_os_error() == Some(libc::ENOSYS) =>
+                {
+                    Self {
+                        status: LinuxNumaPolicyReadinessStatus::NotReady,
+                        reason: LinuxNumaPolicyReadinessReason::SyscallUnavailable,
+                    }
+                }
                 Err(LinuxNumaPolicyError::Syscall(_)) => Self {
                     status: LinuxNumaPolicyReadinessStatus::NotReady,
                     reason: LinuxNumaPolicyReadinessReason::SyscallFailed,
@@ -435,6 +447,7 @@ pub mod linux {
                     LinuxNumaPolicyReadinessStatus::NotReady,
                     LinuxNumaPolicyReadinessReason::InvalidNode
                         | LinuxNumaPolicyReadinessReason::PermissionDenied
+                        | LinuxNumaPolicyReadinessReason::SyscallUnavailable
                         | LinuxNumaPolicyReadinessReason::SyscallFailed
                 )
             )
@@ -617,6 +630,19 @@ pub mod linux {
                 LinuxNumaPolicyReadinessReason::PermissionDenied
             );
 
+            let unavailable =
+                LinuxNumaPolicyError::Syscall(io::Error::from_raw_os_error(libc::ENOSYS));
+            assert_eq!(
+                LinuxNumaPolicyReadiness::from_bind_result(Err(&unavailable)).reason,
+                LinuxNumaPolicyReadinessReason::SyscallUnavailable
+            );
+            assert_eq!(
+                LinuxNumaPolicyReadiness::from_bind_result(Err(&unavailable))
+                    .reason
+                    .to_string(),
+                "syscall_unavailable"
+            );
+
             let other = LinuxNumaPolicyError::Syscall(io::Error::from(ErrorKind::Other));
             assert_eq!(
                 LinuxNumaPolicyReadiness::from_bind_result(Err(&other)).reason,
@@ -677,6 +703,16 @@ Seccomp_filters:\t1
                 LinuxNumaPolicyReadiness {
                     status: LinuxNumaPolicyReadinessStatus::Ready,
                     reason: LinuxNumaPolicyReadinessReason::Ready,
+                }
+            );
+            assert_eq!(
+                parse_linux_numa_policy_readiness_line(
+                    "memory_policy_readiness=not_ready reason=syscall_unavailable"
+                )
+                .expect("syscall unavailable"),
+                LinuxNumaPolicyReadiness {
+                    status: LinuxNumaPolicyReadinessStatus::NotReady,
+                    reason: LinuxNumaPolicyReadinessReason::SyscallUnavailable,
                 }
             );
             assert_eq!(
