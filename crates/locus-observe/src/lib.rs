@@ -512,6 +512,17 @@ pub fn read_cgroup_numa_stat(
     parse_cgroup_numa_stat(&input).map_err(ObserveReadError::Parse)
 }
 
+/// Reads and summarizes cgroup v2 `memory.numa_stat` from an explicit path.
+///
+/// # Errors
+///
+/// Returns an error when the file cannot be read or parsed.
+pub fn read_cgroup_numa_summary(
+    path: impl AsRef<Path>,
+) -> Result<CgroupNumaSummary, ObserveReadError> {
+    read_cgroup_numa_stat(path).map(|entries| CgroupNumaSummary::from_entries(&entries))
+}
+
 /// Resolves the current cgroup v2 `memory.numa_stat` path from cgroup file
 /// content.
 ///
@@ -881,7 +892,7 @@ mod tests {
     use super::{
         numa_maps_entry_by_start_address, numa_maps_entry_containing_address,
         numa_maps_entry_for_address, parse_cgroup_numa_stat, parse_node_numastat, parse_numa_maps,
-        parse_numa_maps_line, read_cgroup_numa_stat, read_node_numastat,
+        parse_numa_maps_line, read_cgroup_numa_stat, read_cgroup_numa_summary, read_node_numastat,
         read_node_numastat_system_snapshot, read_numa_maps,
         resolve_cgroup_v2_memory_numa_stat_path, CgroupNumaDelta, CgroupNumaSummary,
         CgroupPathError, NodeNumastatSnapshot, NodeNumastatSystemSnapshot,
@@ -1106,6 +1117,12 @@ mod tests {
                 .expect("read cgroup stat")
                 .len(),
             1
+        );
+        assert_eq!(
+            read_cgroup_numa_summary(&cgroup_stat)
+                .expect("read cgroup summary")
+                .total_bytes,
+            12_288
         );
         assert_eq!(
             read_node_numastat(&node_stat)
