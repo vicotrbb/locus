@@ -1,9 +1,11 @@
 //! Experimental domain allocators for Locus.
 
 use std::alloc::Layout;
+use std::collections::btree_map::Entry;
+use std::collections::BTreeMap;
 use std::fmt;
 
-use locus_core::NodeId;
+use locus_core::{NodeId, RequestHome, RequestId};
 
 const MAX_SUPPORTED_ALIGN: usize = 4096;
 
@@ -21,6 +23,113 @@ pub struct ScratchArena {
     high_water_mark: usize,
     allocation_count: u64,
     reset_count: u64,
+}
+
+/// Request-scoped scratch arena manager.
+#[derive(Debug, Default)]
+pub struct RequestScratch {
+    arenas: BTreeMap<RequestId, ScratchArena>,
+}
+
+impl RequestScratch {
+    /// Creates an empty request scratch manager.
+    #[must_use]
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Opens a request-local arena.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the request has no selected home node, already has
+    /// an arena, or arena capacity creation fails.
+    pub fn open_request(
+        &mut self,
+        home: &RequestHome,
+        usable_capacity: usize,
+    ) -> Result<(), RequestScratchError> {
+        let node = home.node.ok_or(RequestScratchError::MissingHomeNode {
+            request_id: home.request_id,
+        })?;
+
+        match self.arenas.entry(home.request_id) {
+            Entry::Occupied(_) => Err(RequestScratchError::AlreadyOpen {
+                request_id: home.request_id,
+            }),
+            Entry::Vacant(entry) => {
+                let arena = ScratchArena::new(node, usable_capacity).map_err(|source| {
+                    RequestScratchError::Arena {
+                        request_id: home.request_id,
+                        source,
+                    }
+                })?;
+                entry.insert(arena);
+                Ok(())
+            }
+        }
+    }
+
+    /// Allocates from a request-local scratch arena.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the request is not open or arena allocation fails.
+    pub fn alloc_bytes(
+        &mut self,
+        request_id: RequestId,
+        layout: Layout,
+    ) -> Result<&mut [u8], RequestScratchError> {
+        let arena = self
+            .arenas
+            .get_mut(&request_id)
+            .ok_or(RequestScratchError::NotOpen { request_id })?;
+        arena
+            .alloc_bytes(layout)
+            .map_err(|source| RequestScratchError::Arena { request_id, source })
+    }
+
+    /// Resets one request-local scratch arena.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the request is not open.
+    pub fn reset_request(&mut self, request_id: RequestId) -> Result<(), RequestScratchError> {
+        let arena = self
+            .arenas
+            .get_mut(&request_id)
+            .ok_or(RequestScratchError::NotOpen { request_id })?;
+        arena.reset();
+        Ok(())
+    }
+
+    /// Closes a request-local scratch arena and returns its final stats.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the request is not open.
+    pub fn close_request(
+        &mut self,
+        request_id: RequestId,
+    ) -> Result<ScratchArenaStats, RequestScratchError> {
+        let arena = self
+            .arenas
+            .remove(&request_id)
+            .ok_or(RequestScratchError::NotOpen { request_id })?;
+        Ok(arena.stats())
+    }
+
+    /// Returns stats for an open request arena.
+    #[must_use]
+    pub fn stats(&self, request_id: RequestId) -> Option<ScratchArenaStats> {
+        self.arenas.get(&request_id).map(ScratchArena::stats)
+    }
+
+    /// Returns the number of open request arenas.
+    #[must_use]
+    pub fn open_request_count(&self) -> usize {
+        self.arenas.len()
+    }
 }
 
 impl ScratchArena {
@@ -178,6 +287,65 @@ impl fmt::Display for ScratchAllocError {
 
 impl std::error::Error for ScratchAllocError {}
 
+/// Request-scoped scratch allocation failures.
+#[derive(Debug, PartialEq, Eq)]
+pub enum RequestScratchError {
+    /// Request had no home node.
+    MissingHomeNode {
+        /// Request identifier.
+        request_id: RequestId,
+    },
+    /// Request already has an open arena.
+    AlreadyOpen {
+        /// Request identifier.
+        request_id: RequestId,
+    },
+    /// Request does not have an open arena.
+    NotOpen {
+        /// Request identifier.
+        request_id: RequestId,
+    },
+    /// Underlying arena operation failed.
+    Arena {
+        /// Request identifier.
+        request_id: RequestId,
+        /// Source allocation error.
+        source: ScratchAllocError,
+    },
+}
+
+impl fmt::Display for RequestScratchError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::MissingHomeNode { request_id } => {
+                write!(f, "request {} does not have a home node", request_id.0)
+            }
+            Self::AlreadyOpen { request_id } => {
+                write!(f, "request {} scratch arena is already open", request_id.0)
+            }
+            Self::NotOpen { request_id } => {
+                write!(f, "request {} scratch arena is not open", request_id.0)
+            }
+            Self::Arena { request_id, source } => {
+                write!(
+                    f,
+                    "request {} scratch allocation failed: {source}",
+                    request_id.0
+                )
+            }
+        }
+    }
+}
+
+impl std::error::Error for RequestScratchError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Arena { source, .. } => Some(source),
+            Self::MissingHomeNode { .. } | Self::AlreadyOpen { .. } | Self::NotOpen { .. } => None,
+        }
+    }
+}
+
 fn align_up(value: usize, align: usize) -> usize {
     debug_assert!(align.is_power_of_two());
     (value + align - 1) & !(align - 1)
@@ -187,9 +355,9 @@ fn align_up(value: usize, align: usize) -> usize {
 mod tests {
     use std::alloc::Layout;
 
-    use locus_core::NodeId;
+    use locus_core::{NodeId, RequestHome, RequestId};
 
-    use super::{ScratchAllocError, ScratchArena};
+    use super::{RequestScratch, RequestScratchError, ScratchAllocError, ScratchArena};
 
     #[test]
     fn allocates_aligned_slices() {
@@ -248,6 +416,67 @@ mod tests {
             ScratchAllocError::UnsupportedAlignment {
                 requested: 8192,
                 max: 4096,
+            }
+        );
+    }
+
+    #[test]
+    fn manages_request_scoped_arenas() {
+        let mut scratch = RequestScratch::new();
+        let request_id = RequestId(11);
+        let home = RequestHome {
+            request_id,
+            node: Some(NodeId(1)),
+            reason: "test",
+        };
+
+        scratch.open_request(&home, 256).expect("open request");
+        let allocation = scratch
+            .alloc_bytes(request_id, Layout::from_size_align(64, 32).expect("layout"))
+            .expect("allocation");
+        assert_eq!(allocation.len(), 64);
+
+        scratch.reset_request(request_id).expect("reset request");
+        let stats = scratch.close_request(request_id).expect("close request");
+
+        assert_eq!(stats.home_node, NodeId(1));
+        assert_eq!(stats.reset_count, 1);
+        assert_eq!(scratch.open_request_count(), 0);
+    }
+
+    #[test]
+    fn rejects_request_without_home_node() {
+        let mut scratch = RequestScratch::new();
+        let error = scratch
+            .open_request(
+                &RequestHome {
+                    request_id: RequestId(9),
+                    node: None,
+                    reason: "test",
+                },
+                128,
+            )
+            .expect_err("missing home node should fail");
+
+        assert_eq!(
+            error,
+            RequestScratchError::MissingHomeNode {
+                request_id: RequestId(9),
+            }
+        );
+    }
+
+    #[test]
+    fn rejects_alloc_for_closed_request() {
+        let mut scratch = RequestScratch::new();
+        let error = scratch
+            .alloc_bytes(RequestId(7), Layout::from_size_align(8, 8).expect("layout"))
+            .expect_err("request is not open");
+
+        assert_eq!(
+            error,
+            RequestScratchError::NotOpen {
+                request_id: RequestId(7),
             }
         );
     }
