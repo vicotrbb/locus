@@ -291,6 +291,21 @@ impl NumaPlacementEvidence {
             status,
         }
     }
+
+    /// Returns true only when every reported page is on the expected node.
+    #[must_use]
+    pub fn is_fully_on_expected_node(&self) -> bool {
+        self.status == NumaPlacementStatus::AllPagesOnExpectedNode
+    }
+
+    /// Returns the number of pages reported on nodes other than the expected node.
+    #[must_use]
+    pub fn other_pages(&self) -> u64 {
+        self.other_node_pages
+            .values()
+            .copied()
+            .fold(0_u64, u64::saturating_add)
+    }
 }
 
 /// Summary of cgroup NUMA bytes for one or more metrics.
@@ -1095,11 +1110,15 @@ mod tests {
         );
         assert_eq!(all_local.total_pages, 4);
         assert_eq!(all_local.expected_node_pages, 4);
+        assert!(all_local.is_fully_on_expected_node());
+        assert_eq!(all_local.other_pages(), 0);
         assert_eq!(
             partial.status,
             NumaPlacementStatus::PartialPagesOnExpectedNode
         );
         assert_eq!(partial.other_node_pages.get(&NodeId(1)), Some(&3));
+        assert!(!partial.is_fully_on_expected_node());
+        assert_eq!(partial.other_pages(), 3);
         assert_eq!(remote.status, NumaPlacementStatus::NoPagesOnExpectedNode);
         assert_eq!(no_pages.status, NumaPlacementStatus::NoPagesReported);
         assert_eq!(
