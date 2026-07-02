@@ -23,6 +23,41 @@ pub struct NumaMapsEntry {
     pub flags: Vec<String>,
 }
 
+/// How an address matched a parsed `numa_maps` entry.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NumaMapsAddressMatchKind {
+    /// Address equals the mapping start address.
+    ExactStart,
+    /// Address falls inside the range inferred from adjacent entry starts.
+    ContainingRange,
+}
+
+impl NumaMapsAddressMatchKind {
+    /// Returns a stable machine-readable match kind string.
+    #[must_use]
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::ExactStart => "exact_start",
+            Self::ContainingRange => "containing_range",
+        }
+    }
+}
+
+impl fmt::Display for NumaMapsAddressMatchKind {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+/// Matched `numa_maps` entry for an address.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct NumaMapsAddressMatch<'a> {
+    /// Match kind.
+    pub kind: NumaMapsAddressMatchKind,
+    /// Matched entry.
+    pub entry: &'a NumaMapsEntry,
+}
+
 /// One parsed entry from cgroup v2 `memory.numa_stat`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CgroupNumaStatEntry {
@@ -443,6 +478,27 @@ pub fn numa_maps_entry_containing_address(
     })
 }
 
+/// Finds the best `numa_maps` entry match for an address.
+///
+/// Exact start matches are preferred over containing range matches.
+#[must_use]
+pub fn numa_maps_entry_for_address(
+    entries: &[NumaMapsEntry],
+    address: usize,
+) -> Option<NumaMapsAddressMatch<'_>> {
+    if let Some(entry) = numa_maps_entry_by_start_address(entries, address) {
+        return Some(NumaMapsAddressMatch {
+            kind: NumaMapsAddressMatchKind::ExactStart,
+            entry,
+        });
+    }
+
+    numa_maps_entry_containing_address(entries, address).map(|entry| NumaMapsAddressMatch {
+        kind: NumaMapsAddressMatchKind::ContainingRange,
+        entry,
+    })
+}
+
 /// Reads and parses cgroup v2 `memory.numa_stat` from an explicit path.
 ///
 /// # Errors
@@ -824,11 +880,13 @@ mod tests {
 
     use super::{
         numa_maps_entry_by_start_address, numa_maps_entry_containing_address,
-        parse_cgroup_numa_stat, parse_node_numastat, parse_numa_maps, parse_numa_maps_line,
-        read_cgroup_numa_stat, read_node_numastat, read_node_numastat_system_snapshot,
-        read_numa_maps, resolve_cgroup_v2_memory_numa_stat_path, CgroupNumaDelta,
-        CgroupNumaSummary, CgroupPathError, NodeNumastatSnapshot, NodeNumastatSystemSnapshot,
-        NumaMapsSummary, NumaPlacementEvidence, NumaPlacementStatus, ObserveParseError,
+        numa_maps_entry_for_address, parse_cgroup_numa_stat, parse_node_numastat, parse_numa_maps,
+        parse_numa_maps_line, read_cgroup_numa_stat, read_node_numastat,
+        read_node_numastat_system_snapshot, read_numa_maps,
+        resolve_cgroup_v2_memory_numa_stat_path, CgroupNumaDelta, CgroupNumaSummary,
+        CgroupPathError, NodeNumastatSnapshot, NodeNumastatSystemSnapshot,
+        NumaMapsAddressMatchKind, NumaMapsSummary, NumaPlacementEvidence, NumaPlacementStatus,
+        ObserveParseError,
     };
 
     #[test]
@@ -892,6 +950,26 @@ mod tests {
                 .policy,
             "default"
         );
+    }
+
+    #[test]
+    fn finds_best_numa_maps_address_match() {
+        let entries = parse_numa_maps(
+            "1000 default anon=1 N0=1\n\
+             2000 bind:0 anon=2 N0=2\n\
+             4000 default anon=1 N1=1\n",
+        )
+        .expect("valid numa maps");
+
+        let exact = numa_maps_entry_for_address(&entries, 0x2000).expect("exact match");
+        let containing = numa_maps_entry_for_address(&entries, 0x2fff).expect("containing match");
+
+        assert_eq!(exact.kind, NumaMapsAddressMatchKind::ExactStart);
+        assert_eq!(exact.kind.to_string(), "exact_start");
+        assert_eq!(exact.entry.policy, "bind:0");
+        assert_eq!(containing.kind, NumaMapsAddressMatchKind::ContainingRange);
+        assert_eq!(containing.entry.policy, "bind:0");
+        assert!(numa_maps_entry_for_address(&entries, 0x0fff).is_none());
     }
 
     #[test]
