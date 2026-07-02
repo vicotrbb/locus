@@ -6,10 +6,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     use locus_alloc::MappedScratchArena;
     use locus_core::NodeId;
-    use locus_observe::{
-        numa_maps_entry_by_start_address, numa_maps_entry_containing_address, read_self_numa_maps,
-        ObserveReadError,
-    };
+    use locus_observe::{numa_maps_entry_for_address, read_self_numa_maps, ObserveReadError};
 
     let mut arena = MappedScratchArena::new(NodeId(0), 16 * 1024)?;
     let mapping_start = arena.mapping_start_address();
@@ -47,11 +44,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     match read_self_numa_maps() {
         Ok(entries) => {
-            if let Some(entry) = numa_maps_entry_by_start_address(&entries, mapping_start) {
-                print_placement("ok", entry, arena.home_node());
-            } else if let Some(entry) = numa_maps_entry_containing_address(&entries, mapping_start)
-            {
-                print_placement("containing", entry, arena.home_node());
+            if let Some(address_match) = numa_maps_entry_for_address(&entries, mapping_start) {
+                print_placement(address_match, arena.home_node());
             } else {
                 println!("numa_maps_match=missing");
             }
@@ -67,13 +61,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 #[cfg(target_os = "linux")]
 fn print_placement(
-    match_status: &str,
-    entry: &locus_observe::NumaMapsEntry,
+    address_match: locus_observe::NumaMapsAddressMatch<'_>,
     expected_node: locus_core::NodeId,
 ) {
+    let entry = address_match.entry;
     let evidence = locus_observe::NumaPlacementEvidence::from_entry(entry, expected_node);
     println!(
-        "numa_maps_match={match_status} policy={} placement_status={} placement_verified={} expected_node={} expected_pages={} other_pages={} total_pages={}",
+        "numa_maps_match={} policy={} placement_status={} placement_verified={} expected_node={} expected_pages={} other_pages={} total_pages={}",
+        address_match.kind,
         entry.policy,
         evidence.status,
         evidence.is_fully_on_expected_node(),
