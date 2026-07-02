@@ -19,6 +19,7 @@ A placement proof for one mapped scratch arena requires all of the following:
 - `NumaPlacementEvidence::is_fully_on_expected_node()` returns true;
 - `placement_verified=true` is printed for that matched mapping;
 - `placement_proof=verified reason=verified` is printed for the attempt.
+- `placement_validation_gate=verified reason=verified` is printed when the three probe outputs are evaluated together.
 
 If any item is missing, the result is attempted placement or unavailable evidence, not verified placement.
 
@@ -41,6 +42,8 @@ Before a validation run is treated as capable of proving placement, record both 
 
 If either readiness line reports `not_ready`, the run can still validate failure handling and parser plumbing, but it cannot produce a successful placement proof.
 
+Captured probe outputs should be evaluated with `cargo run -p locus-validate --example placement_validation_gate -- <memory-policy-output> <placement-readiness-output> <placement-proof-output>`. A verified run requires `placement_validation_gate=verified reason=verified`.
+
 ## Current Docker Result
 
 The current Docker validation path still reports:
@@ -56,6 +59,10 @@ The locality environment probe also reports:
 
 - `placement_validation_readiness=not_ready reason=numa_maps_unavailable`.
 
+The combined validation gate reports:
+
+- `placement_validation_gate=not_ready reason=memory_policy_not_ready`.
+
 That environment validates failure handling and probe plumbing. It does not validate successful NUMA placement.
 
 ## Next Validation Environment
@@ -68,5 +75,6 @@ The next meaningful validation run needs a Linux host or container configuration
 - cgroup v2 `memory.numa_stat` is exposed for the current process cgroup;
 - `/sys/devices/system/node/node*/numastat` is readable;
 - the placement validation readiness line reports `ready`.
+- the combined validation gate reports `verified`.
 
 Only then can the mapped scratch bind probe produce a placement proof rather than an unavailable-evidence report.
