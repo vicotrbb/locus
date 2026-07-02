@@ -3,6 +3,7 @@ members = [
     "crates/locus-alloc",
     "crates/locus-core",
     "crates/locus-observe",
+    "crates/locus-sys",
     "crates/locus-topology",
 ]
 resolver = "2"
