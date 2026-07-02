@@ -948,6 +948,34 @@ impl MappedRegion {
 
         Ok(touched)
     }
+
+    /// Locks the mapped pages into RAM with `mlock`.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the operating system rejects the lock request.
+    pub fn lock_pages(&self) -> Result<(), PageLockError> {
+        let rc = unsafe { libc::mlock(self.ptr.as_ptr().cast::<libc::c_void>(), self.len) };
+        if rc == -1 {
+            Err(PageLockError::LockFailed(io::Error::last_os_error()))
+        } else {
+            Ok(())
+        }
+    }
+
+    /// Unlocks pages previously locked with `lock_pages`.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the operating system rejects the unlock request.
+    pub fn unlock_pages(&self) -> Result<(), PageLockError> {
+        let rc = unsafe { libc::munlock(self.ptr.as_ptr().cast::<libc::c_void>(), self.len) };
+        if rc == -1 {
+            Err(PageLockError::UnlockFailed(io::Error::last_os_error()))
+        } else {
+            Ok(())
+        }
+    }
 }
 
 impl Drop for MappedRegion {
@@ -980,6 +1008,15 @@ pub enum PageSizeError {
 pub enum TouchPagesError {
     /// Page size must be non-zero.
     InvalidPageSize,
+}
+
+/// Page-locking failures.
+#[derive(Debug)]
+pub enum PageLockError {
+    /// `mlock` failed.
+    LockFailed(io::Error),
+    /// `munlock` failed.
+    UnlockFailed(io::Error),
 }
 
 impl fmt::Display for MappedRegionError {
@@ -1028,9 +1065,26 @@ impl fmt::Display for TouchPagesError {
 
 impl std::error::Error for TouchPagesError {}
 
+impl fmt::Display for PageLockError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::LockFailed(source) => write!(f, "mlock failed: {source}"),
+            Self::UnlockFailed(source) => write!(f, "munlock failed: {source}"),
+        }
+    }
+}
+
+impl std::error::Error for PageLockError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::LockFailed(source) | Self::UnlockFailed(source) => Some(source),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{page_size, MappedRegion, MappedRegionError, TouchPagesError};
+    use super::{page_size, MappedRegion, MappedRegionError, PageLockError, TouchPagesError};
 
     #[test]
     fn maps_writable_anonymous_region() {
@@ -1071,6 +1125,23 @@ mod tests {
         assert_eq!(region.as_slice()[0], 1);
         assert_eq!(region.as_slice()[size], 1);
         assert_eq!(region.as_slice()[size * 2], 1);
+    }
+
+    #[test]
+    fn locks_and_unlocks_mapped_pages() {
+        let region = MappedRegion::anonymous(4096).expect("mapped region");
+
+        match region.lock_pages() {
+            Ok(()) => {
+                region.unlock_pages().expect("unlock pages");
+            }
+            Err(PageLockError::LockFailed(source))
+                if matches!(
+                    source.raw_os_error(),
+                    Some(libc::ENOMEM | libc::EPERM | libc::EAGAIN)
+                ) => {}
+            Err(error) => panic!("unexpected page lock error: {error}"),
+        }
     }
 
     #[test]
