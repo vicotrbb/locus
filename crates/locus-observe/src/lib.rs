@@ -50,6 +50,10 @@ pub struct NumaMapsSummary {
     pub total_pages: u64,
     /// Per-node page totals.
     pub pages_by_node: BTreeMap<NodeId, u64>,
+    /// Mapping counts by kernel policy token.
+    pub mappings_by_policy: BTreeMap<String, usize>,
+    /// Page totals by `kernelpagesize_kB` when present.
+    pub pages_by_kernel_page_kb: BTreeMap<u64, u64>,
 }
 
 impl NumaMapsSummary {
@@ -62,6 +66,24 @@ impl NumaMapsSummary {
         };
 
         for entry in entries {
+            *summary
+                .mappings_by_policy
+                .entry(entry.policy.clone())
+                .or_default() += 1;
+
+            let entry_pages = entry
+                .node_pages
+                .values()
+                .copied()
+                .fold(0_u64, u64::saturating_add);
+            if let Some(page_kb) = entry
+                .attributes
+                .get("kernelpagesize_kB")
+                .and_then(|value| value.parse::<u64>().ok())
+            {
+                *summary.pages_by_kernel_page_kb.entry(page_kb).or_default() += entry_pages;
+            }
+
             for (node, pages) in &entry.node_pages {
                 summary.total_pages = summary.total_pages.saturating_add(*pages);
                 *summary.pages_by_node.entry(*node).or_default() += pages;
@@ -504,16 +526,23 @@ mod tests {
 
     #[test]
     fn summarizes_numa_maps_pages_by_node() {
-        let entries =
-            parse_numa_maps("1000 default anon=3 N0=1 N1=2\n2000 bind:1 anon=4 dirty=4 N1=4\n")
-                .expect("valid numa maps");
+        let entries = parse_numa_maps(
+            "1000 default anon=3 N0=1 N1=2 kernelpagesize_kB=4\n\
+             2000 bind:1 anon=4 dirty=4 N1=4 kernelpagesize_kB=2048\n\
+             3000 default anon=1 N0=1 kernelpagesize_kB=4\n",
+        )
+        .expect("valid numa maps");
 
         let summary = NumaMapsSummary::from_entries(&entries);
 
-        assert_eq!(summary.mapping_count, 2);
-        assert_eq!(summary.total_pages, 7);
-        assert_eq!(summary.pages_by_node.get(&NodeId(0)), Some(&1));
+        assert_eq!(summary.mapping_count, 3);
+        assert_eq!(summary.total_pages, 8);
+        assert_eq!(summary.pages_by_node.get(&NodeId(0)), Some(&2));
         assert_eq!(summary.pages_by_node.get(&NodeId(1)), Some(&6));
+        assert_eq!(summary.mappings_by_policy.get("default"), Some(&2));
+        assert_eq!(summary.mappings_by_policy.get("bind:1"), Some(&1));
+        assert_eq!(summary.pages_by_kernel_page_kb.get(&4), Some(&4));
+        assert_eq!(summary.pages_by_kernel_page_kb.get(&2048), Some(&4));
     }
 
     #[test]
