@@ -73,11 +73,13 @@ fn print_placement(
 ) {
     let evidence = locus_observe::NumaPlacementEvidence::from_entry(entry, expected_node);
     println!(
-        "numa_maps_match={match_status} policy={} placement_status={} expected_node={} expected_pages={} total_pages={}",
+        "numa_maps_match={match_status} policy={} placement_status={} placement_verified={} expected_node={} expected_pages={} other_pages={} total_pages={}",
         entry.policy,
         evidence.status,
+        evidence.is_fully_on_expected_node(),
         evidence.expected_node.0,
         evidence.expected_node_pages,
+        evidence.other_pages(),
         evidence.total_pages
     );
     for (node, pages) in &entry.node_pages {
