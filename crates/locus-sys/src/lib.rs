@@ -209,6 +209,38 @@ pub mod linux {
 
     impl std::error::Error for LinuxNumaPolicyReadinessLineParseError {}
 
+    /// Error returned when extracting memory-policy readiness from multiline output.
+    #[derive(Debug, Clone, PartialEq, Eq)]
+    pub enum LinuxNumaPolicyReadinessOutputParseError {
+        /// The output does not contain a `memory_policy_readiness=` line.
+        MissingReadinessLine,
+        /// The output contains more than one `memory_policy_readiness=` line.
+        DuplicateReadinessLine,
+        /// The discovered readiness line is malformed.
+        Line(LinuxNumaPolicyReadinessLineParseError),
+    }
+
+    impl fmt::Display for LinuxNumaPolicyReadinessOutputParseError {
+        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+            match self {
+                Self::MissingReadinessLine => f.write_str("missing memory_policy_readiness line"),
+                Self::DuplicateReadinessLine => {
+                    f.write_str("duplicate memory_policy_readiness line")
+                }
+                Self::Line(source) => write!(f, "invalid memory_policy_readiness line: {source}"),
+            }
+        }
+    }
+
+    impl std::error::Error for LinuxNumaPolicyReadinessOutputParseError {
+        fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+            match self {
+                Self::Line(source) => Some(source),
+                Self::MissingReadinessLine | Self::DuplicateReadinessLine => None,
+            }
+        }
+    }
+
     impl LinuxNumaPolicyReadiness {
         /// Builds a readiness verdict from an `mbind` attempt result.
         #[must_use]
@@ -301,6 +333,36 @@ pub mod linux {
         Ok(LinuxNumaPolicyReadiness { status, reason })
     }
 
+    /// Extracts Linux memory-policy readiness from multiline probe output.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the output has no memory-policy readiness line,
+    /// has more than one memory-policy readiness line, or contains a malformed
+    /// memory-policy readiness line.
+    pub fn parse_linux_numa_policy_readiness_output(
+        output: &str,
+    ) -> Result<LinuxNumaPolicyReadiness, LinuxNumaPolicyReadinessOutputParseError> {
+        let mut readiness = None;
+
+        for line in output.lines().map(str::trim) {
+            if !line.starts_with("memory_policy_readiness=") {
+                continue;
+            }
+
+            if readiness.is_some() {
+                return Err(LinuxNumaPolicyReadinessOutputParseError::DuplicateReadinessLine);
+            }
+
+            readiness = Some(
+                parse_linux_numa_policy_readiness_line(line)
+                    .map_err(LinuxNumaPolicyReadinessOutputParseError::Line)?,
+            );
+        }
+
+        readiness.ok_or(LinuxNumaPolicyReadinessOutputParseError::MissingReadinessLine)
+    }
+
     fn node_mask_words(node: u32) -> Result<Vec<libc::c_ulong>, LinuxNumaPolicyError> {
         if node >= MAX_NODE_BITS {
             return Err(LinuxNumaPolicyError::InvalidNode(node));
@@ -320,9 +382,11 @@ pub mod linux {
         use std::io::ErrorKind;
 
         use super::{
-            node_mask_words, parse_linux_numa_policy_readiness_line, LinuxNumaPolicyError,
+            node_mask_words, parse_linux_numa_policy_readiness_line,
+            parse_linux_numa_policy_readiness_output, LinuxNumaPolicyError,
             LinuxNumaPolicyReadiness, LinuxNumaPolicyReadinessLineParseError,
-            LinuxNumaPolicyReadinessReason, LinuxNumaPolicyReadinessStatus,
+            LinuxNumaPolicyReadinessOutputParseError, LinuxNumaPolicyReadinessReason,
+            LinuxNumaPolicyReadinessStatus,
         };
 
         #[test]
@@ -455,6 +519,48 @@ pub mod linux {
                 )
                 .expect_err("duplicate reason"),
                 LinuxNumaPolicyReadinessLineParseError::DuplicateReason
+            );
+        }
+
+        #[test]
+        fn parses_linux_numa_policy_readiness_from_output() {
+            let output = "\
+mbind=error mbind syscall failed: Operation not permitted (os error 1)
+memory_policy_readiness=not_ready reason=permission_denied
+touched=4
+";
+
+            assert_eq!(
+                parse_linux_numa_policy_readiness_output(output).expect("readiness"),
+                LinuxNumaPolicyReadiness {
+                    status: LinuxNumaPolicyReadinessStatus::NotReady,
+                    reason: LinuxNumaPolicyReadinessReason::PermissionDenied,
+                }
+            );
+        }
+
+        #[test]
+        fn rejects_invalid_linux_numa_policy_readiness_output() {
+            assert_eq!(
+                parse_linux_numa_policy_readiness_output("mbind=ok\n")
+                    .expect_err("missing readiness"),
+                LinuxNumaPolicyReadinessOutputParseError::MissingReadinessLine
+            );
+            assert_eq!(
+                parse_linux_numa_policy_readiness_output(
+                    "memory_policy_readiness=ready reason=ready\nmemory_policy_readiness=not_ready reason=permission_denied\n",
+                )
+                .expect_err("duplicate readiness"),
+                LinuxNumaPolicyReadinessOutputParseError::DuplicateReadinessLine
+            );
+            assert_eq!(
+                parse_linux_numa_policy_readiness_output(
+                    "memory_policy_readiness=maybe reason=ready\n"
+                )
+                .expect_err("bad readiness"),
+                LinuxNumaPolicyReadinessOutputParseError::Line(
+                    LinuxNumaPolicyReadinessLineParseError::UnknownStatus("maybe".to_owned())
+                )
             );
         }
     }
