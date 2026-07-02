@@ -25,6 +25,11 @@ enum KvRemoteFreeCommand {
     Stop,
 }
 
+enum RequestRemoteReturnCommand {
+    Run(Vec<RequestId>),
+    Stop,
+}
+
 fn scratch_arena_reset_cycle(c: &mut Criterion) {
     c.bench_function("scratch_arena_reset_cycle_64x256b", |bench| {
         let mut arena = ScratchArena::new(NodeId(0), 32 * 1024).expect("arena");
@@ -496,6 +501,73 @@ fn kv_remote_free_queue_release_cycle_with_batch(
     });
 }
 
+fn request_remote_free_queue_return_cycle(c: &mut Criterion) {
+    c.bench_function("request_remote_free_queue_return_16x64x256b", |bench| {
+        let homes = (0..16)
+            .map(|request| RequestHome {
+                request_id: RequestId(request),
+                node: Some(NodeId((request % 2) as u32)),
+                reason: "bench",
+            })
+            .collect::<Vec<_>>();
+        let layout = Layout::from_size_align(256, 64).expect("layout");
+        let mut pool = RequestScratchPool::new();
+        let mut queue = RemoteFreeQueue::new(16, 16).expect("queue");
+        let sink = queue.sink();
+        let (command_sender, command_receiver) = sync_channel::<RequestRemoteReturnCommand>(1);
+
+        let remote_completion = thread::spawn(move || {
+            while let Ok(command) = command_receiver.recv() {
+                match command {
+                    RequestRemoteReturnCommand::Run(requests) => {
+                        for request_id in requests {
+                            sink.enqueue(request_id).expect("enqueue request");
+                        }
+                    }
+                    RequestRemoteReturnCommand::Stop => break,
+                }
+            }
+        });
+
+        bench.iter(|| {
+            let mut requests = Vec::with_capacity(homes.len());
+            for home in &homes {
+                pool.open_request(home, 32 * 1024).expect("open request");
+                for _ in 0..64 {
+                    let allocation = pool
+                        .alloc_bytes(home.request_id, layout)
+                        .expect("allocation");
+                    black_box(allocation.as_mut_ptr());
+                }
+                requests.push(home.request_id);
+            }
+
+            command_sender
+                .send(RequestRemoteReturnCommand::Run(requests))
+                .expect("send requests");
+
+            let mut returned = 0_usize;
+            while returned < homes.len() {
+                let stats = queue.drain_batch(|request_id| {
+                    black_box(pool.close_request(request_id).expect("close request"));
+                });
+                if stats.drained == 0 {
+                    thread::yield_now();
+                }
+                returned += stats.drained;
+            }
+
+            black_box(pool.pool_stats());
+            black_box(queue.stats());
+        });
+
+        command_sender
+            .send(RequestRemoteReturnCommand::Stop)
+            .expect("send stop");
+        remote_completion.join().expect("remote completion thread");
+    });
+}
+
 criterion_group!(
     benches,
     scratch_arena_reset_cycle,
@@ -517,6 +589,7 @@ criterion_group!(
     remote_free_queue_persistent_handoff_cycle,
     kv_remote_free_queue_release_cycle,
     kv_remote_free_queue_release_batch8_cycle,
-    kv_remote_free_queue_release_batch64_cycle
+    kv_remote_free_queue_release_batch64_cycle,
+    request_remote_free_queue_return_cycle
 );
 criterion_main!(benches);
