@@ -18,6 +18,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("mapping_len={}", arena.mapping_len());
 
     let cgroup_before = read_current_cgroup_summary()?;
+    let node_numastat_before = read_current_node_numastat_snapshot()?;
 
     match arena.bind_to_node(NodeId(0)) {
         Ok(()) => println!("mapped_scratch_bind=ok"),
@@ -34,6 +35,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             None => println!("cgroup_numa_delta=unavailable"),
         },
         None => println!("cgroup_numa_delta=unavailable"),
+    }
+
+    match node_numastat_before {
+        Some(before) => match read_current_node_numastat_snapshot()? {
+            Some(after) => print_node_numastat_delta(&before, &after),
+            None => println!("node_numastat_delta=unavailable"),
+        },
+        None => println!("node_numastat_delta=unavailable"),
     }
 
     match read_self_numa_maps() {
@@ -77,6 +86,23 @@ fn print_placement(
 }
 
 #[cfg(target_os = "linux")]
+fn read_current_node_numastat_snapshot(
+) -> Result<Option<locus_observe::NodeNumastatSystemSnapshot>, Box<dyn std::error::Error>> {
+    match locus_observe::read_node_numastat_system_snapshot(std::path::Path::new(
+        "/sys/devices/system/node",
+    )) {
+        Ok(snapshot) if snapshot.node_count == 0 => Ok(None),
+        Ok(snapshot) => Ok(Some(snapshot)),
+        Err(locus_observe::ObserveReadError::Read { source, .. })
+            if source.kind() == std::io::ErrorKind::NotFound =>
+        {
+            Ok(None)
+        }
+        Err(error) => Err(Box::new(error)),
+    }
+}
+
+#[cfg(target_os = "linux")]
 fn read_current_cgroup_summary(
 ) -> Result<Option<locus_observe::CgroupNumaSummary>, Box<dyn std::error::Error>> {
     let cgroup_content = match std::fs::read_to_string("/proc/self/cgroup") {
@@ -102,6 +128,22 @@ fn read_current_cgroup_summary(
             Ok(None)
         }
         Err(error) => Err(Box::new(error)),
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn print_node_numastat_delta(
+    before: &locus_observe::NodeNumastatSystemSnapshot,
+    after: &locus_observe::NodeNumastatSystemSnapshot,
+) {
+    let delta = after.delta_since(before);
+    println!("node_numastat_delta=ok nodes={}", delta.nodes.len());
+    for (node, node_delta) in delta.nodes {
+        for metric in ["numa_hit", "numa_miss", "local_node", "other_node"] {
+            if let Some(value) = node_delta.get(metric) {
+                println!("node_numastat_node={} {metric}_delta={value}", node.0);
+            }
+        }
     }
 }
 
