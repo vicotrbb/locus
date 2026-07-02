@@ -9,6 +9,17 @@ use locus_alloc::{
 };
 use locus_core::{NodeId, RequestHome, RequestId};
 
+enum ProducerCommand {
+    Run(usize),
+    Stop,
+}
+
+enum HandoffMessage {
+    Block(Vec<u8>),
+    EndBatch,
+    Stop,
+}
+
 fn scratch_arena_reset_cycle(c: &mut Criterion) {
     c.bench_function("scratch_arena_reset_cycle_64x256b", |bench| {
         let mut arena = ScratchArena::new(NodeId(0), 32 * 1024).expect("arena");
@@ -292,6 +303,69 @@ fn vec_producer_consumer_handoff_cycle(c: &mut Criterion) {
     });
 }
 
+fn vec_persistent_worker_handoff_cycle(c: &mut Criterion) {
+    c.bench_function("vec_persistent_worker_handoff_256x4k", |bench| {
+        let (command_sender, command_receiver) = sync_channel::<ProducerCommand>(1);
+        let (handoff_sender, handoff_receiver) = sync_channel::<HandoffMessage>(32);
+        let (done_sender, done_receiver) = sync_channel::<usize>(1);
+
+        let producer = thread::spawn(move || {
+            while let Ok(command) = command_receiver.recv() {
+                match command {
+                    ProducerCommand::Run(blocks) => {
+                        for _ in 0..blocks {
+                            let mut block = vec![0_u8; 4096];
+                            black_box(block.as_mut_ptr());
+                            handoff_sender
+                                .send(HandoffMessage::Block(block))
+                                .expect("send block");
+                        }
+                        handoff_sender
+                            .send(HandoffMessage::EndBatch)
+                            .expect("send end batch");
+                    }
+                    ProducerCommand::Stop => {
+                        handoff_sender
+                            .send(HandoffMessage::Stop)
+                            .expect("send stop");
+                        break;
+                    }
+                }
+            }
+        });
+
+        let consumer = thread::spawn(move || {
+            let mut blocks = 0_usize;
+            while let Ok(message) = handoff_receiver.recv() {
+                match message {
+                    HandoffMessage::Block(mut block) => {
+                        black_box(block.as_mut_ptr());
+                        blocks += 1;
+                    }
+                    HandoffMessage::EndBatch => {
+                        done_sender.send(blocks).expect("send done");
+                        blocks = 0;
+                    }
+                    HandoffMessage::Stop => break,
+                }
+            }
+        });
+
+        bench.iter(|| {
+            command_sender
+                .send(ProducerCommand::Run(256))
+                .expect("send run");
+            black_box(done_receiver.recv().expect("receive done"));
+        });
+
+        command_sender
+            .send(ProducerCommand::Stop)
+            .expect("send stop");
+        producer.join().expect("producer thread");
+        consumer.join().expect("consumer thread");
+    });
+}
+
 criterion_group!(
     benches,
     scratch_arena_reset_cycle,
@@ -308,6 +382,7 @@ criterion_group!(
     kv_vec_uninit_capacity_allocation_cycle,
     kv_block_table_append_release_cycle,
     kv_vec_table_allocation_cycle,
-    vec_producer_consumer_handoff_cycle
+    vec_producer_consumer_handoff_cycle,
+    vec_persistent_worker_handoff_cycle
 );
 criterion_main!(benches);

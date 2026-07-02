@@ -24,6 +24,7 @@ This note summarizes the allocator benchmark coverage currently recorded in expe
 | Producer and consumer handoff through mimalloc | None | `mimalloc_vec_producer_consumer_handoff_256x4k` | 64.717 us to 66.059 us | `documentation/experiments/0051-allocator-specific-handoff-benchmarks.md` |
 | Producer and consumer handoff through jemalloc | None | `jemalloc_vec_producer_consumer_handoff_256x4k` | 99.773 us to 100.11 us | `documentation/experiments/0051-allocator-specific-handoff-benchmarks.md` |
 | Producer and consumer handoff through explicit system allocator | None | `system_vec_producer_consumer_handoff_256x4k` | 93.158 us to 93.941 us | `documentation/experiments/0051-allocator-specific-handoff-benchmarks.md` |
+| Persistent-worker producer and consumer handoff | None | `vec_persistent_worker_handoff_256x4k` | 70.949 us to 71.712 us | `documentation/experiments/0052-persistent-worker-handoff-benchmark.md` |
 
 ## Interpretation
 
