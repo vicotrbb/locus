@@ -249,6 +249,15 @@ pub struct CgroupNumaSummary {
     pub bytes_by_node: BTreeMap<NodeId, u64>,
 }
 
+/// Signed delta between two cgroup NUMA summaries.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct CgroupNumaDelta {
+    /// Signed total-byte delta across all node fields.
+    pub total_bytes_delta: i128,
+    /// Signed per-node byte deltas.
+    pub bytes_by_node_delta: BTreeMap<NodeId, i128>,
+}
+
 impl CgroupNumaSummary {
     /// Builds a summary from parsed cgroup NUMA stat entries.
     #[must_use]
@@ -266,6 +275,34 @@ impl CgroupNumaSummary {
         }
 
         summary
+    }
+
+    /// Computes signed byte deltas from `previous` to `self`.
+    #[must_use]
+    pub fn delta_since(&self, previous: &Self) -> CgroupNumaDelta {
+        let total_bytes_delta = i128::from(self.total_bytes) - i128::from(previous.total_bytes);
+        let mut bytes_by_node_delta = BTreeMap::new();
+
+        for node in previous
+            .bytes_by_node
+            .keys()
+            .chain(self.bytes_by_node.keys())
+        {
+            let before = i128::from(
+                previous
+                    .bytes_by_node
+                    .get(node)
+                    .copied()
+                    .unwrap_or_default(),
+            );
+            let after = i128::from(self.bytes_by_node.get(node).copied().unwrap_or_default());
+            bytes_by_node_delta.insert(*node, after - before);
+        }
+
+        CgroupNumaDelta {
+            total_bytes_delta,
+            bytes_by_node_delta,
+        }
     }
 }
 
@@ -646,6 +683,7 @@ fn parse_u64(value: &str, token: &str) -> Result<u64, ObserveParseError> {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::BTreeMap;
     use std::fs;
     use std::path::PathBuf;
 
@@ -656,9 +694,9 @@ mod tests {
         numa_maps_entry_by_start_address, numa_maps_entry_containing_address,
         parse_cgroup_numa_stat, parse_node_numastat, parse_numa_maps, parse_numa_maps_line,
         read_cgroup_numa_stat, read_node_numastat, read_numa_maps,
-        resolve_cgroup_v2_memory_numa_stat_path, CgroupNumaSummary, CgroupPathError,
-        NodeNumastatSnapshot, NumaMapsSummary, NumaPlacementEvidence, NumaPlacementStatus,
-        ObserveParseError,
+        resolve_cgroup_v2_memory_numa_stat_path, CgroupNumaDelta, CgroupNumaSummary,
+        CgroupPathError, NodeNumastatSnapshot, NumaMapsSummary, NumaPlacementEvidence,
+        NumaPlacementStatus, ObserveParseError,
     };
 
     #[test]
@@ -885,5 +923,29 @@ mod tests {
         assert_eq!(summary.total_bytes, 12_318);
         assert_eq!(summary.bytes_by_node.get(&NodeId(0)), Some(&4_106));
         assert_eq!(summary.bytes_by_node.get(&NodeId(1)), Some(&8_212));
+    }
+
+    #[test]
+    fn computes_cgroup_numa_summary_delta() {
+        let before = CgroupNumaSummary::from_entries(
+            &parse_cgroup_numa_stat("anon N0=4096 N1=8192\nfile N0=100 N1=10\n").expect("before"),
+        );
+        let after = CgroupNumaSummary::from_entries(
+            &parse_cgroup_numa_stat("anon N0=8192 N1=4096\nfile N0=100 N2=7\n").expect("after"),
+        );
+
+        let delta = after.delta_since(&before);
+
+        assert_eq!(
+            delta,
+            CgroupNumaDelta {
+                total_bytes_delta: -3,
+                bytes_by_node_delta: BTreeMap::from([
+                    (NodeId(0), 4096),
+                    (NodeId(1), -4106),
+                    (NodeId(2), 7),
+                ]),
+            }
+        );
     }
 }
