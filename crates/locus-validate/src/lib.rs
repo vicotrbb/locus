@@ -387,7 +387,8 @@ pub mod linux {
     /// # Errors
     ///
     /// Returns an error when the line is missing required tokens, contains duplicate
-    /// tokens, contains unsupported tokens, or uses an unknown status or reason.
+    /// tokens, contains unsupported tokens, uses an unknown status or reason, or
+    /// combines a status with an incoherent reason.
     pub fn parse_placement_validation_gate_line(
         line: &str,
     ) -> Result<PlacementValidationGateVerdict, PlacementValidationGateLineParseError> {
