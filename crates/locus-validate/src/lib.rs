@@ -143,6 +143,47 @@ pub mod linux {
         pub reason: PlacementValidationGateReason,
     }
 
+    impl PlacementValidationGateVerdict {
+        /// Builds a verdict only when the status and reason are coherent.
+        ///
+        /// # Errors
+        ///
+        /// Returns an error when the reason is not valid for the status.
+        pub fn from_parts(
+            status: PlacementValidationGateStatus,
+            reason: PlacementValidationGateReason,
+        ) -> Result<Self, PlacementValidationGateLineParseError> {
+            let verdict = Self { status, reason };
+            if verdict.is_consistent() {
+                Ok(verdict)
+            } else {
+                Err(PlacementValidationGateLineParseError::InconsistentVerdict { status, reason })
+            }
+        }
+
+        /// Returns true when the reason is valid for the status.
+        #[must_use]
+        pub fn is_consistent(self) -> bool {
+            matches!(
+                (self.status, self.reason),
+                (
+                    PlacementValidationGateStatus::Verified,
+                    PlacementValidationGateReason::Verified
+                ) | (
+                    PlacementValidationGateStatus::NotReady,
+                    PlacementValidationGateReason::MemoryPolicyNotReady
+                        | PlacementValidationGateReason::PlacementEvidenceNotReady
+                ) | (
+                    PlacementValidationGateStatus::Unverified,
+                    PlacementValidationGateReason::PlacementProofUnverified
+                ) | (
+                    PlacementValidationGateStatus::Unavailable,
+                    PlacementValidationGateReason::PlacementProofUnavailable
+                )
+            )
+        }
+    }
+
     /// Error returned when parsing a placement validation gate line.
     #[derive(Debug, Clone, PartialEq, Eq)]
     pub enum PlacementValidationGateLineParseError {
@@ -160,6 +201,13 @@ pub mod linux {
         UnknownStatus(String),
         /// The gate reason token is not recognized.
         UnknownReason(String),
+        /// The status and reason tokens are individually valid but inconsistent together.
+        InconsistentVerdict {
+            /// Parsed gate status.
+            status: PlacementValidationGateStatus,
+            /// Parsed gate reason.
+            reason: PlacementValidationGateReason,
+        },
     }
 
     impl fmt::Display for PlacementValidationGateLineParseError {
@@ -177,6 +225,12 @@ pub mod linux {
                 }
                 Self::UnknownReason(reason) => {
                     write!(f, "unknown placement validation gate reason: {reason}")
+                }
+                Self::InconsistentVerdict { status, reason } => {
+                    write!(
+                        f,
+                        "inconsistent placement validation gate: {status} {reason}"
+                    )
                 }
             }
         }
@@ -380,7 +434,7 @@ pub mod linux {
                 PlacementValidationGateLineParseError::UnknownReason(reason_token.to_owned())
             })?;
 
-        Ok(PlacementValidationGateVerdict { status, reason })
+        PlacementValidationGateVerdict::from_parts(status, reason)
     }
 
     /// Extracts the final placement validation gate verdict from multiline output.
@@ -584,6 +638,16 @@ placement_proof=unavailable reason=numa_maps_unavailable
                     reason: PlacementValidationGateReason::PlacementProofUnavailable,
                 }
             );
+            assert!(PlacementValidationGateVerdict {
+                status: PlacementValidationGateStatus::NotReady,
+                reason: PlacementValidationGateReason::PlacementEvidenceNotReady,
+            }
+            .is_consistent());
+            assert!(!PlacementValidationGateVerdict {
+                status: PlacementValidationGateStatus::Verified,
+                reason: PlacementValidationGateReason::MemoryPolicyNotReady,
+            }
+            .is_consistent());
         }
 
         #[test]
@@ -632,6 +696,16 @@ placement_proof=unavailable reason=numa_maps_unavailable
                 )
                 .expect_err("duplicate reason"),
                 PlacementValidationGateLineParseError::DuplicateReason
+            );
+            assert_eq!(
+                parse_placement_validation_gate_line(
+                    "placement_validation_gate=verified reason=memory_policy_not_ready"
+                )
+                .expect_err("inconsistent verdict"),
+                PlacementValidationGateLineParseError::InconsistentVerdict {
+                    status: PlacementValidationGateStatus::Verified,
+                    reason: PlacementValidationGateReason::MemoryPolicyNotReady,
+                }
             );
         }
 
@@ -683,6 +757,18 @@ placement_validation_gate=not_ready reason=memory_policy_not_ready
                 .expect_err("bad gate"),
                 PlacementValidationGateOutputParseError::Line(
                     PlacementValidationGateLineParseError::UnknownStatus("maybe".to_owned())
+                )
+            );
+            assert_eq!(
+                parse_placement_validation_gate_output(
+                    "placement_validation_gate=not_ready reason=verified\n"
+                )
+                .expect_err("inconsistent gate"),
+                PlacementValidationGateOutputParseError::Line(
+                    PlacementValidationGateLineParseError::InconsistentVerdict {
+                        status: PlacementValidationGateStatus::NotReady,
+                        reason: PlacementValidationGateReason::Verified,
+                    }
                 )
             );
         }
