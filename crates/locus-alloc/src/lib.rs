@@ -9,7 +9,9 @@ use std::sync::mpsc::{sync_channel, Receiver, SyncSender, TryRecvError};
 use std::sync::Arc;
 
 use locus_core::{NodeId, RequestHome, RequestId};
-use locus_sys::{page_size, MappedRegion, MappedRegionError, PageSizeError, TouchPagesError};
+use locus_sys::{
+    page_size, MappedRegion, MappedRegionError, PageLockError, PageSizeError, TouchPagesError,
+};
 
 const MAX_SUPPORTED_ALIGN: usize = 4096;
 
@@ -922,6 +924,28 @@ impl MappedScratchArena {
             .map_err(MappedScratchAllocError::TouchPages)
     }
 
+    /// Locks the arena mapping into RAM.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the operating system rejects page locking.
+    pub fn lock_pages(&self) -> Result<(), MappedScratchAllocError> {
+        self.region
+            .lock_pages()
+            .map_err(MappedScratchAllocError::PageLock)
+    }
+
+    /// Unlocks the arena mapping after a successful `lock_pages`.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the operating system rejects page unlocking.
+    pub fn unlock_pages(&self) -> Result<(), MappedScratchAllocError> {
+        self.region
+            .unlock_pages()
+            .map_err(MappedScratchAllocError::PageLock)
+    }
+
     /// Applies Linux `MPOL_BIND` to the mapped arena region.
     ///
     /// # Errors
@@ -1011,6 +1035,8 @@ pub enum MappedScratchAllocError {
     PageSize(PageSizeError),
     /// Page touching failed.
     TouchPages(TouchPagesError),
+    /// Page locking or unlocking failed.
+    PageLock(PageLockError),
     /// Linux NUMA policy application failed.
     #[cfg(target_os = "linux")]
     LinuxNumaPolicy(locus_sys::linux::LinuxNumaPolicyError),
@@ -1169,6 +1195,9 @@ impl fmt::Display for MappedScratchAllocError {
             Self::TouchPages(source) => {
                 write!(f, "mapped scratch arena page touching failed: {source}")
             }
+            Self::PageLock(source) => {
+                write!(f, "mapped scratch arena page locking failed: {source}")
+            }
             #[cfg(target_os = "linux")]
             Self::LinuxNumaPolicy(source) => {
                 write!(f, "mapped scratch arena NUMA policy failed: {source}")
@@ -1183,6 +1212,7 @@ impl std::error::Error for MappedScratchAllocError {
             Self::Map(source) => Some(source),
             Self::PageSize(source) => Some(source),
             Self::TouchPages(source) => Some(source),
+            Self::PageLock(source) => Some(source),
             #[cfg(target_os = "linux")]
             Self::LinuxNumaPolicy(source) => Some(source),
             Self::UnsupportedAlignment { .. }
@@ -1270,8 +1300,9 @@ mod tests {
 
     use super::{
         KvBlockPool, KvBlockPoolError, KvBlockTable, KvBlockTableError, KvSequenceId,
-        MappedScratchAllocError, MappedScratchArena, RemoteFreeQueue, RemoteFreeQueueError,
-        RequestScratch, RequestScratchError, RequestScratchPool, ScratchAllocError, ScratchArena,
+        MappedScratchAllocError, MappedScratchArena, PageLockError, RemoteFreeQueue,
+        RemoteFreeQueueError, RequestScratch, RequestScratchError, RequestScratchPool,
+        ScratchAllocError, ScratchArena,
     };
 
     #[test]
@@ -1384,6 +1415,23 @@ mod tests {
         let touched = arena.write_touch_pages().expect("touch pages");
 
         assert!(touched >= 1);
+    }
+
+    #[test]
+    fn mapped_scratch_arena_locks_and_unlocks_pages() {
+        let arena = MappedScratchArena::new(NodeId(0), 4096).expect("arena");
+
+        match arena.lock_pages() {
+            Ok(()) => arena.unlock_pages().expect("unlock pages"),
+            Err(MappedScratchAllocError::PageLock(PageLockError::LockFailed(source)))
+                if matches!(
+                    source.kind(),
+                    std::io::ErrorKind::OutOfMemory
+                        | std::io::ErrorKind::PermissionDenied
+                        | std::io::ErrorKind::WouldBlock
+                ) => {}
+            Err(error) => panic!("unexpected mapped scratch page lock error: {error}"),
+        }
     }
 
     #[test]
