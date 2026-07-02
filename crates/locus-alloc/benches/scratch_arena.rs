@@ -2,7 +2,7 @@
 
 use std::alloc::Layout;
 
-use criterion::{black_box, criterion_group, criterion_main, Criterion};
+use criterion::{black_box, criterion_group, criterion_main, BatchSize, Criterion};
 use locus_alloc::{
     KvBlockPool, KvBlockTable, KvSequenceId, MappedScratchArena, RequestScratch,
     RequestScratchPool, ScratchArena,
@@ -58,6 +58,32 @@ fn mapped_scratch_arena_reset_cycle(c: &mut Criterion) {
 
             black_box(arena.stats());
         });
+    });
+}
+
+fn mapped_scratch_write_touch_1mib(c: &mut Criterion) {
+    c.bench_function("mapped_scratch_write_touch_1mib", |bench| {
+        bench.iter_batched(
+            || MappedScratchArena::new(NodeId(0), 1024 * 1024).expect("arena"),
+            |mut arena| black_box(arena.write_touch_pages().expect("touch pages")),
+            BatchSize::SmallInput,
+        );
+    });
+}
+
+fn vec_write_touch_1mib(c: &mut Criterion) {
+    c.bench_function("vec_write_touch_1mib", |bench| {
+        bench.iter_batched(
+            || vec![0_u8; 1024 * 1024],
+            |mut allocation| {
+                let page_size = 4096;
+                for offset in (0..allocation.len()).step_by(page_size) {
+                    allocation[offset] = allocation[offset].wrapping_add(1);
+                }
+                black_box(allocation);
+            },
+            BatchSize::SmallInput,
+        );
     });
 }
 
@@ -211,6 +237,8 @@ criterion_group!(
     scratch_arena_reset_cycle,
     vec_allocation_cycle,
     mapped_scratch_arena_reset_cycle,
+    mapped_scratch_write_touch_1mib,
+    vec_write_touch_1mib,
     request_scratch_cycle,
     request_vec_allocation_cycle,
     request_scratch_pool_cycle,
