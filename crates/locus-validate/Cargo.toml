@@ -7,6 +7,8 @@ repository.workspace = true
 rust-version.workspace = true
 
 [dependencies]
+locus-alloc = { path = "../locus-alloc" }
+locus-core = { path = "../locus-core" }
 locus-observe = { path = "../locus-observe" }
 locus-sys = { path = "../locus-sys" }
 

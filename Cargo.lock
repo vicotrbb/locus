@@ -363,6 +363,8 @@ dependencies = [
 name = "locus-validate"
 version = "0.1.0"
 dependencies = [
+ "locus-alloc",
+ "locus-core",
  "locus-observe",
  "locus-sys",
 ]
