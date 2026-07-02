@@ -47,6 +47,8 @@ The combined gate output parser is:
 
 - `locus_validate::linux::parse_placement_validation_gate_output`.
 
+The combined gate parser rejects status and reason pairs that are individually valid but incoherent together. For example, `placement_validation_gate=verified reason=memory_policy_not_ready` is malformed because a verified gate must use `reason=verified`.
+
 Line-level parsers are also available when callers already isolated the final verdict line:
 
 - `locus_sys::linux::parse_linux_numa_policy_readiness_line`;
