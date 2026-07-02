@@ -14,6 +14,7 @@ pub mod linux {
 
     use std::fmt;
     use std::io;
+    use std::io::ErrorKind;
 
     use super::MappedRegion;
 
@@ -78,6 +79,108 @@ pub mod linux {
         }
     }
 
+    /// Readiness status for Linux NUMA memory policy application.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    pub enum LinuxNumaPolicyReadinessStatus {
+        /// A test memory policy application succeeded.
+        Ready,
+        /// A test memory policy application did not succeed.
+        NotReady,
+    }
+
+    impl LinuxNumaPolicyReadinessStatus {
+        /// Returns a stable machine-readable readiness status string.
+        #[must_use]
+        pub fn as_str(self) -> &'static str {
+            match self {
+                Self::Ready => "ready",
+                Self::NotReady => "not_ready",
+            }
+        }
+    }
+
+    impl fmt::Display for LinuxNumaPolicyReadinessStatus {
+        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+            f.write_str(self.as_str())
+        }
+    }
+
+    /// Reason for Linux NUMA memory policy readiness.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    pub enum LinuxNumaPolicyReadinessReason {
+        /// A test memory policy application succeeded.
+        Ready,
+        /// The requested NUMA node cannot be represented in the policy mask.
+        InvalidNode,
+        /// The operating system denied the `mbind` syscall.
+        PermissionDenied,
+        /// The `mbind` syscall failed for another reason.
+        SyscallFailed,
+    }
+
+    impl LinuxNumaPolicyReadinessReason {
+        /// Returns a stable machine-readable readiness reason string.
+        #[must_use]
+        pub fn as_str(self) -> &'static str {
+            match self {
+                Self::Ready => "ready",
+                Self::InvalidNode => "invalid_node",
+                Self::PermissionDenied => "permission_denied",
+                Self::SyscallFailed => "syscall_failed",
+            }
+        }
+    }
+
+    impl fmt::Display for LinuxNumaPolicyReadinessReason {
+        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+            f.write_str(self.as_str())
+        }
+    }
+
+    /// Readiness verdict for Linux NUMA memory policy application.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    pub struct LinuxNumaPolicyReadiness {
+        /// Final readiness status.
+        pub status: LinuxNumaPolicyReadinessStatus,
+        /// Reason for the status.
+        pub reason: LinuxNumaPolicyReadinessReason,
+    }
+
+    impl LinuxNumaPolicyReadiness {
+        /// Builds a readiness verdict from an `mbind` attempt result.
+        #[must_use]
+        pub fn from_bind_result(result: Result<(), &LinuxNumaPolicyError>) -> Self {
+            match result {
+                Ok(()) => Self {
+                    status: LinuxNumaPolicyReadinessStatus::Ready,
+                    reason: LinuxNumaPolicyReadinessReason::Ready,
+                },
+                Err(LinuxNumaPolicyError::InvalidNode(_)) => Self {
+                    status: LinuxNumaPolicyReadinessStatus::NotReady,
+                    reason: LinuxNumaPolicyReadinessReason::InvalidNode,
+                },
+                Err(LinuxNumaPolicyError::Syscall(source))
+                    if source.kind() == ErrorKind::PermissionDenied =>
+                {
+                    Self {
+                        status: LinuxNumaPolicyReadinessStatus::NotReady,
+                        reason: LinuxNumaPolicyReadinessReason::PermissionDenied,
+                    }
+                }
+                Err(LinuxNumaPolicyError::Syscall(_)) => Self {
+                    status: LinuxNumaPolicyReadinessStatus::NotReady,
+                    reason: LinuxNumaPolicyReadinessReason::SyscallFailed,
+                },
+            }
+        }
+
+        /// Returns true only when a memory policy attempt succeeded.
+        #[must_use]
+        pub fn is_ready(self) -> bool {
+            self.status == LinuxNumaPolicyReadinessStatus::Ready
+        }
+    }
+
     fn node_mask_words(node: u32) -> Result<Vec<libc::c_ulong>, LinuxNumaPolicyError> {
         if node >= MAX_NODE_BITS {
             return Err(LinuxNumaPolicyError::InvalidNode(node));
@@ -93,7 +196,13 @@ pub mod linux {
 
     #[cfg(test)]
     mod tests {
-        use super::{node_mask_words, LinuxNumaPolicyError};
+        use std::io;
+        use std::io::ErrorKind;
+
+        use super::{
+            node_mask_words, LinuxNumaPolicyError, LinuxNumaPolicyReadiness,
+            LinuxNumaPolicyReadinessReason, LinuxNumaPolicyReadinessStatus,
+        };
 
         #[test]
         fn builds_single_word_node_mask() {
@@ -117,6 +226,43 @@ pub mod linux {
             let error = node_mask_words(4096).expect_err("invalid node");
 
             assert!(matches!(error, LinuxNumaPolicyError::InvalidNode(4096)));
+        }
+
+        #[test]
+        fn reports_linux_numa_policy_readiness() {
+            let ready = LinuxNumaPolicyReadiness::from_bind_result(Ok(()));
+            assert_eq!(ready.status, LinuxNumaPolicyReadinessStatus::Ready);
+            assert_eq!(ready.reason, LinuxNumaPolicyReadinessReason::Ready);
+            assert_eq!(ready.status.to_string(), "ready");
+            assert_eq!(ready.reason.to_string(), "ready");
+            assert!(ready.is_ready());
+
+            let invalid = LinuxNumaPolicyError::InvalidNode(4096);
+            let invalid_readiness = LinuxNumaPolicyReadiness::from_bind_result(Err(&invalid));
+            assert_eq!(
+                invalid_readiness.status,
+                LinuxNumaPolicyReadinessStatus::NotReady
+            );
+            assert_eq!(
+                invalid_readiness.reason,
+                LinuxNumaPolicyReadinessReason::InvalidNode
+            );
+            assert_eq!(invalid_readiness.status.to_string(), "not_ready");
+            assert_eq!(invalid_readiness.reason.to_string(), "invalid_node");
+            assert!(!invalid_readiness.is_ready());
+
+            let denied =
+                LinuxNumaPolicyError::Syscall(io::Error::from(ErrorKind::PermissionDenied));
+            assert_eq!(
+                LinuxNumaPolicyReadiness::from_bind_result(Err(&denied)).reason,
+                LinuxNumaPolicyReadinessReason::PermissionDenied
+            );
+
+            let other = LinuxNumaPolicyError::Syscall(io::Error::from(ErrorKind::Other));
+            assert_eq!(
+                LinuxNumaPolicyReadiness::from_bind_result(Err(&other)).reason,
+                LinuxNumaPolicyReadinessReason::SyscallFailed
+            );
         }
     }
 }
