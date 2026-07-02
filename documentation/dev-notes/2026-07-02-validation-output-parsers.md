@@ -14,6 +14,23 @@ Locus validation probes now print stable final verdict lines. This note maps eac
 | `cargo run -p locus-observe --example locality_environment` | `placement_validation_readiness=<status> reason=<reason>` | `locus_observe::parse_numa_placement_readiness_output` |
 | `cargo run -p locus-alloc --example mapped_scratch_bind` | `placement_proof=<status> reason=<reason>` | `locus_observe::parse_numa_placement_proof_output` |
 
+## Combined Gate
+
+Captured probe outputs can be evaluated together with:
+
+```sh
+cargo run -p locus-validate --example placement_validation_gate -- \
+  memory-policy.out \
+  placement-readiness.out \
+  placement-proof.out
+```
+
+The example prints:
+
+```text
+placement_validation_gate=<status> reason=<reason>
+```
+
 Line-level parsers are also available when callers already isolated the final verdict line:
 
 - `locus_sys::linux::parse_linux_numa_policy_readiness_line`;
@@ -27,6 +44,7 @@ Successful placement validation requires all of the following parsed verdicts:
 - `memory_policy_readiness=ready reason=ready`;
 - `placement_validation_readiness=ready reason=ready`;
 - `placement_proof=verified reason=verified`.
+- `placement_validation_gate=verified reason=verified`.
 
 Any `not_ready`, `unavailable`, or `unverified` verdict is a useful validation result, but it is not proof of successful NUMA placement.
 
