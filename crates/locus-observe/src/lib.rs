@@ -238,6 +238,70 @@ impl fmt::Display for NumaPlacementStatus {
     }
 }
 
+/// Final proof status for a mapping placement attempt.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NumaPlacementProofStatus {
+    /// Primary evidence proves the mapping is fully on the expected node.
+    Verified,
+    /// Primary evidence is present but does not prove placement.
+    Unverified,
+}
+
+impl NumaPlacementProofStatus {
+    /// Returns a stable machine-readable proof status string.
+    #[must_use]
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Verified => "verified",
+            Self::Unverified => "unverified",
+        }
+    }
+}
+
+impl fmt::Display for NumaPlacementProofStatus {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+/// Reason for a placement proof status.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NumaPlacementProofReason {
+    /// All primary proof conditions were satisfied.
+    Verified,
+    /// Linux memory policy application did not succeed.
+    PolicyNotApplied,
+    /// The target mapping was not found in `numa_maps`.
+    MappingMissing,
+    /// The matched mapping reported no materialized pages.
+    NoPagesReported,
+    /// The matched mapping reported both expected-node and other-node pages.
+    PartialPagesOnExpectedNode,
+    /// The matched mapping reported pages only on other nodes.
+    NoPagesOnExpectedNode,
+}
+
+impl NumaPlacementProofReason {
+    /// Returns a stable machine-readable proof reason string.
+    #[must_use]
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Verified => "verified",
+            Self::PolicyNotApplied => "policy_not_applied",
+            Self::MappingMissing => "mapping_missing",
+            Self::NoPagesReported => "no_pages_reported",
+            Self::PartialPagesOnExpectedNode => "partial_pages_on_expected_node",
+            Self::NoPagesOnExpectedNode => "no_pages_on_expected_node",
+        }
+    }
+}
+
+impl fmt::Display for NumaPlacementProofReason {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
 /// Placement evidence for one `numa_maps` entry against an expected node.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct NumaPlacementEvidence {
@@ -251,6 +315,15 @@ pub struct NumaPlacementEvidence {
     pub other_node_pages: BTreeMap<NodeId, u64>,
     /// Placement classification.
     pub status: NumaPlacementStatus,
+}
+
+/// Final primary proof verdict for one placement attempt.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct NumaPlacementProof {
+    /// Final proof status.
+    pub status: NumaPlacementProofStatus,
+    /// Reason for the status.
+    pub reason: NumaPlacementProofReason,
 }
 
 impl NumaMapsSummary {
@@ -340,6 +413,51 @@ impl NumaPlacementEvidence {
             .values()
             .copied()
             .fold(0_u64, u64::saturating_add)
+    }
+}
+
+impl NumaPlacementProof {
+    /// Builds a placement proof verdict from policy and `numa_maps` evidence.
+    #[must_use]
+    pub fn from_evidence(policy_applied: bool, evidence: Option<&NumaPlacementEvidence>) -> Self {
+        if !policy_applied {
+            return Self {
+                status: NumaPlacementProofStatus::Unverified,
+                reason: NumaPlacementProofReason::PolicyNotApplied,
+            };
+        }
+
+        let Some(evidence) = evidence else {
+            return Self {
+                status: NumaPlacementProofStatus::Unverified,
+                reason: NumaPlacementProofReason::MappingMissing,
+            };
+        };
+
+        match evidence.status {
+            NumaPlacementStatus::AllPagesOnExpectedNode => Self {
+                status: NumaPlacementProofStatus::Verified,
+                reason: NumaPlacementProofReason::Verified,
+            },
+            NumaPlacementStatus::NoPagesReported => Self {
+                status: NumaPlacementProofStatus::Unverified,
+                reason: NumaPlacementProofReason::NoPagesReported,
+            },
+            NumaPlacementStatus::PartialPagesOnExpectedNode => Self {
+                status: NumaPlacementProofStatus::Unverified,
+                reason: NumaPlacementProofReason::PartialPagesOnExpectedNode,
+            },
+            NumaPlacementStatus::NoPagesOnExpectedNode => Self {
+                status: NumaPlacementProofStatus::Unverified,
+                reason: NumaPlacementProofReason::NoPagesOnExpectedNode,
+            },
+        }
+    }
+
+    /// Returns true only when primary evidence proves placement.
+    #[must_use]
+    pub fn is_verified(self) -> bool {
+        self.status == NumaPlacementProofStatus::Verified
     }
 }
 
@@ -896,8 +1014,8 @@ mod tests {
         read_node_numastat_system_snapshot, read_numa_maps,
         resolve_cgroup_v2_memory_numa_stat_path, CgroupNumaDelta, CgroupNumaSummary,
         CgroupPathError, NodeNumastatSnapshot, NodeNumastatSystemSnapshot,
-        NumaMapsAddressMatchKind, NumaMapsSummary, NumaPlacementEvidence, NumaPlacementStatus,
-        ObserveParseError,
+        NumaMapsAddressMatchKind, NumaMapsSummary, NumaPlacementEvidence, NumaPlacementProof,
+        NumaPlacementProofReason, NumaPlacementProofStatus, NumaPlacementStatus, ObserveParseError,
     };
 
     #[test]
@@ -1219,6 +1337,55 @@ mod tests {
         assert_eq!(
             NumaPlacementStatus::AllPagesOnExpectedNode.to_string(),
             "all_pages_on_expected_node"
+        );
+    }
+
+    #[test]
+    fn reports_numa_placement_proof_verdicts() {
+        let entries = parse_numa_maps(
+            "1000 bind:0 anon=4 N0=4\n\
+             2000 bind:0 anon=4 N0=2 N1=2\n\
+             3000 bind:0 anon=4 N1=4\n\
+             4000 bind:0 anon=0\n",
+        )
+        .expect("valid numa maps");
+        let verified = NumaPlacementEvidence::from_entry(&entries[0], NodeId(0));
+        let partial = NumaPlacementEvidence::from_entry(&entries[1], NodeId(0));
+        let remote = NumaPlacementEvidence::from_entry(&entries[2], NodeId(0));
+        let no_pages = NumaPlacementEvidence::from_entry(&entries[3], NodeId(0));
+
+        let proof = NumaPlacementProof::from_evidence(true, Some(&verified));
+        assert_eq!(proof.status, NumaPlacementProofStatus::Verified);
+        assert_eq!(proof.reason, NumaPlacementProofReason::Verified);
+        assert_eq!(proof.status.to_string(), "verified");
+        assert_eq!(proof.reason.to_string(), "verified");
+        assert!(proof.is_verified());
+
+        assert_eq!(
+            NumaPlacementProof::from_evidence(false, Some(&verified)),
+            NumaPlacementProof {
+                status: NumaPlacementProofStatus::Unverified,
+                reason: NumaPlacementProofReason::PolicyNotApplied,
+            }
+        );
+        assert_eq!(
+            NumaPlacementProof::from_evidence(true, None),
+            NumaPlacementProof {
+                status: NumaPlacementProofStatus::Unverified,
+                reason: NumaPlacementProofReason::MappingMissing,
+            }
+        );
+        assert_eq!(
+            NumaPlacementProof::from_evidence(true, Some(&partial)).reason,
+            NumaPlacementProofReason::PartialPagesOnExpectedNode
+        );
+        assert_eq!(
+            NumaPlacementProof::from_evidence(true, Some(&remote)).reason,
+            NumaPlacementProofReason::NoPagesOnExpectedNode
+        );
+        assert_eq!(
+            NumaPlacementProof::from_evidence(true, Some(&no_pages)).reason,
+            NumaPlacementProofReason::NoPagesReported
         );
     }
 

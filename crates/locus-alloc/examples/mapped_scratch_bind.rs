@@ -17,10 +17,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let cgroup_before = read_current_cgroup_summary()?;
     let node_numastat_before = read_current_node_numastat_snapshot()?;
 
-    match arena.bind_to_node(NodeId(0)) {
-        Ok(()) => println!("mapped_scratch_bind=ok"),
-        Err(error) => println!("mapped_scratch_bind=error {error}"),
-    }
+    let policy_applied = match arena.bind_to_node(NodeId(0)) {
+        Ok(()) => {
+            println!("mapped_scratch_bind=ok");
+            true
+        }
+        Err(error) => {
+            println!("mapped_scratch_bind=error {error}");
+            false
+        }
+    };
 
     let touched = arena.write_touch_pages()?;
     println!("touched={touched}");
@@ -45,13 +51,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     match read_self_numa_maps() {
         Ok(entries) => {
             if let Some(address_match) = numa_maps_entry_for_address(&entries, mapping_start) {
-                print_placement(address_match, arena.home_node());
+                print_placement(address_match, arena.home_node(), policy_applied);
             } else {
                 println!("numa_maps_match=missing");
+                print_missing_mapping_proof(policy_applied);
             }
         }
         Err(ObserveReadError::Read { source, .. }) if source.kind() == ErrorKind::NotFound => {
             println!("numa_maps=unavailable");
+            println!("placement_proof=unavailable reason=numa_maps_unavailable");
         }
         Err(error) => return Err(Box::new(error)),
     }
@@ -63,9 +71,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 fn print_placement(
     address_match: locus_observe::NumaMapsAddressMatch<'_>,
     expected_node: locus_core::NodeId,
+    policy_applied: bool,
 ) {
     let entry = address_match.entry;
     let evidence = locus_observe::NumaPlacementEvidence::from_entry(entry, expected_node);
+    let proof = locus_observe::NumaPlacementProof::from_evidence(policy_applied, Some(&evidence));
     println!(
         "numa_maps_match={} policy={} placement_status={} placement_verified={} expected_node={} expected_pages={} other_pages={} total_pages={}",
         address_match.kind,
@@ -80,6 +90,13 @@ fn print_placement(
     for (node, pages) in &entry.node_pages {
         println!("numa_maps_node={} pages={pages}", node.0);
     }
+    println!("placement_proof={} reason={}", proof.status, proof.reason);
+}
+
+#[cfg(target_os = "linux")]
+fn print_missing_mapping_proof(policy_applied: bool) {
+    let proof = locus_observe::NumaPlacementProof::from_evidence(policy_applied, None);
+    println!("placement_proof={} reason={}", proof.status, proof.reason);
 }
 
 #[cfg(target_os = "linux")]
