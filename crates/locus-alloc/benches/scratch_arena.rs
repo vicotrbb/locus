@@ -3,7 +3,7 @@
 use std::alloc::Layout;
 
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
-use locus_alloc::{RequestScratch, ScratchArena};
+use locus_alloc::{RequestScratch, RequestScratchPool, ScratchArena};
 use locus_core::{NodeId, RequestHome, RequestId};
 
 fn scratch_arena_reset_cycle(c: &mut Criterion) {
@@ -92,11 +92,40 @@ fn request_vec_allocation_cycle(c: &mut Criterion) {
     });
 }
 
+fn request_scratch_pool_cycle(c: &mut Criterion) {
+    c.bench_function("request_scratch_pool_cycle_16x64x256b", |bench| {
+        let homes = (0..16)
+            .map(|request| RequestHome {
+                request_id: RequestId(request),
+                node: Some(NodeId((request % 2) as u32)),
+                reason: "bench",
+            })
+            .collect::<Vec<_>>();
+        let layout = Layout::from_size_align(256, 64).expect("layout");
+        let mut pool = RequestScratchPool::new();
+
+        bench.iter(|| {
+            for home in &homes {
+                pool.open_request(home, 32 * 1024).expect("open request");
+                for _ in 0..64 {
+                    let allocation = pool
+                        .alloc_bytes(home.request_id, layout)
+                        .expect("allocation");
+                    black_box(allocation.as_mut_ptr());
+                }
+                black_box(pool.close_request(home.request_id).expect("close request"));
+            }
+            black_box(pool.pool_stats());
+        });
+    });
+}
+
 criterion_group!(
     benches,
     scratch_arena_reset_cycle,
     vec_allocation_cycle,
     request_scratch_cycle,
-    request_vec_allocation_cycle
+    request_vec_allocation_cycle,
+    request_scratch_pool_cycle
 );
 criterion_main!(benches);
