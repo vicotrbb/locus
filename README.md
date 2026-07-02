@@ -8,6 +8,7 @@ The project deliberately starts without a process-wide allocator replacement. Ea
 
 - `locus-core`: topology data types, Linux CPU-list parsing, and placement policy models.
 - `locus-topology`: Linux sysfs discovery for NUMA nodes and PCI device locality.
+- `locus-observe`: parsers for Linux NUMA locality evidence.
 - `locus-alloc`: a safe node-tagged scratch arena for first allocator experiments.
 
 ## Validation

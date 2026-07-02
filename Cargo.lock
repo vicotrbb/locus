@@ -308,6 +308,13 @@ name = "locus-core"
 version = "0.1.0"
 
 [[package]]
+name = "locus-observe"
+version = "0.1.0"
+dependencies = [
+ "locus-core",
+]
+
+[[package]]
 name = "locus-topology"
 version = "0.1.0"
 dependencies = [
