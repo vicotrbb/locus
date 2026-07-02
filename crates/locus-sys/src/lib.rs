@@ -8,6 +8,119 @@ use std::io;
 use std::ptr::NonNull;
 use std::slice;
 
+#[cfg(target_os = "linux")]
+pub mod linux {
+    //! Linux-specific NUMA memory policy helpers.
+
+    use std::fmt;
+    use std::io;
+
+    use super::MappedRegion;
+
+    const MPOL_BIND: libc::c_int = 2;
+    const MAX_NODE_BITS: u32 = 4096;
+
+    /// Applies `MPOL_BIND` for a mapped region to a single NUMA node.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the node is outside the supported mask range or
+    /// the `mbind` syscall fails.
+    pub fn bind_region_to_node(
+        region: &MappedRegion,
+        node: u32,
+    ) -> Result<(), LinuxNumaPolicyError> {
+        let mask = node_mask_words(node)?;
+        let max_node = libc::c_ulong::from(node) + 1;
+        let rc = unsafe {
+            libc::syscall(
+                libc::SYS_mbind,
+                region.as_ptr().cast::<libc::c_void>(),
+                region.len(),
+                MPOL_BIND,
+                mask.as_ptr(),
+                max_node,
+                0,
+            )
+        };
+
+        if rc == -1 {
+            Err(LinuxNumaPolicyError::Syscall(io::Error::last_os_error()))
+        } else {
+            Ok(())
+        }
+    }
+
+    /// Linux NUMA policy failures.
+    #[derive(Debug)]
+    pub enum LinuxNumaPolicyError {
+        /// Node identifier is outside the supported mask range.
+        InvalidNode(u32),
+        /// `mbind` failed.
+        Syscall(io::Error),
+    }
+
+    impl fmt::Display for LinuxNumaPolicyError {
+        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+            match self {
+                Self::InvalidNode(node) => write!(f, "invalid NUMA node for mbind mask: {node}"),
+                Self::Syscall(source) => write!(f, "mbind syscall failed: {source}"),
+            }
+        }
+    }
+
+    impl std::error::Error for LinuxNumaPolicyError {
+        fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+            match self {
+                Self::InvalidNode(_) => None,
+                Self::Syscall(source) => Some(source),
+            }
+        }
+    }
+
+    fn node_mask_words(node: u32) -> Result<Vec<libc::c_ulong>, LinuxNumaPolicyError> {
+        if node >= MAX_NODE_BITS {
+            return Err(LinuxNumaPolicyError::InvalidNode(node));
+        }
+
+        let word_bits = libc::c_ulong::BITS;
+        let word_index = (node / word_bits) as usize;
+        let bit_index = node % word_bits;
+        let mut words = vec![0; word_index + 1];
+        words[word_index] = libc::c_ulong::from(1_u8) << bit_index;
+        Ok(words)
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::{node_mask_words, LinuxNumaPolicyError};
+
+        #[test]
+        fn builds_single_word_node_mask() {
+            let mask = node_mask_words(3).expect("node mask");
+
+            assert_eq!(mask, vec![8]);
+        }
+
+        #[test]
+        fn builds_multi_word_node_mask() {
+            let node = libc::c_ulong::BITS + 1;
+            let mask = node_mask_words(node).expect("node mask");
+
+            assert_eq!(mask.len(), 2);
+            assert_eq!(mask[0], 0);
+            assert_eq!(mask[1], 2);
+        }
+
+        #[test]
+        fn rejects_oversized_node_mask() {
+            let error = node_mask_words(4096).expect_err("invalid node");
+
+            assert!(matches!(error, LinuxNumaPolicyError::InvalidNode(4096)));
+        }
+    }
+}
+
 /// Returns the operating system page size in bytes.
 ///
 /// # Errors
@@ -71,6 +184,12 @@ impl MappedRegion {
     #[must_use]
     pub fn is_empty(&self) -> bool {
         false
+    }
+
+    /// Returns the start pointer of the mapping.
+    #[must_use]
+    pub fn as_ptr(&self) -> *mut u8 {
+        self.ptr.as_ptr()
     }
 
     /// Returns the mapping as a shared byte slice.
