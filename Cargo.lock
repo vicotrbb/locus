@@ -312,6 +312,7 @@ name = "locus-observe"
 version = "0.1.0"
 dependencies = [
  "locus-core",
+ "tempfile",
 ]
 
 [[package]]

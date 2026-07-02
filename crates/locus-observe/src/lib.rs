@@ -2,6 +2,9 @@
 
 use std::collections::BTreeMap;
 use std::fmt;
+use std::fs;
+use std::io;
+use std::path::{Path, PathBuf};
 
 use locus_core::NodeId;
 
@@ -36,6 +39,53 @@ pub struct NodeNumastatMetric {
     pub metric: String,
     /// Metric value.
     pub value: u64,
+}
+
+/// Reads and parses a `numa_maps` file from an explicit path.
+///
+/// # Errors
+///
+/// Returns an error when the file cannot be read or parsing fails.
+pub fn read_numa_maps(path: impl AsRef<Path>) -> Result<Vec<NumaMapsEntry>, ObserveReadError> {
+    let path = path.as_ref();
+    let input = read_to_string(path)?;
+    parse_numa_maps(&input).map_err(ObserveReadError::Parse)
+}
+
+/// Reads and parses `/proc/self/numa_maps`.
+///
+/// # Errors
+///
+/// Returns an error when `/proc/self/numa_maps` cannot be read or parsing
+/// fails. Non-Linux hosts normally return a read error.
+pub fn read_self_numa_maps() -> Result<Vec<NumaMapsEntry>, ObserveReadError> {
+    read_numa_maps("/proc/self/numa_maps")
+}
+
+/// Reads and parses cgroup v2 `memory.numa_stat` from an explicit path.
+///
+/// # Errors
+///
+/// Returns an error when the file cannot be read or parsing fails.
+pub fn read_cgroup_numa_stat(
+    path: impl AsRef<Path>,
+) -> Result<Vec<CgroupNumaStatEntry>, ObserveReadError> {
+    let path = path.as_ref();
+    let input = read_to_string(path)?;
+    parse_cgroup_numa_stat(&input).map_err(ObserveReadError::Parse)
+}
+
+/// Reads and parses a node `numastat` file from an explicit path.
+///
+/// # Errors
+///
+/// Returns an error when the file cannot be read or parsing fails.
+pub fn read_node_numastat(
+    path: impl AsRef<Path>,
+) -> Result<Vec<NodeNumastatMetric>, ObserveReadError> {
+    let path = path.as_ref();
+    let input = read_to_string(path)?;
+    parse_node_numastat(&input).map_err(ObserveReadError::Parse)
 }
 
 /// Parses all non-empty lines from `/proc/<pid>/numa_maps`.
@@ -232,6 +282,45 @@ impl fmt::Display for ObserveParseError {
 
 impl std::error::Error for ObserveParseError {}
 
+/// Read errors for Linux NUMA observability files.
+#[derive(Debug)]
+pub enum ObserveReadError {
+    /// Filesystem read failed.
+    Read {
+        /// File path.
+        path: PathBuf,
+        /// Source error.
+        source: io::Error,
+    },
+    /// File content could not be parsed.
+    Parse(ObserveParseError),
+}
+
+impl fmt::Display for ObserveReadError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Read { path, source } => write!(f, "failed to read {}: {source}", path.display()),
+            Self::Parse(source) => write!(f, "failed to parse observability file: {source}"),
+        }
+    }
+}
+
+impl std::error::Error for ObserveReadError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Read { source, .. } => Some(source),
+            Self::Parse(source) => Some(source),
+        }
+    }
+}
+
+fn read_to_string(path: &Path) -> Result<String, ObserveReadError> {
+    fs::read_to_string(path).map_err(|source| ObserveReadError::Read {
+        path: path.to_path_buf(),
+        source,
+    })
+}
+
 fn parse_node_key(key: &str) -> Result<Option<NodeId>, ObserveParseError> {
     let Some(rest) = key.strip_prefix('N') else {
         return Ok(None);
@@ -258,10 +347,14 @@ fn parse_u64(value: &str, token: &str) -> Result<u64, ObserveParseError> {
 
 #[cfg(test)]
 mod tests {
+    use std::fs;
+
     use locus_core::NodeId;
+    use tempfile::TempDir;
 
     use super::{
-        parse_cgroup_numa_stat, parse_node_numastat, parse_numa_maps_line, ObserveParseError,
+        parse_cgroup_numa_stat, parse_node_numastat, parse_numa_maps_line, read_cgroup_numa_stat,
+        read_node_numastat, read_numa_maps, ObserveParseError,
     };
 
     #[test]
@@ -313,6 +406,36 @@ mod tests {
                 line: 2,
                 source: Box::new(ObserveParseError::InvalidNodeKey("NX".to_owned())),
             }
+        );
+    }
+
+    #[test]
+    fn reads_observability_files_from_explicit_paths() {
+        let temp = TempDir::new().expect("tempdir");
+        let numa_maps = temp.path().join("numa_maps");
+        let cgroup_stat = temp.path().join("memory.numa_stat");
+        let node_stat = temp.path().join("numastat");
+
+        fs::write(
+            &numa_maps,
+            "7f6c00000000 default anon=4 dirty=4 N0=4 kernelpagesize_kB=4\n",
+        )
+        .expect("write numa_maps");
+        fs::write(&cgroup_stat, "anon N0=4096 N1=8192\n").expect("write cgroup stat");
+        fs::write(&node_stat, "numa_hit 10\nother_node 1\n").expect("write node stat");
+
+        assert_eq!(read_numa_maps(&numa_maps).expect("read numa maps").len(), 1);
+        assert_eq!(
+            read_cgroup_numa_stat(&cgroup_stat)
+                .expect("read cgroup stat")
+                .len(),
+            1
+        );
+        assert_eq!(
+            read_node_numastat(&node_stat)
+                .expect("read node stat")
+                .len(),
+            2
         );
     }
 }

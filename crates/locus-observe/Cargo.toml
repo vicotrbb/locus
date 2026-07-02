@@ -9,6 +9,9 @@ rust-version.workspace = true
 [dependencies]
 locus-core = { path = "../locus-core" }
 
+[dev-dependencies]
+tempfile = "3.10"
+
 [lib]
 path = "src/lib.rs"
 
