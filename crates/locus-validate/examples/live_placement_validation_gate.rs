@@ -55,6 +55,30 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     );
 
     println!(
+        "numa_maps={}",
+        if numa_maps_available {
+            "available"
+        } else {
+            "unavailable"
+        }
+    );
+    println!(
+        "cgroup_numa_stat={}",
+        if cgroup_available {
+            "available"
+        } else {
+            "unavailable"
+        }
+    );
+    println!(
+        "node_numastat={}",
+        if node_numastat_available {
+            "available"
+        } else {
+            "unavailable"
+        }
+    );
+    println!(
         "placement_validation_readiness={} reason={}",
         placement_readiness.status, placement_readiness.reason
     );
