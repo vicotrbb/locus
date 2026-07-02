@@ -9,6 +9,27 @@ use locus_core::{NodeId, RequestHome, RequestId};
 
 const MAX_SUPPORTED_ALIGN: usize = 4096;
 
+/// Safe fixed-size KV block pool tagged with an intended NUMA node.
+#[derive(Debug)]
+pub struct KvBlockPool {
+    home_node: NodeId,
+    block_size: usize,
+    blocks: Vec<Vec<u8>>,
+    free: Vec<usize>,
+    allocated: Vec<bool>,
+    generations: Vec<u64>,
+    allocation_count: u64,
+    free_count: u64,
+    high_water_mark: usize,
+}
+
+/// Opaque handle for a KV block owned by a `KvBlockPool`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct KvBlockHandle {
+    index: usize,
+    generation: u64,
+}
+
 /// Safe bump arena tagged with the NUMA node it is intended to serve.
 ///
 /// This first implementation is intentionally Vec-backed. It validates arena
@@ -51,6 +72,114 @@ pub struct RequestScratchPoolStats {
     pub created_arenas: u64,
     /// Number of open operations served from an idle arena.
     pub reused_arenas: u64,
+}
+
+impl KvBlockPool {
+    /// Creates a fixed-size KV block pool.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when block size or capacity is zero.
+    pub fn new(
+        home_node: NodeId,
+        block_size: usize,
+        capacity: usize,
+    ) -> Result<Self, KvBlockPoolError> {
+        if block_size == 0 {
+            return Err(KvBlockPoolError::InvalidBlockSize);
+        }
+        if capacity == 0 {
+            return Err(KvBlockPoolError::InvalidCapacity);
+        }
+
+        let mut blocks = Vec::with_capacity(capacity);
+        for _ in 0..capacity {
+            blocks.push(vec![0; block_size]);
+        }
+
+        let free = (0..capacity).rev().collect();
+
+        Ok(Self {
+            home_node,
+            block_size,
+            blocks,
+            free,
+            allocated: vec![false; capacity],
+            generations: vec![0; capacity],
+            allocation_count: 0,
+            free_count: 0,
+            high_water_mark: 0,
+        })
+    }
+
+    /// Allocates one KV block.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the pool has no free blocks.
+    pub fn allocate(&mut self) -> Result<KvBlockHandle, KvBlockPoolError> {
+        let index = self.free.pop().ok_or(KvBlockPoolError::OutOfBlocks)?;
+        self.allocated[index] = true;
+        self.allocation_count = self.allocation_count.saturating_add(1);
+        self.high_water_mark = self.high_water_mark.max(self.allocated_count());
+        Ok(KvBlockHandle {
+            index,
+            generation: self.generations[index],
+        })
+    }
+
+    /// Returns a mutable block slice for a live handle.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the handle is stale or not allocated.
+    pub fn block_mut(&mut self, handle: KvBlockHandle) -> Result<&mut [u8], KvBlockPoolError> {
+        self.validate_handle(handle)?;
+        Ok(&mut self.blocks[handle.index])
+    }
+
+    /// Frees a live KV block handle.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the handle is stale or not allocated.
+    pub fn free(&mut self, handle: KvBlockHandle) -> Result<(), KvBlockPoolError> {
+        self.validate_handle(handle)?;
+        self.allocated[handle.index] = false;
+        self.generations[handle.index] = self.generations[handle.index].saturating_add(1);
+        self.free.push(handle.index);
+        self.free_count = self.free_count.saturating_add(1);
+        Ok(())
+    }
+
+    /// Returns pool accounting.
+    #[must_use]
+    pub fn stats(&self) -> KvBlockPoolStats {
+        KvBlockPoolStats {
+            home_node: self.home_node,
+            block_size: self.block_size,
+            capacity: self.blocks.len(),
+            allocated: self.allocated_count(),
+            free: self.free.len(),
+            high_water_mark: self.high_water_mark,
+            allocation_count: self.allocation_count,
+            free_count: self.free_count,
+        }
+    }
+
+    fn validate_handle(&self, handle: KvBlockHandle) -> Result<(), KvBlockPoolError> {
+        let Some(is_allocated) = self.allocated.get(handle.index) else {
+            return Err(KvBlockPoolError::InvalidHandle);
+        };
+        if !is_allocated || self.generations[handle.index] != handle.generation {
+            return Err(KvBlockPoolError::InvalidHandle);
+        }
+        Ok(())
+    }
+
+    fn allocated_count(&self) -> usize {
+        self.blocks.len() - self.free.len()
+    }
 }
 
 impl RequestScratch {
@@ -382,6 +511,27 @@ impl ScratchArena {
     }
 }
 
+/// KV block pool accounting snapshot.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct KvBlockPoolStats {
+    /// Pool home node.
+    pub home_node: NodeId,
+    /// Size of each fixed block in bytes.
+    pub block_size: usize,
+    /// Total block capacity.
+    pub capacity: usize,
+    /// Allocated block count.
+    pub allocated: usize,
+    /// Free block count.
+    pub free: usize,
+    /// Maximum allocated blocks observed.
+    pub high_water_mark: usize,
+    /// Successful allocation count.
+    pub allocation_count: u64,
+    /// Successful free count.
+    pub free_count: u64,
+}
+
 /// Scratch arena accounting snapshot.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ScratchArenaStats {
@@ -419,6 +569,32 @@ pub enum ScratchAllocError {
         remaining: usize,
     },
 }
+
+/// KV block pool failures.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum KvBlockPoolError {
+    /// Block size must be non-zero.
+    InvalidBlockSize,
+    /// Capacity must be non-zero.
+    InvalidCapacity,
+    /// No free blocks are available.
+    OutOfBlocks,
+    /// The block handle is stale, invalid, or not allocated.
+    InvalidHandle,
+}
+
+impl fmt::Display for KvBlockPoolError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::InvalidBlockSize => f.write_str("KV block size must be non-zero"),
+            Self::InvalidCapacity => f.write_str("KV block pool capacity must be non-zero"),
+            Self::OutOfBlocks => f.write_str("KV block pool is out of blocks"),
+            Self::InvalidHandle => f.write_str("KV block handle is invalid or stale"),
+        }
+    }
+}
+
+impl std::error::Error for KvBlockPoolError {}
 
 impl fmt::Display for ScratchAllocError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -514,7 +690,8 @@ mod tests {
     use locus_core::{NodeId, RequestHome, RequestId};
 
     use super::{
-        RequestScratch, RequestScratchError, RequestScratchPool, ScratchAllocError, ScratchArena,
+        KvBlockPool, KvBlockPoolError, RequestScratch, RequestScratchError, RequestScratchPool,
+        ScratchAllocError, ScratchArena,
     };
 
     #[test]
@@ -703,5 +880,57 @@ mod tests {
         assert_eq!(stats.created_arenas, 2);
         assert_eq!(stats.reused_arenas, 0);
         assert_eq!(stats.idle_arenas, 1);
+    }
+
+    #[test]
+    fn allocates_and_reuses_kv_blocks() {
+        let mut pool = KvBlockPool::new(NodeId(0), 4096, 2).expect("pool");
+
+        let first = pool.allocate().expect("first block");
+        let second = pool.allocate().expect("second block");
+        assert_eq!(pool.allocate(), Err(KvBlockPoolError::OutOfBlocks));
+
+        pool.block_mut(first).expect("first block")[0] = 7;
+        pool.free(first).expect("free first");
+        let third = pool.allocate().expect("reused block");
+
+        assert_ne!(first, third);
+        assert_eq!(pool.block_mut(third).expect("third block")[0], 7);
+
+        let stats = pool.stats();
+        assert_eq!(stats.home_node, NodeId(0));
+        assert_eq!(stats.capacity, 2);
+        assert_eq!(stats.allocated, 2);
+        assert_eq!(stats.high_water_mark, 2);
+
+        pool.free(second).expect("free second");
+        pool.free(third).expect("free third");
+        assert_eq!(pool.stats().free, 2);
+    }
+
+    #[test]
+    fn rejects_stale_kv_block_handles() {
+        let mut pool = KvBlockPool::new(NodeId(1), 1024, 1).expect("pool");
+        let handle = pool.allocate().expect("block");
+
+        pool.free(handle).expect("free block");
+
+        assert_eq!(pool.free(handle), Err(KvBlockPoolError::InvalidHandle));
+        assert_eq!(
+            pool.block_mut(handle).expect_err("stale handle"),
+            KvBlockPoolError::InvalidHandle
+        );
+    }
+
+    #[test]
+    fn rejects_invalid_kv_pool_configuration() {
+        assert_eq!(
+            KvBlockPool::new(NodeId(0), 0, 1).expect_err("zero block size"),
+            KvBlockPoolError::InvalidBlockSize
+        );
+        assert_eq!(
+            KvBlockPool::new(NodeId(0), 4096, 0).expect_err("zero capacity"),
+            KvBlockPoolError::InvalidCapacity
+        );
     }
 }

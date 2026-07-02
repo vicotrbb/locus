@@ -3,7 +3,7 @@
 use std::alloc::Layout;
 
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
-use locus_alloc::{RequestScratch, RequestScratchPool, ScratchArena};
+use locus_alloc::{KvBlockPool, RequestScratch, RequestScratchPool, ScratchArena};
 use locus_core::{NodeId, RequestHome, RequestId};
 
 fn scratch_arena_reset_cycle(c: &mut Criterion) {
@@ -120,12 +120,49 @@ fn request_scratch_pool_cycle(c: &mut Criterion) {
     });
 }
 
+fn kv_block_pool_cycle(c: &mut Criterion) {
+    c.bench_function("kv_block_pool_cycle_256x4k", |bench| {
+        let mut pool = KvBlockPool::new(NodeId(0), 4096, 256).expect("pool");
+
+        bench.iter(|| {
+            let mut handles = Vec::with_capacity(256);
+            for _ in 0..256 {
+                let handle = pool.allocate().expect("block");
+                black_box(pool.block_mut(handle).expect("block").as_mut_ptr());
+                handles.push(handle);
+            }
+
+            for handle in handles {
+                pool.free(handle).expect("free block");
+            }
+
+            black_box(pool.stats());
+        });
+    });
+}
+
+fn kv_vec_allocation_cycle(c: &mut Criterion) {
+    c.bench_function("kv_vec_allocation_cycle_256x4k", |bench| {
+        bench.iter(|| {
+            let mut blocks = Vec::with_capacity(256);
+            for _ in 0..256 {
+                let mut block = vec![0_u8; 4096];
+                black_box(block.as_mut_ptr());
+                blocks.push(block);
+            }
+            black_box(blocks.len());
+        });
+    });
+}
+
 criterion_group!(
     benches,
     scratch_arena_reset_cycle,
     vec_allocation_cycle,
     request_scratch_cycle,
     request_vec_allocation_cycle,
-    request_scratch_pool_cycle
+    request_scratch_pool_cycle,
+    kv_block_pool_cycle,
+    kv_vec_allocation_cycle
 );
 criterion_main!(benches);
