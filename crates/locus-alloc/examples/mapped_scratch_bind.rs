@@ -17,6 +17,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("mapping_start=0x{mapping_start:x}");
     println!("mapping_len={}", arena.mapping_len());
 
+    let cgroup_before = read_current_cgroup_summary()?;
+
     match arena.bind_to_node(NodeId(0)) {
         Ok(()) => println!("mapped_scratch_bind=ok"),
         Err(error) => println!("mapped_scratch_bind=error {error}"),
@@ -25,6 +27,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let touched = arena.write_touch_pages()?;
     println!("touched={touched}");
     println!("home_node={}", arena.home_node().0);
+
+    match cgroup_before {
+        Some(before) => match read_current_cgroup_summary()? {
+            Some(after) => print_cgroup_delta(&before, &after),
+            None => println!("cgroup_numa_delta=unavailable"),
+        },
+        None => println!("cgroup_numa_delta=unavailable"),
+    }
 
     match read_self_numa_maps() {
         Ok(entries) => {
@@ -63,6 +73,50 @@ fn print_placement(
     );
     for (node, pages) in &entry.node_pages {
         println!("numa_maps_node={} pages={pages}", node.0);
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn read_current_cgroup_summary(
+) -> Result<Option<locus_observe::CgroupNumaSummary>, Box<dyn std::error::Error>> {
+    let cgroup_content = match std::fs::read_to_string("/proc/self/cgroup") {
+        Ok(content) => content,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => return Err(Box::new(error)),
+    };
+    let path = match locus_observe::resolve_cgroup_v2_memory_numa_stat_path(
+        &cgroup_content,
+        std::path::Path::new("/sys/fs/cgroup"),
+    ) {
+        Ok(path) => path,
+        Err(locus_observe::CgroupPathError::MissingUnifiedEntry) => return Ok(None),
+    };
+
+    match locus_observe::read_cgroup_numa_stat(path) {
+        Ok(entries) => Ok(Some(locus_observe::CgroupNumaSummary::from_entries(
+            &entries,
+        ))),
+        Err(locus_observe::ObserveReadError::Read { source, .. })
+            if source.kind() == std::io::ErrorKind::NotFound =>
+        {
+            Ok(None)
+        }
+        Err(error) => Err(Box::new(error)),
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn print_cgroup_delta(
+    before: &locus_observe::CgroupNumaSummary,
+    after: &locus_observe::CgroupNumaSummary,
+) {
+    let delta = after.delta_since(before);
+    println!(
+        "cgroup_numa_delta=ok total_bytes_delta={}",
+        delta.total_bytes_delta
+    );
+    for (node, bytes_delta) in delta.bytes_by_node_delta {
+        println!("cgroup_numa_node={} bytes_delta={bytes_delta}", node.0);
     }
 }
 
