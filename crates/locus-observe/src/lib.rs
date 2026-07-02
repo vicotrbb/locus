@@ -306,6 +306,20 @@ impl CgroupNumaSummary {
     }
 }
 
+impl CgroupNumaDelta {
+    /// Returns a signed delta for one node.
+    #[must_use]
+    pub fn get(&self, node: NodeId) -> Option<i128> {
+        self.bytes_by_node_delta.get(&node).copied()
+    }
+
+    /// Returns true when any aggregate or node delta is non-zero.
+    #[must_use]
+    pub fn has_nonzero_delta(&self) -> bool {
+        self.total_bytes_delta != 0 || self.bytes_by_node_delta.values().any(|delta| *delta != 0)
+    }
+}
+
 /// Reads and parses a `numa_maps` file from an explicit path.
 ///
 /// # Errors
@@ -935,6 +949,7 @@ mod tests {
         );
 
         let delta = after.delta_since(&before);
+        let zero_delta = before.delta_since(&before);
 
         assert_eq!(
             delta,
@@ -947,5 +962,8 @@ mod tests {
                 ]),
             }
         );
+        assert_eq!(delta.get(NodeId(2)), Some(7));
+        assert!(delta.has_nonzero_delta());
+        assert!(!zero_delta.has_nonzero_delta());
     }
 }
