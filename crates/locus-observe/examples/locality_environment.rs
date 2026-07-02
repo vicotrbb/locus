@@ -20,10 +20,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         cgroup_numa_stat_available,
         node_numastat_available,
     );
-    println!(
-        "placement_validation_readiness={} reason={}",
-        readiness.status, readiness.reason
-    );
+    println!("{readiness}");
     Ok(())
 }
 

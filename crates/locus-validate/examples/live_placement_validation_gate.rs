@@ -81,10 +81,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             "unavailable"
         }
     );
-    println!(
-        "placement_validation_readiness={} reason={}",
-        placement_readiness.status, placement_readiness.reason
-    );
+    println!("{placement_readiness}");
 
     let placement_proof = match numa_maps_result {
         Ok(entries) => {
@@ -103,10 +100,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
         Err(error) => return Err(Box::new(error)),
     };
-    println!(
-        "placement_proof={} reason={}",
-        placement_proof.status, placement_proof.reason
-    );
+    println!("{placement_proof}");
 
     let gate =
         PlacementValidationGate::from_verdicts(memory_policy, placement_readiness, placement_proof);

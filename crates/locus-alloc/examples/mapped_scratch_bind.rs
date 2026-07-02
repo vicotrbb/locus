@@ -105,13 +105,13 @@ fn print_placement(
     for (node, pages) in &entry.node_pages {
         println!("numa_maps_node={} pages={pages}", node.0);
     }
-    println!("placement_proof={} reason={}", proof.status, proof.reason);
+    println!("{proof}");
 }
 
 #[cfg(target_os = "linux")]
 fn print_missing_mapping_proof(policy_applied: bool) {
     let proof = locus_observe::NumaPlacementProof::from_evidence(policy_applied, None);
-    println!("placement_proof={} reason={}", proof.status, proof.reason);
+    println!("{proof}");
 }
 
 #[cfg(target_os = "linux")]
@@ -119,7 +119,7 @@ fn print_unavailable_numa_maps_proof() {
     let proof = locus_observe::NumaPlacementProof::unavailable(
         locus_observe::NumaPlacementProofReason::NumaMapsUnavailable,
     );
-    println!("placement_proof={} reason={}", proof.status, proof.reason);
+    println!("{proof}");
 }
 
 #[cfg(target_os = "linux")]

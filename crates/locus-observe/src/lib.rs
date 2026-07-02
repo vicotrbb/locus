@@ -358,6 +358,12 @@ pub struct NumaPlacementProof {
     pub reason: NumaPlacementProofReason,
 }
 
+impl fmt::Display for NumaPlacementProof {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "placement_proof={} reason={}", self.status, self.reason)
+    }
+}
+
 /// Error returned when parsing a probe placement proof line.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum NumaPlacementProofLineParseError {
@@ -520,6 +526,16 @@ pub struct NumaPlacementValidationReadiness {
     pub status: NumaPlacementValidationReadinessStatus,
     /// Reason for the status.
     pub reason: NumaPlacementValidationReadinessReason,
+}
+
+impl fmt::Display for NumaPlacementValidationReadiness {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "placement_validation_readiness={} reason={}",
+            self.status, self.reason
+        )
+    }
 }
 
 /// Error returned when parsing a placement validation readiness line.
@@ -1937,6 +1953,10 @@ mod tests {
         assert_eq!(proof.reason, NumaPlacementProofReason::Verified);
         assert_eq!(proof.status.to_string(), "verified");
         assert_eq!(proof.reason.to_string(), "verified");
+        assert_eq!(
+            proof.to_string(),
+            "placement_proof=verified reason=verified"
+        );
         assert!(proof.is_verified());
 
         assert_eq!(
@@ -2130,6 +2150,10 @@ placement_proof=unavailable reason=numa_maps_unavailable
         assert_eq!(ready.reason, NumaPlacementValidationReadinessReason::Ready);
         assert_eq!(ready.status.to_string(), "ready");
         assert_eq!(ready.reason.to_string(), "ready");
+        assert_eq!(
+            ready.to_string(),
+            "placement_validation_readiness=ready reason=ready"
+        );
         assert!(ready.is_ready());
 
         let missing_numa_maps = NumaPlacementValidationReadiness::from_sources(false, true, true);
