@@ -217,6 +217,27 @@ pub fn numa_maps_entry_by_start_address(
     })
 }
 
+/// Finds the ordered `numa_maps` entry containing an address.
+///
+/// This treats the next entry start as the end of the current range, matching
+/// the address ordering used by `/proc/<pid>/numa_maps`.
+#[must_use]
+pub fn numa_maps_entry_containing_address(
+    entries: &[NumaMapsEntry],
+    address: usize,
+) -> Option<&NumaMapsEntry> {
+    let address = u64::try_from(address).ok()?;
+
+    entries.iter().enumerate().find_map(|(index, entry)| {
+        let next_start = entries.get(index + 1).map(|next| next.start_address);
+        if entry.start_address <= address && next_start.map_or(true, |next| address < next) {
+            Some(entry)
+        } else {
+            None
+        }
+    })
+}
+
 /// Reads and parses cgroup v2 `memory.numa_stat` from an explicit path.
 ///
 /// # Errors
@@ -548,10 +569,11 @@ mod tests {
     use tempfile::TempDir;
 
     use super::{
-        numa_maps_entry_by_start_address, parse_cgroup_numa_stat, parse_node_numastat,
-        parse_numa_maps, parse_numa_maps_line, read_cgroup_numa_stat, read_node_numastat,
-        read_numa_maps, resolve_cgroup_v2_memory_numa_stat_path, CgroupNumaSummary,
-        CgroupPathError, NodeNumastatSnapshot, NumaMapsSummary, ObserveParseError,
+        numa_maps_entry_by_start_address, numa_maps_entry_containing_address,
+        parse_cgroup_numa_stat, parse_node_numastat, parse_numa_maps, parse_numa_maps_line,
+        read_cgroup_numa_stat, read_node_numastat, read_numa_maps,
+        resolve_cgroup_v2_memory_numa_stat_path, CgroupNumaSummary, CgroupPathError,
+        NodeNumastatSnapshot, NumaMapsSummary, ObserveParseError,
     };
 
     #[test]
@@ -594,6 +616,27 @@ mod tests {
 
         assert_eq!(entry.policy, "bind:0");
         assert!(numa_maps_entry_by_start_address(&entries, 0x3000).is_none());
+    }
+
+    #[test]
+    fn finds_numa_maps_entry_containing_address() {
+        let entries = parse_numa_maps(
+            "1000 default anon=1 N0=1\n\
+             2000 bind:0 anon=2 N0=2\n\
+             4000 default anon=1 N1=1\n",
+        )
+        .expect("valid numa maps");
+
+        let entry = numa_maps_entry_containing_address(&entries, 0x2fff).expect("entry");
+
+        assert_eq!(entry.policy, "bind:0");
+        assert!(numa_maps_entry_containing_address(&entries, 0x0fff).is_none());
+        assert_eq!(
+            numa_maps_entry_containing_address(&entries, 0x4000)
+                .expect("last entry")
+                .policy,
+            "default"
+        );
     }
 
     #[test]

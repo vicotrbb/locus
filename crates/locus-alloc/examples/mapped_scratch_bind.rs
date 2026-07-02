@@ -6,7 +6,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     use locus_alloc::MappedScratchArena;
     use locus_core::NodeId;
-    use locus_observe::{numa_maps_entry_by_start_address, read_self_numa_maps, ObserveReadError};
+    use locus_observe::{
+        numa_maps_entry_by_start_address, numa_maps_entry_containing_address, read_self_numa_maps,
+        ObserveReadError,
+    };
 
     let mut arena = MappedScratchArena::new(NodeId(0), 16 * 1024)?;
     let mapping_start = arena.mapping_start_address();
@@ -28,6 +31,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             if let Some(entry) = numa_maps_entry_by_start_address(&entries, mapping_start) {
                 let pages = entry.node_pages.values().copied().sum::<u64>();
                 println!("numa_maps_match=ok policy={} pages={pages}", entry.policy);
+                for (node, pages) in &entry.node_pages {
+                    println!("numa_maps_node={} pages={pages}", node.0);
+                }
+            } else if let Some(entry) = numa_maps_entry_containing_address(&entries, mapping_start)
+            {
+                let pages = entry.node_pages.values().copied().sum::<u64>();
+                println!(
+                    "numa_maps_match=containing policy={} pages={pages}",
+                    entry.policy
+                );
                 for (node, pages) in &entry.node_pages {
                     println!("numa_maps_node={} pages={pages}", node.0);
                 }
