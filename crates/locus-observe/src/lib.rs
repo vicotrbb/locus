@@ -529,6 +529,13 @@ pub enum NumaPlacementReadinessLineParseError {
     UnknownStatus(String),
     /// The readiness reason token is not recognized.
     UnknownReason(String),
+    /// The status and reason tokens are individually valid but inconsistent together.
+    InconsistentReadiness {
+        /// Parsed readiness status.
+        status: NumaPlacementValidationReadinessStatus,
+        /// Parsed readiness reason.
+        reason: NumaPlacementValidationReadinessReason,
+    },
 }
 
 impl fmt::Display for NumaPlacementReadinessLineParseError {
@@ -544,6 +551,9 @@ impl fmt::Display for NumaPlacementReadinessLineParseError {
             }
             Self::UnknownReason(reason) => {
                 write!(f, "unknown placement readiness reason: {reason}")
+            }
+            Self::InconsistentReadiness { status, reason } => {
+                write!(f, "inconsistent placement readiness: {status} {reason}")
             }
         }
     }
@@ -812,6 +822,23 @@ pub fn parse_numa_placement_proof_output(
 }
 
 impl NumaPlacementValidationReadiness {
+    /// Builds a readiness verdict only when the status and reason are coherent.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the reason is not valid for the status.
+    pub fn from_parts(
+        status: NumaPlacementValidationReadinessStatus,
+        reason: NumaPlacementValidationReadinessReason,
+    ) -> Result<Self, NumaPlacementReadinessLineParseError> {
+        let readiness = Self { status, reason };
+        if readiness.is_consistent() {
+            Ok(readiness)
+        } else {
+            Err(NumaPlacementReadinessLineParseError::InconsistentReadiness { status, reason })
+        }
+    }
+
     /// Builds a readiness verdict from locality evidence availability.
     #[must_use]
     pub fn from_sources(
@@ -851,6 +878,23 @@ impl NumaPlacementValidationReadiness {
     pub fn is_ready(self) -> bool {
         self.status == NumaPlacementValidationReadinessStatus::Ready
     }
+
+    /// Returns true when the reason is valid for the status.
+    #[must_use]
+    pub fn is_consistent(self) -> bool {
+        matches!(
+            (self.status, self.reason),
+            (
+                NumaPlacementValidationReadinessStatus::Ready,
+                NumaPlacementValidationReadinessReason::Ready
+            ) | (
+                NumaPlacementValidationReadinessStatus::NotReady,
+                NumaPlacementValidationReadinessReason::NumaMapsUnavailable
+                    | NumaPlacementValidationReadinessReason::CgroupNumaStatUnavailable
+                    | NumaPlacementValidationReadinessReason::NodeNumastatUnavailable
+            )
+        )
+    }
 }
 
 /// Parses a locality environment placement validation readiness line.
@@ -860,7 +904,8 @@ impl NumaPlacementValidationReadiness {
 /// # Errors
 ///
 /// Returns an error when the line is missing required tokens, contains duplicate
-/// tokens, contains unsupported tokens, or uses an unknown status or reason.
+/// tokens, contains unsupported tokens, uses an unknown status or reason, or
+/// combines a status with an incoherent reason.
 pub fn parse_numa_placement_readiness_line(
     line: &str,
 ) -> Result<NumaPlacementValidationReadiness, NumaPlacementReadinessLineParseError> {
@@ -905,7 +950,7 @@ pub fn parse_numa_placement_readiness_line(
             NumaPlacementReadinessLineParseError::UnknownReason(reason_token.to_owned())
         })?;
 
-    Ok(NumaPlacementValidationReadiness { status, reason })
+    NumaPlacementValidationReadiness::from_parts(status, reason)
 }
 
 /// Extracts placement validation readiness from multiline probe output.
@@ -2035,6 +2080,16 @@ placement_proof=unavailable reason=numa_maps_unavailable
             NumaPlacementValidationReadiness::from_sources(true, true, false).reason,
             NumaPlacementValidationReadinessReason::NodeNumastatUnavailable
         );
+        assert!(NumaPlacementValidationReadiness {
+            status: NumaPlacementValidationReadinessStatus::NotReady,
+            reason: NumaPlacementValidationReadinessReason::NumaMapsUnavailable,
+        }
+        .is_consistent());
+        assert!(!NumaPlacementValidationReadiness {
+            status: NumaPlacementValidationReadinessStatus::Ready,
+            reason: NumaPlacementValidationReadinessReason::NumaMapsUnavailable,
+        }
+        .is_consistent());
     }
 
     #[test]
@@ -2107,6 +2162,16 @@ placement_proof=unavailable reason=numa_maps_unavailable
             .expect_err("duplicate reason"),
             NumaPlacementReadinessLineParseError::DuplicateReason
         );
+        assert_eq!(
+            parse_numa_placement_readiness_line(
+                "placement_validation_readiness=ready reason=numa_maps_unavailable"
+            )
+            .expect_err("inconsistent readiness"),
+            NumaPlacementReadinessLineParseError::InconsistentReadiness {
+                status: NumaPlacementValidationReadinessStatus::Ready,
+                reason: NumaPlacementValidationReadinessReason::NumaMapsUnavailable,
+            }
+        );
     }
 
     #[test]
@@ -2148,6 +2213,18 @@ placement_validation_readiness=not_ready reason=numa_maps_unavailable
             .expect_err("bad readiness"),
             NumaPlacementReadinessOutputParseError::Line(
                 NumaPlacementReadinessLineParseError::UnknownStatus("maybe".to_owned())
+            )
+        );
+        assert_eq!(
+            parse_numa_placement_readiness_output(
+                "placement_validation_readiness=not_ready reason=ready\n"
+            )
+            .expect_err("inconsistent readiness"),
+            NumaPlacementReadinessOutputParseError::Line(
+                NumaPlacementReadinessLineParseError::InconsistentReadiness {
+                    status: NumaPlacementValidationReadinessStatus::NotReady,
+                    reason: NumaPlacementValidationReadinessReason::Ready,
+                }
             )
         );
     }
