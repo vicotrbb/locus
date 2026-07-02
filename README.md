@@ -42,9 +42,10 @@ Run the current locality evidence probes:
 ```sh
 docker run --rm -v "$PWD":/work -w /work rust:1.96 cargo run -p locus-observe --example locality_environment
 docker run --rm -v "$PWD":/work -w /work rust:1.96 cargo run -p locus-alloc --example mapped_scratch_bind
+docker run --rm -v "$PWD":/work -w /work rust:1.96 cargo run -p locus-alloc --example mapped_scratch_lock
 ```
 
-The `locality_environment` example reports whether `numa_maps`, cgroup `memory.numa_stat`, and node `numastat` are available. The `mapped_scratch_bind` example prints the mapped arena address, attempts `mbind`, write-touches pages, and, when the host exposes the evidence, correlates the mapping with `numa_maps` and cgroup NUMA deltas.
+The `locality_environment` example reports whether `numa_maps`, cgroup `memory.numa_stat`, and node `numastat` are available. The `mapped_scratch_bind` example prints the mapped arena address, attempts `mbind`, write-touches pages, and, when the host exposes the evidence, correlates the mapping with `numa_maps` and cgroup NUMA deltas. The `mapped_scratch_lock` example validates the OS page-lock portion of future pinned host staging buffers.
 
 Captured outputs from `mbind_region`, `locality_environment`, and `mapped_scratch_bind` can be combined with:
 
