@@ -301,6 +301,7 @@ version = "0.1.0"
 dependencies = [
  "criterion",
  "locus-core",
+ "locus-observe",
  "locus-sys",
 ]
 

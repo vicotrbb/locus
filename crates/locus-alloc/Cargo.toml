@@ -12,6 +12,7 @@ locus-sys = { path = "../locus-sys" }
 
 [dev-dependencies]
 criterion = "0.5"
+locus-observe = { path = "../locus-observe" }
 
 [lib]
 path = "src/lib.rs"
