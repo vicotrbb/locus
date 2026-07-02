@@ -41,6 +41,66 @@ pub struct NodeNumastatMetric {
     pub value: u64,
 }
 
+/// Snapshot of one node `numastat` file.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct NodeNumastatSnapshot {
+    /// Number of metrics inspected.
+    pub metric_count: usize,
+    /// Metric values by name.
+    pub values: BTreeMap<String, u64>,
+}
+
+impl NodeNumastatSnapshot {
+    /// Builds a snapshot from parsed node `numastat` metrics.
+    #[must_use]
+    pub fn from_metrics(metrics: &[NodeNumastatMetric]) -> Self {
+        let mut values = BTreeMap::new();
+        for metric in metrics {
+            values.insert(metric.metric.clone(), metric.value);
+        }
+
+        Self {
+            metric_count: values.len(),
+            values,
+        }
+    }
+
+    /// Returns a metric value by name.
+    #[must_use]
+    pub fn get(&self, metric: &str) -> Option<u64> {
+        self.values.get(metric).copied()
+    }
+
+    /// Computes signed metric deltas from `previous` to `self`.
+    #[must_use]
+    pub fn delta_since(&self, previous: &Self) -> NodeNumastatDelta {
+        let mut deltas = BTreeMap::new();
+
+        for metric in previous.values.keys().chain(self.values.keys()) {
+            let before = i128::from(previous.get(metric).unwrap_or_default());
+            let after = i128::from(self.get(metric).unwrap_or_default());
+            deltas.insert(metric.clone(), after - before);
+        }
+
+        NodeNumastatDelta { deltas }
+    }
+}
+
+/// Signed delta between two node `numastat` snapshots.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct NodeNumastatDelta {
+    /// Delta values by metric name.
+    pub deltas: BTreeMap<String, i128>,
+}
+
+impl NodeNumastatDelta {
+    /// Returns a delta by metric name.
+    #[must_use]
+    pub fn get(&self, metric: &str) -> Option<i128> {
+        self.deltas.get(metric).copied()
+    }
+}
+
 /// Summary of page placement derived from `numa_maps`.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct NumaMapsSummary {
@@ -439,7 +499,7 @@ mod tests {
     use super::{
         parse_cgroup_numa_stat, parse_node_numastat, parse_numa_maps, parse_numa_maps_line,
         read_cgroup_numa_stat, read_node_numastat, read_numa_maps, CgroupNumaSummary,
-        NumaMapsSummary, ObserveParseError,
+        NodeNumastatSnapshot, NumaMapsSummary, ObserveParseError,
     };
 
     #[test]
@@ -478,6 +538,24 @@ mod tests {
         assert_eq!(metrics.len(), 3);
         assert_eq!(metrics[0].metric, "numa_hit");
         assert_eq!(metrics[1].value, 2);
+    }
+
+    #[test]
+    fn summarizes_node_numastat_metrics_and_deltas() {
+        let before =
+            parse_node_numastat("numa_hit 10\nnuma_miss 2\nother_node 1\n").expect("before");
+        let after = parse_node_numastat("numa_hit 15\nnuma_miss 1\nlocal_node 7\n").expect("after");
+
+        let before = NodeNumastatSnapshot::from_metrics(&before);
+        let after = NodeNumastatSnapshot::from_metrics(&after);
+        let delta = after.delta_since(&before);
+
+        assert_eq!(before.metric_count, 3);
+        assert_eq!(before.get("numa_hit"), Some(10));
+        assert_eq!(delta.get("numa_hit"), Some(5));
+        assert_eq!(delta.get("numa_miss"), Some(-1));
+        assert_eq!(delta.get("other_node"), Some(-1));
+        assert_eq!(delta.get("local_node"), Some(7));
     }
 
     #[test]
