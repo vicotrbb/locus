@@ -393,6 +393,73 @@ impl fmt::Display for NumaPlacementProofLineParseError {
 
 impl std::error::Error for NumaPlacementProofLineParseError {}
 
+/// Final readiness status for a NUMA placement validation environment.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NumaPlacementValidationReadinessStatus {
+    /// Required locality evidence sources are available.
+    Ready,
+    /// One or more required locality evidence sources are unavailable.
+    NotReady,
+}
+
+impl NumaPlacementValidationReadinessStatus {
+    /// Returns a stable machine-readable readiness status string.
+    #[must_use]
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Ready => "ready",
+            Self::NotReady => "not_ready",
+        }
+    }
+}
+
+impl fmt::Display for NumaPlacementValidationReadinessStatus {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+/// Reason for a NUMA placement validation readiness status.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NumaPlacementValidationReadinessReason {
+    /// Required locality evidence sources are available.
+    Ready,
+    /// `/proc/self/numa_maps` is unavailable.
+    NumaMapsUnavailable,
+    /// Current cgroup v2 `memory.numa_stat` is unavailable.
+    CgroupNumaStatUnavailable,
+    /// Node `numastat` counters are unavailable.
+    NodeNumastatUnavailable,
+}
+
+impl NumaPlacementValidationReadinessReason {
+    /// Returns a stable machine-readable readiness reason string.
+    #[must_use]
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Ready => "ready",
+            Self::NumaMapsUnavailable => "numa_maps_unavailable",
+            Self::CgroupNumaStatUnavailable => "cgroup_numa_stat_unavailable",
+            Self::NodeNumastatUnavailable => "node_numastat_unavailable",
+        }
+    }
+}
+
+impl fmt::Display for NumaPlacementValidationReadinessReason {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+/// Readiness verdict for collecting placement validation evidence.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct NumaPlacementValidationReadiness {
+    /// Final readiness status.
+    pub status: NumaPlacementValidationReadinessStatus,
+    /// Reason for the status.
+    pub reason: NumaPlacementValidationReadinessReason,
+}
+
 impl NumaMapsSummary {
     /// Builds a summary from parsed `numa_maps` entries.
     #[must_use]
@@ -586,6 +653,48 @@ pub fn parse_numa_placement_proof_line(
         .ok_or_else(|| NumaPlacementProofLineParseError::UnknownReason(reason_token.to_owned()))?;
 
     Ok(NumaPlacementProof { status, reason })
+}
+
+impl NumaPlacementValidationReadiness {
+    /// Builds a readiness verdict from locality evidence availability.
+    #[must_use]
+    pub fn from_sources(
+        numa_maps_available: bool,
+        cgroup_numa_stat_available: bool,
+        node_numastat_available: bool,
+    ) -> Self {
+        if !numa_maps_available {
+            return Self {
+                status: NumaPlacementValidationReadinessStatus::NotReady,
+                reason: NumaPlacementValidationReadinessReason::NumaMapsUnavailable,
+            };
+        }
+
+        if !cgroup_numa_stat_available {
+            return Self {
+                status: NumaPlacementValidationReadinessStatus::NotReady,
+                reason: NumaPlacementValidationReadinessReason::CgroupNumaStatUnavailable,
+            };
+        }
+
+        if !node_numastat_available {
+            return Self {
+                status: NumaPlacementValidationReadinessStatus::NotReady,
+                reason: NumaPlacementValidationReadinessReason::NodeNumastatUnavailable,
+            };
+        }
+
+        Self {
+            status: NumaPlacementValidationReadinessStatus::Ready,
+            reason: NumaPlacementValidationReadinessReason::Ready,
+        }
+    }
+
+    /// Returns true only when all required locality evidence sources are available.
+    #[must_use]
+    pub fn is_ready(self) -> bool {
+        self.status == NumaPlacementValidationReadinessStatus::Ready
+    }
 }
 
 /// Summary of cgroup NUMA bytes for one or more metrics.
@@ -1143,7 +1252,9 @@ mod tests {
         CgroupNumaSummary, CgroupPathError, NodeNumastatSnapshot, NodeNumastatSystemSnapshot,
         NumaMapsAddressMatchKind, NumaMapsSummary, NumaPlacementEvidence, NumaPlacementProof,
         NumaPlacementProofLineParseError, NumaPlacementProofReason, NumaPlacementProofStatus,
-        NumaPlacementStatus, ObserveParseError,
+        NumaPlacementStatus, NumaPlacementValidationReadiness,
+        NumaPlacementValidationReadinessReason, NumaPlacementValidationReadinessStatus,
+        ObserveParseError,
     };
 
     #[test]
@@ -1597,6 +1708,41 @@ mod tests {
             )
             .expect_err("duplicate reason"),
             NumaPlacementProofLineParseError::DuplicateReason
+        );
+    }
+
+    #[test]
+    fn reports_numa_placement_validation_readiness() {
+        let ready = NumaPlacementValidationReadiness::from_sources(true, true, true);
+        assert_eq!(ready.status, NumaPlacementValidationReadinessStatus::Ready);
+        assert_eq!(ready.reason, NumaPlacementValidationReadinessReason::Ready);
+        assert_eq!(ready.status.to_string(), "ready");
+        assert_eq!(ready.reason.to_string(), "ready");
+        assert!(ready.is_ready());
+
+        let missing_numa_maps = NumaPlacementValidationReadiness::from_sources(false, true, true);
+        assert_eq!(
+            missing_numa_maps.status,
+            NumaPlacementValidationReadinessStatus::NotReady
+        );
+        assert_eq!(
+            missing_numa_maps.reason,
+            NumaPlacementValidationReadinessReason::NumaMapsUnavailable
+        );
+        assert_eq!(missing_numa_maps.status.to_string(), "not_ready");
+        assert_eq!(
+            missing_numa_maps.reason.to_string(),
+            "numa_maps_unavailable"
+        );
+        assert!(!missing_numa_maps.is_ready());
+
+        assert_eq!(
+            NumaPlacementValidationReadiness::from_sources(true, false, true).reason,
+            NumaPlacementValidationReadinessReason::CgroupNumaStatUnavailable
+        );
+        assert_eq!(
+            NumaPlacementValidationReadiness::from_sources(true, true, false).reason,
+            NumaPlacementValidationReadinessReason::NodeNumastatUnavailable
         );
     }
 
