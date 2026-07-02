@@ -115,10 +115,8 @@ fn read_current_cgroup_summary(
         Err(locus_observe::CgroupPathError::MissingUnifiedEntry) => return Ok(None),
     };
 
-    match locus_observe::read_cgroup_numa_stat(path) {
-        Ok(entries) => Ok(Some(locus_observe::CgroupNumaSummary::from_entries(
-            &entries,
-        ))),
+    match locus_observe::read_cgroup_numa_summary(path) {
+        Ok(summary) => Ok(Some(summary)),
         Err(locus_observe::ObserveReadError::Read { source, .. })
             if source.kind() == std::io::ErrorKind::NotFound =>
         {

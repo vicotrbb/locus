@@ -2,14 +2,12 @@
 
 use std::error::Error;
 use std::fs;
-use std::io;
 use std::io::ErrorKind;
 use std::path::Path;
 
 use locus_observe::{
-    read_cgroup_numa_stat, read_node_numastat, read_self_numa_maps,
-    resolve_cgroup_v2_memory_numa_stat_path, CgroupNumaSummary, CgroupPathError,
-    NodeNumastatSnapshot, NumaMapsSummary, ObserveReadError,
+    read_cgroup_numa_summary, read_node_numastat_system_snapshot, read_self_numa_maps,
+    resolve_cgroup_v2_memory_numa_stat_path, CgroupPathError, NumaMapsSummary, ObserveReadError,
 };
 
 fn main() -> Result<(), Box<dyn Error>> {
@@ -56,8 +54,8 @@ fn probe_cgroup_numa_stat() -> Result<(), Box<dyn Error>> {
             }
         };
 
-    let entries = match read_cgroup_numa_stat(path) {
-        Ok(entries) => entries,
+    let summary = match read_cgroup_numa_summary(path) {
+        Ok(summary) => summary,
         Err(ObserveReadError::Read { source, .. }) if source.kind() == ErrorKind::NotFound => {
             println!("cgroup_numa_stat=unavailable");
             return Ok(());
@@ -65,7 +63,6 @@ fn probe_cgroup_numa_stat() -> Result<(), Box<dyn Error>> {
         Err(error) => return Err(Box::new(error)),
     };
 
-    let summary = CgroupNumaSummary::from_entries(&entries);
     println!(
         "cgroup_numa_stat=available metrics={} bytes={}",
         summary.metric_count, summary.total_bytes
@@ -75,53 +72,28 @@ fn probe_cgroup_numa_stat() -> Result<(), Box<dyn Error>> {
 
 fn probe_node_numastat() -> Result<(), Box<dyn Error>> {
     let node_root = Path::new("/sys/devices/system/node");
-    if !node_root.exists() {
-        println!("node_numastat=unavailable");
-        return Ok(());
-    }
+    let snapshot = match read_node_numastat_system_snapshot(node_root) {
+        Ok(snapshot) => snapshot,
+        Err(ObserveReadError::Read { source, .. }) if source.kind() == ErrorKind::NotFound => {
+            println!("node_numastat=unavailable");
+            return Ok(());
+        }
+        Err(error) => return Err(Box::new(error)),
+    };
 
-    let node_paths = node_paths(node_root)?;
-    if node_paths.is_empty() {
-        println!("node_numastat=unavailable");
-        return Ok(());
-    }
-
-    let mut available_nodes = 0_usize;
-    let mut metric_count = 0_usize;
-    for node_path in node_paths {
-        let stat_path = node_path.join("numastat");
-        let metrics = match read_node_numastat(&stat_path) {
-            Ok(metrics) => metrics,
-            Err(ObserveReadError::Read { source, .. }) if source.kind() == ErrorKind::NotFound => {
-                continue;
-            }
-            Err(error) => return Err(Box::new(error)),
-        };
-
-        let snapshot = NodeNumastatSnapshot::from_metrics(&metrics);
-        available_nodes += 1;
-        metric_count += snapshot.metric_count;
-    }
-
-    if available_nodes == 0 {
+    if snapshot.node_count == 0 {
         println!("node_numastat=unavailable");
     } else {
-        println!("node_numastat=available nodes={available_nodes} metrics={metric_count}");
+        let metric_count = snapshot
+            .nodes
+            .values()
+            .map(|node| node.metric_count)
+            .sum::<usize>();
+        println!(
+            "node_numastat=available nodes={} metrics={metric_count}",
+            snapshot.node_count
+        );
     }
 
     Ok(())
-}
-
-fn node_paths(node_root: &Path) -> io::Result<Vec<std::path::PathBuf>> {
-    let mut node_paths = Vec::new();
-    for entry in fs::read_dir(node_root)? {
-        let entry = entry?;
-        let name = entry.file_name();
-        let name = name.to_string_lossy();
-        if name.strip_prefix("node").is_some() {
-            node_paths.push(entry.path());
-        }
-    }
-    node_paths.sort();
-    Ok(node_paths)
 }

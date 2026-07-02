@@ -6,16 +6,15 @@ use std::io::ErrorKind;
 use std::path::Path;
 
 use locus_observe::{
-    read_cgroup_numa_stat, resolve_cgroup_v2_memory_numa_stat_path, CgroupNumaSummary,
-    ObserveReadError,
+    read_cgroup_numa_summary, resolve_cgroup_v2_memory_numa_stat_path, ObserveReadError,
 };
 
 fn main() -> Result<(), Box<dyn Error>> {
     let cgroup_content = fs::read_to_string("/proc/self/cgroup")?;
     let path =
         resolve_cgroup_v2_memory_numa_stat_path(&cgroup_content, Path::new("/sys/fs/cgroup"))?;
-    let entries = match read_cgroup_numa_stat(path) {
-        Ok(entries) => entries,
+    let summary = match read_cgroup_numa_summary(path) {
+        Ok(summary) => summary,
         Err(ObserveReadError::Read { source, .. }) if source.kind() == ErrorKind::NotFound => {
             println!("cgroup_numa_stat=unavailable");
             return Ok(());
@@ -23,7 +22,6 @@ fn main() -> Result<(), Box<dyn Error>> {
         Err(error) => return Err(Box::new(error)),
     };
 
-    let summary = CgroupNumaSummary::from_entries(&entries);
     println!("metrics={}", summary.metric_count);
     println!("bytes={}", summary.total_bytes);
     for (node, bytes) in summary.bytes_by_node {
