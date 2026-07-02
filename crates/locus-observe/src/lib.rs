@@ -375,6 +375,13 @@ pub enum NumaPlacementProofLineParseError {
     UnknownStatus(String),
     /// The proof reason token is not recognized.
     UnknownReason(String),
+    /// The status and reason tokens are individually valid but inconsistent together.
+    InconsistentProof {
+        /// Parsed proof status.
+        status: NumaPlacementProofStatus,
+        /// Parsed proof reason.
+        reason: NumaPlacementProofReason,
+    },
 }
 
 impl fmt::Display for NumaPlacementProofLineParseError {
@@ -387,6 +394,9 @@ impl fmt::Display for NumaPlacementProofLineParseError {
             Self::InvalidToken(token) => write!(f, "invalid placement proof token: {token}"),
             Self::UnknownStatus(status) => write!(f, "unknown placement proof status: {status}"),
             Self::UnknownReason(reason) => write!(f, "unknown placement proof reason: {reason}"),
+            Self::InconsistentProof { status, reason } => {
+                write!(f, "inconsistent placement proof: {status} {reason}")
+            }
         }
     }
 }
@@ -688,6 +698,23 @@ impl NumaPlacementEvidence {
 }
 
 impl NumaPlacementProof {
+    /// Builds a proof verdict only when the status and reason are coherent.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the reason is not valid for the status.
+    pub fn from_parts(
+        status: NumaPlacementProofStatus,
+        reason: NumaPlacementProofReason,
+    ) -> Result<Self, NumaPlacementProofLineParseError> {
+        let proof = Self { status, reason };
+        if proof.is_consistent() {
+            Ok(proof)
+        } else {
+            Err(NumaPlacementProofLineParseError::InconsistentProof { status, reason })
+        }
+    }
+
     /// Builds a placement proof verdict from policy and `numa_maps` evidence.
     #[must_use]
     pub fn from_evidence(policy_applied: bool, evidence: Option<&NumaPlacementEvidence>) -> Self {
@@ -731,6 +758,28 @@ impl NumaPlacementProof {
         self.status == NumaPlacementProofStatus::Verified
     }
 
+    /// Returns true when the reason is valid for the status.
+    #[must_use]
+    pub fn is_consistent(self) -> bool {
+        matches!(
+            (self.status, self.reason),
+            (
+                NumaPlacementProofStatus::Verified,
+                NumaPlacementProofReason::Verified
+            ) | (
+                NumaPlacementProofStatus::Unverified,
+                NumaPlacementProofReason::PolicyNotApplied
+                    | NumaPlacementProofReason::MappingMissing
+                    | NumaPlacementProofReason::NoPagesReported
+                    | NumaPlacementProofReason::PartialPagesOnExpectedNode
+                    | NumaPlacementProofReason::NoPagesOnExpectedNode
+            ) | (
+                NumaPlacementProofStatus::Unavailable,
+                NumaPlacementProofReason::NumaMapsUnavailable
+            )
+        )
+    }
+
     /// Builds a placement proof verdict for unavailable primary evidence.
     #[must_use]
     pub fn unavailable(reason: NumaPlacementProofReason) -> Self {
@@ -748,7 +797,8 @@ impl NumaPlacementProof {
 /// # Errors
 ///
 /// Returns an error when the line is missing required tokens, contains duplicate
-/// tokens, contains unsupported tokens, or uses an unknown status or reason.
+/// tokens, contains unsupported tokens, uses an unknown status or reason, or
+/// combines a status with an incoherent reason.
 pub fn parse_numa_placement_proof_line(
     line: &str,
 ) -> Result<NumaPlacementProof, NumaPlacementProofLineParseError> {
@@ -789,7 +839,7 @@ pub fn parse_numa_placement_proof_line(
     let reason = NumaPlacementProofReason::from_str_token(reason_token)
         .ok_or_else(|| NumaPlacementProofLineParseError::UnknownReason(reason_token.to_owned()))?;
 
-    Ok(NumaPlacementProof { status, reason })
+    NumaPlacementProof::from_parts(status, reason)
 }
 
 /// Extracts the final placement proof verdict from multiline probe output.
@@ -1926,6 +1976,12 @@ mod tests {
         assert_eq!(unavailable.status.to_string(), "unavailable");
         assert_eq!(unavailable.reason.to_string(), "numa_maps_unavailable");
         assert!(!unavailable.is_verified());
+        assert!(unavailable.is_consistent());
+        assert!(!NumaPlacementProof {
+            status: NumaPlacementProofStatus::Verified,
+            reason: NumaPlacementProofReason::PolicyNotApplied,
+        }
+        .is_consistent());
     }
 
     #[test]
@@ -1998,6 +2054,14 @@ mod tests {
             .expect_err("duplicate reason"),
             NumaPlacementProofLineParseError::DuplicateReason
         );
+        assert_eq!(
+            parse_numa_placement_proof_line("placement_proof=verified reason=policy_not_applied")
+                .expect_err("inconsistent proof"),
+            NumaPlacementProofLineParseError::InconsistentProof {
+                status: NumaPlacementProofStatus::Verified,
+                reason: NumaPlacementProofReason::PolicyNotApplied,
+            }
+        );
     }
 
     #[test]
@@ -2043,6 +2107,18 @@ placement_proof=unavailable reason=numa_maps_unavailable
                 .expect_err("bad proof"),
             NumaPlacementProofOutputParseError::Line(
                 NumaPlacementProofLineParseError::UnknownStatus("maybe".to_owned())
+            )
+        );
+        assert_eq!(
+            parse_numa_placement_proof_output(
+                "placement_proof=unavailable reason=mapping_missing\n"
+            )
+            .expect_err("inconsistent proof"),
+            NumaPlacementProofOutputParseError::Line(
+                NumaPlacementProofLineParseError::InconsistentProof {
+                    status: NumaPlacementProofStatus::Unavailable,
+                    reason: NumaPlacementProofReason::MappingMissing,
+                }
             )
         );
     }
