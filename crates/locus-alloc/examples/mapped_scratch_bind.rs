@@ -17,7 +17,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let cgroup_before = read_current_cgroup_summary()?;
     let node_numastat_before = read_current_node_numastat_snapshot()?;
 
-    let policy_applied = match arena.bind_to_node(NodeId(0)) {
+    let bind_result = arena.bind_to_node(NodeId(0));
+    let policy_applied = match &bind_result {
         Ok(()) => {
             println!("mapped_scratch_bind=ok");
             true
@@ -27,6 +28,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             false
         }
     };
+    print_memory_policy_readiness(&bind_result);
 
     let touched = arena.write_touch_pages()?;
     println!("touched={touched}");
@@ -65,6 +67,22 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     Ok(())
+}
+
+#[cfg(target_os = "linux")]
+fn print_memory_policy_readiness(result: &Result<(), locus_alloc::MappedScratchAllocError>) {
+    let readiness = match result {
+        Ok(()) => locus_sys::linux::LinuxNumaPolicyReadiness::from_bind_result(Ok(())),
+        Err(locus_alloc::MappedScratchAllocError::LinuxNumaPolicy(source)) => {
+            locus_sys::linux::LinuxNumaPolicyReadiness::from_bind_result(Err(source))
+        }
+        Err(_) => unreachable!("bind_to_node returns only Linux NUMA policy errors"),
+    };
+
+    println!(
+        "memory_policy_readiness={} reason={}",
+        readiness.status, readiness.reason
+    );
 }
 
 #[cfg(target_os = "linux")]
