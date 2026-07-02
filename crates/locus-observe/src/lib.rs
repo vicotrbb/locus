@@ -41,6 +41,68 @@ pub struct NodeNumastatMetric {
     pub value: u64,
 }
 
+/// Summary of page placement derived from `numa_maps`.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct NumaMapsSummary {
+    /// Number of mappings inspected.
+    pub mapping_count: usize,
+    /// Total pages reported across all `N*=` fields.
+    pub total_pages: u64,
+    /// Per-node page totals.
+    pub pages_by_node: BTreeMap<NodeId, u64>,
+}
+
+impl NumaMapsSummary {
+    /// Builds a summary from parsed `numa_maps` entries.
+    #[must_use]
+    pub fn from_entries(entries: &[NumaMapsEntry]) -> Self {
+        let mut summary = Self {
+            mapping_count: entries.len(),
+            ..Self::default()
+        };
+
+        for entry in entries {
+            for (node, pages) in &entry.node_pages {
+                summary.total_pages = summary.total_pages.saturating_add(*pages);
+                *summary.pages_by_node.entry(*node).or_default() += pages;
+            }
+        }
+
+        summary
+    }
+}
+
+/// Summary of cgroup NUMA bytes for one or more metrics.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct CgroupNumaSummary {
+    /// Number of metric rows inspected.
+    pub metric_count: usize,
+    /// Total bytes reported across all node fields.
+    pub total_bytes: u64,
+    /// Per-node byte totals across metrics.
+    pub bytes_by_node: BTreeMap<NodeId, u64>,
+}
+
+impl CgroupNumaSummary {
+    /// Builds a summary from parsed cgroup NUMA stat entries.
+    #[must_use]
+    pub fn from_entries(entries: &[CgroupNumaStatEntry]) -> Self {
+        let mut summary = Self {
+            metric_count: entries.len(),
+            ..Self::default()
+        };
+
+        for entry in entries {
+            for (node, bytes) in &entry.node_bytes {
+                summary.total_bytes = summary.total_bytes.saturating_add(*bytes);
+                *summary.bytes_by_node.entry(*node).or_default() += bytes;
+            }
+        }
+
+        summary
+    }
+}
+
 /// Reads and parses a `numa_maps` file from an explicit path.
 ///
 /// # Errors
@@ -353,8 +415,9 @@ mod tests {
     use tempfile::TempDir;
 
     use super::{
-        parse_cgroup_numa_stat, parse_node_numastat, parse_numa_maps_line, read_cgroup_numa_stat,
-        read_node_numastat, read_numa_maps, ObserveParseError,
+        parse_cgroup_numa_stat, parse_node_numastat, parse_numa_maps, parse_numa_maps_line,
+        read_cgroup_numa_stat, read_node_numastat, read_numa_maps, CgroupNumaSummary,
+        NumaMapsSummary, ObserveParseError,
     };
 
     #[test]
@@ -437,5 +500,32 @@ mod tests {
                 .len(),
             2
         );
+    }
+
+    #[test]
+    fn summarizes_numa_maps_pages_by_node() {
+        let entries =
+            parse_numa_maps("1000 default anon=3 N0=1 N1=2\n2000 bind:1 anon=4 dirty=4 N1=4\n")
+                .expect("valid numa maps");
+
+        let summary = NumaMapsSummary::from_entries(&entries);
+
+        assert_eq!(summary.mapping_count, 2);
+        assert_eq!(summary.total_pages, 7);
+        assert_eq!(summary.pages_by_node.get(&NodeId(0)), Some(&1));
+        assert_eq!(summary.pages_by_node.get(&NodeId(1)), Some(&6));
+    }
+
+    #[test]
+    fn summarizes_cgroup_numa_bytes_by_node() {
+        let entries = parse_cgroup_numa_stat("anon N0=4096 N1=8192\nfile N0=10 N1=20\n")
+            .expect("valid cgroup stats");
+
+        let summary = CgroupNumaSummary::from_entries(&entries);
+
+        assert_eq!(summary.metric_count, 2);
+        assert_eq!(summary.total_bytes, 12_318);
+        assert_eq!(summary.bytes_by_node.get(&NodeId(0)), Some(&4_106));
+        assert_eq!(summary.bytes_by_node.get(&NodeId(1)), Some(&8_212));
     }
 }
