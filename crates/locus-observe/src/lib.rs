@@ -551,6 +551,42 @@ impl fmt::Display for NumaPlacementReadinessLineParseError {
 
 impl std::error::Error for NumaPlacementReadinessLineParseError {}
 
+/// Error returned when extracting placement validation readiness from multiline output.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum NumaPlacementReadinessOutputParseError {
+    /// The output does not contain a `placement_validation_readiness=` line.
+    MissingReadinessLine,
+    /// The output contains more than one `placement_validation_readiness=` line.
+    DuplicateReadinessLine,
+    /// The discovered readiness line is malformed.
+    Line(NumaPlacementReadinessLineParseError),
+}
+
+impl fmt::Display for NumaPlacementReadinessOutputParseError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::MissingReadinessLine => {
+                f.write_str("missing placement_validation_readiness line")
+            }
+            Self::DuplicateReadinessLine => {
+                f.write_str("duplicate placement_validation_readiness line")
+            }
+            Self::Line(source) => {
+                write!(f, "invalid placement_validation_readiness line: {source}")
+            }
+        }
+    }
+}
+
+impl std::error::Error for NumaPlacementReadinessOutputParseError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Line(source) => Some(source),
+            Self::MissingReadinessLine | Self::DuplicateReadinessLine => None,
+        }
+    }
+}
+
 impl NumaMapsSummary {
     /// Builds a summary from parsed `numa_maps` entries.
     #[must_use]
@@ -870,6 +906,36 @@ pub fn parse_numa_placement_readiness_line(
         })?;
 
     Ok(NumaPlacementValidationReadiness { status, reason })
+}
+
+/// Extracts placement validation readiness from multiline probe output.
+///
+/// # Errors
+///
+/// Returns an error when the output has no placement validation readiness line,
+/// has more than one placement validation readiness line, or contains a
+/// malformed placement validation readiness line.
+pub fn parse_numa_placement_readiness_output(
+    output: &str,
+) -> Result<NumaPlacementValidationReadiness, NumaPlacementReadinessOutputParseError> {
+    let mut readiness = None;
+
+    for line in output.lines().map(str::trim) {
+        if !line.starts_with("placement_validation_readiness=") {
+            continue;
+        }
+
+        if readiness.is_some() {
+            return Err(NumaPlacementReadinessOutputParseError::DuplicateReadinessLine);
+        }
+
+        readiness = Some(
+            parse_numa_placement_readiness_line(line)
+                .map_err(NumaPlacementReadinessOutputParseError::Line)?,
+        );
+    }
+
+    readiness.ok_or(NumaPlacementReadinessOutputParseError::MissingReadinessLine)
 }
 
 /// Summary of cgroup NUMA bytes for one or more metrics.
@@ -1422,16 +1488,17 @@ mod tests {
         numa_maps_entry_by_start_address, numa_maps_entry_containing_address,
         numa_maps_entry_for_address, parse_cgroup_numa_stat, parse_node_numastat, parse_numa_maps,
         parse_numa_maps_line, parse_numa_placement_proof_line, parse_numa_placement_proof_output,
-        parse_numa_placement_readiness_line, read_cgroup_numa_stat, read_cgroup_numa_summary,
-        read_node_numastat, read_node_numastat_system_snapshot, read_numa_maps,
+        parse_numa_placement_readiness_line, parse_numa_placement_readiness_output,
+        read_cgroup_numa_stat, read_cgroup_numa_summary, read_node_numastat,
+        read_node_numastat_system_snapshot, read_numa_maps,
         resolve_cgroup_v2_memory_numa_stat_path, CgroupNumaDelta, CgroupNumaSummary,
         CgroupPathError, NodeNumastatSnapshot, NodeNumastatSystemSnapshot,
         NumaMapsAddressMatchKind, NumaMapsSummary, NumaPlacementEvidence, NumaPlacementProof,
         NumaPlacementProofLineParseError, NumaPlacementProofOutputParseError,
         NumaPlacementProofReason, NumaPlacementProofStatus, NumaPlacementReadinessLineParseError,
-        NumaPlacementStatus, NumaPlacementValidationReadiness,
-        NumaPlacementValidationReadinessReason, NumaPlacementValidationReadinessStatus,
-        ObserveParseError,
+        NumaPlacementReadinessOutputParseError, NumaPlacementStatus,
+        NumaPlacementValidationReadiness, NumaPlacementValidationReadinessReason,
+        NumaPlacementValidationReadinessStatus, ObserveParseError,
     };
 
     #[test]
@@ -2039,6 +2106,49 @@ placement_proof=unavailable reason=numa_maps_unavailable
             )
             .expect_err("duplicate reason"),
             NumaPlacementReadinessLineParseError::DuplicateReason
+        );
+    }
+
+    #[test]
+    fn parses_numa_placement_readiness_from_probe_output() {
+        let output = "\
+numa_maps=unavailable
+cgroup_numa_stat=unavailable
+node_numastat=unavailable
+placement_validation_readiness=not_ready reason=numa_maps_unavailable
+";
+
+        assert_eq!(
+            parse_numa_placement_readiness_output(output).expect("readiness"),
+            NumaPlacementValidationReadiness {
+                status: NumaPlacementValidationReadinessStatus::NotReady,
+                reason: NumaPlacementValidationReadinessReason::NumaMapsUnavailable,
+            }
+        );
+    }
+
+    #[test]
+    fn rejects_invalid_numa_placement_readiness_output() {
+        assert_eq!(
+            parse_numa_placement_readiness_output("numa_maps=unavailable\n")
+                .expect_err("missing readiness"),
+            NumaPlacementReadinessOutputParseError::MissingReadinessLine
+        );
+        assert_eq!(
+            parse_numa_placement_readiness_output(
+                "placement_validation_readiness=ready reason=ready\nplacement_validation_readiness=not_ready reason=numa_maps_unavailable\n",
+            )
+            .expect_err("duplicate readiness"),
+            NumaPlacementReadinessOutputParseError::DuplicateReadinessLine
+        );
+        assert_eq!(
+            parse_numa_placement_readiness_output(
+                "placement_validation_readiness=maybe reason=ready\n"
+            )
+            .expect_err("bad readiness"),
+            NumaPlacementReadinessOutputParseError::Line(
+                NumaPlacementReadinessLineParseError::UnknownStatus("maybe".to_owned())
+            )
         );
     }
 
