@@ -50,6 +50,7 @@ The current Docker validation path still reports:
 
 - `mbind` fails with `Operation not permitted`;
 - `memory_policy_readiness=not_ready reason=permission_denied`;
+- `seccomp=filter seccomp_filters=1 no_new_privs=0`;
 - `cgroup_numa_delta=unavailable`;
 - `node_numastat_delta=unavailable`;
 - `numa_maps=unavailable`;
@@ -70,6 +71,7 @@ That environment validates failure handling and probe plumbing. It does not vali
 The next meaningful validation run needs a Linux host or container configuration where:
 
 - `mbind` is permitted;
+- seccomp is disabled or configured to allow the NUMA policy syscalls required by the probe;
 - the memory-policy readiness line reports `ready`;
 - `/proc/self/numa_maps` is readable;
 - cgroup v2 `memory.numa_stat` is exposed for the current process cgroup;

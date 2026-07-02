@@ -13,6 +13,7 @@ pub mod linux {
     //! Linux-specific NUMA memory policy helpers.
 
     use std::fmt;
+    use std::fs;
     use std::io;
     use std::io::ErrorKind;
 
@@ -166,6 +167,111 @@ pub mod linux {
         pub status: LinuxNumaPolicyReadinessStatus,
         /// Reason for the status.
         pub reason: LinuxNumaPolicyReadinessReason,
+    }
+
+    /// Linux seccomp mode parsed from `/proc/self/status`.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    pub enum LinuxSeccompMode {
+        /// No seccomp restrictions are active.
+        Disabled,
+        /// Strict seccomp mode is active.
+        Strict,
+        /// A seccomp filter is active.
+        Filter,
+        /// The kernel reported a mode this crate does not yet classify.
+        Unknown(u32),
+    }
+
+    impl LinuxSeccompMode {
+        /// Builds a seccomp mode from the raw Linux status value.
+        #[must_use]
+        pub fn from_raw(value: u32) -> Self {
+            match value {
+                0 => Self::Disabled,
+                1 => Self::Strict,
+                2 => Self::Filter,
+                other => Self::Unknown(other),
+            }
+        }
+
+        /// Returns a stable machine-readable seccomp mode string.
+        #[must_use]
+        pub fn as_str(self) -> &'static str {
+            match self {
+                Self::Disabled => "disabled",
+                Self::Strict => "strict",
+                Self::Filter => "filter",
+                Self::Unknown(_) => "unknown",
+            }
+        }
+    }
+
+    impl fmt::Display for LinuxSeccompMode {
+        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+            f.write_str(self.as_str())
+        }
+    }
+
+    /// Process-level Linux sandbox diagnostics from `/proc/self/status`.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    pub struct LinuxProcessStatusDiagnostics {
+        /// Parsed `Seccomp` mode.
+        pub seccomp_mode: Option<LinuxSeccompMode>,
+        /// Parsed `Seccomp_filters` count.
+        pub seccomp_filters: Option<u32>,
+        /// Parsed `NoNewPrivs` value.
+        pub no_new_privs: Option<u32>,
+    }
+
+    impl LinuxProcessStatusDiagnostics {
+        /// Parses sandbox diagnostics from `/proc/<pid>/status` content.
+        #[must_use]
+        pub fn from_proc_status(status: &str) -> Self {
+            let mut diagnostics = Self {
+                seccomp_mode: None,
+                seccomp_filters: None,
+                no_new_privs: None,
+            };
+
+            for line in status.lines() {
+                if let Some(value) = line.strip_prefix("Seccomp:") {
+                    diagnostics.seccomp_mode =
+                        parse_status_u32(value).map(LinuxSeccompMode::from_raw);
+                } else if let Some(value) = line.strip_prefix("Seccomp_filters:") {
+                    diagnostics.seccomp_filters = parse_status_u32(value);
+                } else if let Some(value) = line.strip_prefix("NoNewPrivs:") {
+                    diagnostics.no_new_privs = parse_status_u32(value);
+                }
+            }
+
+            diagnostics
+        }
+    }
+
+    impl fmt::Display for LinuxProcessStatusDiagnostics {
+        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+            write!(
+                f,
+                "seccomp={} seccomp_filters={} no_new_privs={}",
+                self.seccomp_mode
+                    .map_or_else(|| "unavailable".to_owned(), |mode| mode.to_string()),
+                self.seccomp_filters
+                    .map_or_else(|| "unavailable".to_owned(), |count| count.to_string()),
+                self.no_new_privs
+                    .map_or_else(|| "unavailable".to_owned(), |value| value.to_string())
+            )
+        }
+    }
+
+    /// Reads sandbox diagnostics for the current Linux process.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when `/proc/self/status` cannot be read.
+    pub fn read_current_process_status_diagnostics(
+    ) -> Result<LinuxProcessStatusDiagnostics, io::Error> {
+        fs::read_to_string("/proc/self/status")
+            .map(|status| LinuxProcessStatusDiagnostics::from_proc_status(&status))
     }
 
     /// Error returned when parsing a Linux memory-policy readiness line.
@@ -376,6 +482,10 @@ pub mod linux {
         Ok(words)
     }
 
+    fn parse_status_u32(value: &str) -> Option<u32> {
+        value.split_whitespace().next()?.parse().ok()
+    }
+
     #[cfg(test)]
     mod tests {
         use std::io;
@@ -386,7 +496,7 @@ pub mod linux {
             parse_linux_numa_policy_readiness_output, LinuxNumaPolicyError,
             LinuxNumaPolicyReadiness, LinuxNumaPolicyReadinessLineParseError,
             LinuxNumaPolicyReadinessOutputParseError, LinuxNumaPolicyReadinessReason,
-            LinuxNumaPolicyReadinessStatus,
+            LinuxNumaPolicyReadinessStatus, LinuxProcessStatusDiagnostics, LinuxSeccompMode,
         };
 
         #[test]
@@ -447,6 +557,39 @@ pub mod linux {
             assert_eq!(
                 LinuxNumaPolicyReadiness::from_bind_result(Err(&other)).reason,
                 LinuxNumaPolicyReadinessReason::SyscallFailed
+            );
+        }
+
+        #[test]
+        fn parses_process_status_seccomp_diagnostics() {
+            let diagnostics = LinuxProcessStatusDiagnostics::from_proc_status(
+                "\
+Name:\tcat
+NoNewPrivs:\t0
+Seccomp:\t2
+Seccomp_filters:\t1
+",
+            );
+
+            assert_eq!(diagnostics.seccomp_mode, Some(LinuxSeccompMode::Filter));
+            assert_eq!(diagnostics.seccomp_filters, Some(1));
+            assert_eq!(diagnostics.no_new_privs, Some(0));
+            assert_eq!(
+                diagnostics.to_string(),
+                "seccomp=filter seccomp_filters=1 no_new_privs=0"
+            );
+        }
+
+        #[test]
+        fn reports_unknown_and_missing_process_status_diagnostics() {
+            let diagnostics = LinuxProcessStatusDiagnostics::from_proc_status("Seccomp:\t9\n");
+
+            assert_eq!(diagnostics.seccomp_mode, Some(LinuxSeccompMode::Unknown(9)));
+            assert_eq!(diagnostics.seccomp_filters, None);
+            assert_eq!(diagnostics.no_new_privs, None);
+            assert_eq!(
+                diagnostics.to_string(),
+                "seccomp=unknown seccomp_filters=unavailable no_new_privs=unavailable"
             );
         }
 

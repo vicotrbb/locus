@@ -2,7 +2,9 @@
 
 #[cfg(target_os = "linux")]
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    use locus_sys::linux::{bind_region_to_node, LinuxNumaPolicyReadiness};
+    use locus_sys::linux::{
+        bind_region_to_node, read_current_process_status_diagnostics, LinuxNumaPolicyReadiness,
+    };
     use locus_sys::{page_size, MappedRegion};
 
     let size = page_size()?;
@@ -18,6 +20,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         "memory_policy_readiness={} reason={}",
         readiness.status, readiness.reason
     );
+    match read_current_process_status_diagnostics() {
+        Ok(diagnostics) => println!("{diagnostics}"),
+        Err(_) => {
+            println!("seccomp=unavailable seccomp_filters=unavailable no_new_privs=unavailable")
+        }
+    }
 
     let touched = region.write_touch_pages(size)?;
     println!("touched={touched}");

@@ -10,7 +10,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         numa_maps_entry_for_address, read_self_numa_maps, NumaPlacementProof,
         NumaPlacementProofReason, NumaPlacementValidationReadiness, ObserveReadError,
     };
-    use locus_sys::linux::LinuxNumaPolicyReadiness;
+    use locus_sys::linux::{read_current_process_status_diagnostics, LinuxNumaPolicyReadiness};
     use locus_validate::linux::PlacementValidationGate;
 
     let mut arena = MappedScratchArena::new(NodeId(0), 16 * 1024)?;
@@ -31,6 +31,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         "memory_policy_readiness={} reason={}",
         memory_policy.status, memory_policy.reason
     );
+    match read_current_process_status_diagnostics() {
+        Ok(diagnostics) => println!("{diagnostics}"),
+        Err(_) => {
+            println!("seccomp=unavailable seccomp_filters=unavailable no_new_privs=unavailable")
+        }
+    }
 
     let touched = arena.write_touch_pages()?;
     println!("touched={touched}");
