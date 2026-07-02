@@ -25,6 +25,9 @@ This note summarizes the allocator benchmark coverage currently recorded in expe
 | Producer and consumer handoff through jemalloc | None | `jemalloc_vec_producer_consumer_handoff_256x4k` | 99.773 us to 100.11 us | `documentation/experiments/0051-allocator-specific-handoff-benchmarks.md` |
 | Producer and consumer handoff through explicit system allocator | None | `system_vec_producer_consumer_handoff_256x4k` | 93.158 us to 93.941 us | `documentation/experiments/0051-allocator-specific-handoff-benchmarks.md` |
 | Persistent-worker producer and consumer handoff | None | `vec_persistent_worker_handoff_256x4k` | 70.949 us to 71.712 us | `documentation/experiments/0052-persistent-worker-handoff-benchmark.md` |
+| Persistent-worker handoff through mimalloc | None | `mimalloc_vec_persistent_worker_handoff_256x4k` | 45.707 us to 47.076 us | `documentation/experiments/0053-allocator-specific-persistent-handoff.md` |
+| Persistent-worker handoff through jemalloc | None | `jemalloc_vec_persistent_worker_handoff_256x4k` | 61.359 us to 63.812 us | `documentation/experiments/0053-allocator-specific-persistent-handoff.md` |
+| Persistent-worker handoff through explicit system allocator | None | `system_vec_persistent_worker_handoff_256x4k` | 69.073 us to 70.371 us | `documentation/experiments/0053-allocator-specific-persistent-handoff.md` |
 
 ## Interpretation
 
@@ -35,9 +38,9 @@ This note summarizes the allocator benchmark coverage currently recorded in expe
 
 ## Missing Baselines
 
-- Persistent-worker remote-free or cross-thread release behavior is still missing.
+- Locus-owned remote-free batching behavior is still missing.
 - End-to-end LLM serving traces are still missing.
 
 ## Next Benchmarking Step
 
-The next benchmark increment should refine cross-thread release measurements by reusing worker threads across iterations so the benchmark isolates allocation, handoff, and remote drop costs from thread spawn costs.
+The next benchmark increment should prototype a small Locus-owned remote-free batching primitive or add a benchmark harness that can compare such a primitive against the persistent-worker allocator baselines.
