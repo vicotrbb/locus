@@ -49,6 +49,10 @@ The combined gate output parser is:
 
 The combined gate parser rejects status and reason pairs that are individually valid but incoherent together. For example, `placement_validation_gate=verified reason=memory_policy_not_ready` is malformed because a verified gate must use `reason=verified`.
 
+The individual final-line parsers apply the same rule for their own schemas. For example, `memory_policy_readiness=ready reason=permission_denied`, `placement_validation_readiness=ready reason=numa_maps_unavailable`, and `placement_proof=verified reason=policy_not_applied` are malformed.
+
+The verdict types also implement `Display` for their stable final-line schemas, so probes should print the verdict value directly when one is available.
+
 Line-level parsers are also available when callers already isolated the final verdict line:
 
 - `locus_sys::linux::parse_linux_numa_policy_readiness_line`;
