@@ -411,6 +411,16 @@ impl NumaPlacementValidationReadinessStatus {
             Self::NotReady => "not_ready",
         }
     }
+
+    /// Parses a stable machine-readable readiness status string.
+    #[must_use]
+    pub fn from_str_token(value: &str) -> Option<Self> {
+        match value {
+            "ready" => Some(Self::Ready),
+            "not_ready" => Some(Self::NotReady),
+            _ => None,
+        }
+    }
 }
 
 impl fmt::Display for NumaPlacementValidationReadinessStatus {
@@ -443,6 +453,18 @@ impl NumaPlacementValidationReadinessReason {
             Self::NodeNumastatUnavailable => "node_numastat_unavailable",
         }
     }
+
+    /// Parses a stable machine-readable readiness reason string.
+    #[must_use]
+    pub fn from_str_token(value: &str) -> Option<Self> {
+        match value {
+            "ready" => Some(Self::Ready),
+            "numa_maps_unavailable" => Some(Self::NumaMapsUnavailable),
+            "cgroup_numa_stat_unavailable" => Some(Self::CgroupNumaStatUnavailable),
+            "node_numastat_unavailable" => Some(Self::NodeNumastatUnavailable),
+            _ => None,
+        }
+    }
 }
 
 impl fmt::Display for NumaPlacementValidationReadinessReason {
@@ -459,6 +481,45 @@ pub struct NumaPlacementValidationReadiness {
     /// Reason for the status.
     pub reason: NumaPlacementValidationReadinessReason,
 }
+
+/// Error returned when parsing a placement validation readiness line.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum NumaPlacementReadinessLineParseError {
+    /// The line does not contain a `placement_validation_readiness=` token.
+    MissingStatus,
+    /// The line does not contain a `reason=` token.
+    MissingReason,
+    /// The line contains a duplicate `placement_validation_readiness=` token.
+    DuplicateStatus,
+    /// The line contains a duplicate `reason=` token.
+    DuplicateReason,
+    /// The line contains a token outside the readiness line schema.
+    InvalidToken(String),
+    /// The readiness status token is not recognized.
+    UnknownStatus(String),
+    /// The readiness reason token is not recognized.
+    UnknownReason(String),
+}
+
+impl fmt::Display for NumaPlacementReadinessLineParseError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::MissingStatus => f.write_str("missing placement_validation_readiness token"),
+            Self::MissingReason => f.write_str("missing reason token"),
+            Self::DuplicateStatus => f.write_str("duplicate placement_validation_readiness token"),
+            Self::DuplicateReason => f.write_str("duplicate reason token"),
+            Self::InvalidToken(token) => write!(f, "invalid placement readiness token: {token}"),
+            Self::UnknownStatus(status) => {
+                write!(f, "unknown placement readiness status: {status}")
+            }
+            Self::UnknownReason(reason) => {
+                write!(f, "unknown placement readiness reason: {reason}")
+            }
+        }
+    }
+}
+
+impl std::error::Error for NumaPlacementReadinessLineParseError {}
 
 impl NumaMapsSummary {
     /// Builds a summary from parsed `numa_maps` entries.
@@ -695,6 +756,61 @@ impl NumaPlacementValidationReadiness {
     pub fn is_ready(self) -> bool {
         self.status == NumaPlacementValidationReadinessStatus::Ready
     }
+}
+
+/// Parses a locality environment placement validation readiness line.
+///
+/// The expected format is `placement_validation_readiness=<status> reason=<reason>`.
+///
+/// # Errors
+///
+/// Returns an error when the line is missing required tokens, contains duplicate
+/// tokens, contains unsupported tokens, or uses an unknown status or reason.
+pub fn parse_numa_placement_readiness_line(
+    line: &str,
+) -> Result<NumaPlacementValidationReadiness, NumaPlacementReadinessLineParseError> {
+    let mut status_token = None;
+    let mut reason_token = None;
+
+    for token in line.split_whitespace() {
+        let Some((key, value)) = token.split_once('=') else {
+            return Err(NumaPlacementReadinessLineParseError::InvalidToken(
+                token.to_owned(),
+            ));
+        };
+
+        match key {
+            "placement_validation_readiness" => {
+                if status_token.replace(value).is_some() {
+                    return Err(NumaPlacementReadinessLineParseError::DuplicateStatus);
+                }
+            }
+            "reason" => {
+                if reason_token.replace(value).is_some() {
+                    return Err(NumaPlacementReadinessLineParseError::DuplicateReason);
+                }
+            }
+            _ => {
+                return Err(NumaPlacementReadinessLineParseError::InvalidToken(
+                    token.to_owned(),
+                ));
+            }
+        }
+    }
+
+    let status_token = status_token.ok_or(NumaPlacementReadinessLineParseError::MissingStatus)?;
+    let reason_token = reason_token.ok_or(NumaPlacementReadinessLineParseError::MissingReason)?;
+
+    let status =
+        NumaPlacementValidationReadinessStatus::from_str_token(status_token).ok_or_else(|| {
+            NumaPlacementReadinessLineParseError::UnknownStatus(status_token.to_owned())
+        })?;
+    let reason =
+        NumaPlacementValidationReadinessReason::from_str_token(reason_token).ok_or_else(|| {
+            NumaPlacementReadinessLineParseError::UnknownReason(reason_token.to_owned())
+        })?;
+
+    Ok(NumaPlacementValidationReadiness { status, reason })
 }
 
 /// Summary of cgroup NUMA bytes for one or more metrics.
@@ -1246,15 +1362,16 @@ mod tests {
     use super::{
         numa_maps_entry_by_start_address, numa_maps_entry_containing_address,
         numa_maps_entry_for_address, parse_cgroup_numa_stat, parse_node_numastat, parse_numa_maps,
-        parse_numa_maps_line, parse_numa_placement_proof_line, read_cgroup_numa_stat,
-        read_cgroup_numa_summary, read_node_numastat, read_node_numastat_system_snapshot,
-        read_numa_maps, resolve_cgroup_v2_memory_numa_stat_path, CgroupNumaDelta,
-        CgroupNumaSummary, CgroupPathError, NodeNumastatSnapshot, NodeNumastatSystemSnapshot,
+        parse_numa_maps_line, parse_numa_placement_proof_line, parse_numa_placement_readiness_line,
+        read_cgroup_numa_stat, read_cgroup_numa_summary, read_node_numastat,
+        read_node_numastat_system_snapshot, read_numa_maps,
+        resolve_cgroup_v2_memory_numa_stat_path, CgroupNumaDelta, CgroupNumaSummary,
+        CgroupPathError, NodeNumastatSnapshot, NodeNumastatSystemSnapshot,
         NumaMapsAddressMatchKind, NumaMapsSummary, NumaPlacementEvidence, NumaPlacementProof,
         NumaPlacementProofLineParseError, NumaPlacementProofReason, NumaPlacementProofStatus,
-        NumaPlacementStatus, NumaPlacementValidationReadiness,
-        NumaPlacementValidationReadinessReason, NumaPlacementValidationReadinessStatus,
-        ObserveParseError,
+        NumaPlacementReadinessLineParseError, NumaPlacementStatus,
+        NumaPlacementValidationReadiness, NumaPlacementValidationReadinessReason,
+        NumaPlacementValidationReadinessStatus, ObserveParseError,
     };
 
     #[test]
@@ -1743,6 +1860,78 @@ mod tests {
         assert_eq!(
             NumaPlacementValidationReadiness::from_sources(true, true, false).reason,
             NumaPlacementValidationReadinessReason::NodeNumastatUnavailable
+        );
+    }
+
+    #[test]
+    fn parses_numa_placement_readiness_lines() {
+        assert_eq!(
+            parse_numa_placement_readiness_line(
+                "placement_validation_readiness=ready reason=ready"
+            )
+            .expect("ready"),
+            NumaPlacementValidationReadiness {
+                status: NumaPlacementValidationReadinessStatus::Ready,
+                reason: NumaPlacementValidationReadinessReason::Ready,
+            }
+        );
+        assert_eq!(
+            parse_numa_placement_readiness_line(
+                "placement_validation_readiness=not_ready reason=numa_maps_unavailable"
+            )
+            .expect("not ready"),
+            NumaPlacementValidationReadiness {
+                status: NumaPlacementValidationReadinessStatus::NotReady,
+                reason: NumaPlacementValidationReadinessReason::NumaMapsUnavailable,
+            }
+        );
+    }
+
+    #[test]
+    fn rejects_invalid_numa_placement_readiness_lines() {
+        assert_eq!(
+            parse_numa_placement_readiness_line("reason=ready").expect_err("missing status"),
+            NumaPlacementReadinessLineParseError::MissingStatus
+        );
+        assert_eq!(
+            parse_numa_placement_readiness_line("placement_validation_readiness=ready")
+                .expect_err("missing reason"),
+            NumaPlacementReadinessLineParseError::MissingReason
+        );
+        assert_eq!(
+            parse_numa_placement_readiness_line(
+                "placement_validation_readiness=maybe reason=ready"
+            )
+            .expect_err("unknown status"),
+            NumaPlacementReadinessLineParseError::UnknownStatus("maybe".to_owned())
+        );
+        assert_eq!(
+            parse_numa_placement_readiness_line(
+                "placement_validation_readiness=ready reason=maybe"
+            )
+            .expect_err("unknown reason"),
+            NumaPlacementReadinessLineParseError::UnknownReason("maybe".to_owned())
+        );
+        assert_eq!(
+            parse_numa_placement_readiness_line(
+                "placement_validation_readiness=ready reason=ready extra=true"
+            )
+            .expect_err("extra token"),
+            NumaPlacementReadinessLineParseError::InvalidToken("extra=true".to_owned())
+        );
+        assert_eq!(
+            parse_numa_placement_readiness_line(
+                "placement_validation_readiness=ready placement_validation_readiness=not_ready reason=ready"
+            )
+            .expect_err("duplicate status"),
+            NumaPlacementReadinessLineParseError::DuplicateStatus
+        );
+        assert_eq!(
+            parse_numa_placement_readiness_line(
+                "placement_validation_readiness=ready reason=ready reason=numa_maps_unavailable"
+            )
+            .expect_err("duplicate reason"),
+            NumaPlacementReadinessLineParseError::DuplicateReason
         );
     }
 
