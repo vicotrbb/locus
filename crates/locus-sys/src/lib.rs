@@ -291,6 +291,13 @@ pub mod linux {
         UnknownStatus(String),
         /// The readiness reason token is not recognized.
         UnknownReason(String),
+        /// The status and reason tokens are individually valid but inconsistent together.
+        InconsistentReadiness {
+            /// Parsed readiness status.
+            status: LinuxNumaPolicyReadinessStatus,
+            /// Parsed readiness reason.
+            reason: LinuxNumaPolicyReadinessReason,
+        },
     }
 
     impl fmt::Display for LinuxNumaPolicyReadinessLineParseError {
@@ -308,6 +315,9 @@ pub mod linux {
                 }
                 Self::UnknownReason(reason) => {
                     write!(f, "unknown memory policy readiness reason: {reason}")
+                }
+                Self::InconsistentReadiness { status, reason } => {
+                    write!(f, "inconsistent memory policy readiness: {status} {reason}")
                 }
             }
         }
@@ -348,6 +358,28 @@ pub mod linux {
     }
 
     impl LinuxNumaPolicyReadiness {
+        /// Builds a readiness verdict only when the status and reason are coherent.
+        ///
+        /// # Errors
+        ///
+        /// Returns an error when the reason is not valid for the status.
+        pub fn from_parts(
+            status: LinuxNumaPolicyReadinessStatus,
+            reason: LinuxNumaPolicyReadinessReason,
+        ) -> Result<Self, LinuxNumaPolicyReadinessLineParseError> {
+            let readiness = Self { status, reason };
+            if readiness.is_consistent() {
+                Ok(readiness)
+            } else {
+                Err(
+                    LinuxNumaPolicyReadinessLineParseError::InconsistentReadiness {
+                        status,
+                        reason,
+                    },
+                )
+            }
+        }
+
         /// Builds a readiness verdict from an `mbind` attempt result.
         #[must_use]
         pub fn from_bind_result(result: Result<(), &LinuxNumaPolicyError>) -> Self {
@@ -380,6 +412,23 @@ pub mod linux {
         pub fn is_ready(self) -> bool {
             self.status == LinuxNumaPolicyReadinessStatus::Ready
         }
+
+        /// Returns true when the reason is valid for the status.
+        #[must_use]
+        pub fn is_consistent(self) -> bool {
+            matches!(
+                (self.status, self.reason),
+                (
+                    LinuxNumaPolicyReadinessStatus::Ready,
+                    LinuxNumaPolicyReadinessReason::Ready
+                ) | (
+                    LinuxNumaPolicyReadinessStatus::NotReady,
+                    LinuxNumaPolicyReadinessReason::InvalidNode
+                        | LinuxNumaPolicyReadinessReason::PermissionDenied
+                        | LinuxNumaPolicyReadinessReason::SyscallFailed
+                )
+            )
+        }
     }
 
     /// Parses a Linux memory-policy readiness line.
@@ -389,7 +438,8 @@ pub mod linux {
     /// # Errors
     ///
     /// Returns an error when the line is missing required tokens, contains duplicate
-    /// tokens, contains unsupported tokens, or uses an unknown status or reason.
+    /// tokens, contains unsupported tokens, uses an unknown status or reason, or
+    /// combines a status with an incoherent reason.
     pub fn parse_linux_numa_policy_readiness_line(
         line: &str,
     ) -> Result<LinuxNumaPolicyReadiness, LinuxNumaPolicyReadinessLineParseError> {
@@ -436,7 +486,7 @@ pub mod linux {
                 LinuxNumaPolicyReadinessLineParseError::UnknownReason(reason_token.to_owned())
             })?;
 
-        Ok(LinuxNumaPolicyReadiness { status, reason })
+        LinuxNumaPolicyReadiness::from_parts(status, reason)
     }
 
     /// Extracts Linux memory-policy readiness from multiline probe output.
@@ -558,6 +608,16 @@ pub mod linux {
                 LinuxNumaPolicyReadiness::from_bind_result(Err(&other)).reason,
                 LinuxNumaPolicyReadinessReason::SyscallFailed
             );
+            assert!(LinuxNumaPolicyReadiness {
+                status: LinuxNumaPolicyReadinessStatus::NotReady,
+                reason: LinuxNumaPolicyReadinessReason::PermissionDenied,
+            }
+            .is_consistent());
+            assert!(!LinuxNumaPolicyReadiness {
+                status: LinuxNumaPolicyReadinessStatus::Ready,
+                reason: LinuxNumaPolicyReadinessReason::PermissionDenied,
+            }
+            .is_consistent());
         }
 
         #[test]
@@ -663,6 +723,16 @@ Seccomp_filters:\t1
                 .expect_err("duplicate reason"),
                 LinuxNumaPolicyReadinessLineParseError::DuplicateReason
             );
+            assert_eq!(
+                parse_linux_numa_policy_readiness_line(
+                    "memory_policy_readiness=ready reason=permission_denied"
+                )
+                .expect_err("inconsistent readiness"),
+                LinuxNumaPolicyReadinessLineParseError::InconsistentReadiness {
+                    status: LinuxNumaPolicyReadinessStatus::Ready,
+                    reason: LinuxNumaPolicyReadinessReason::PermissionDenied,
+                }
+            );
         }
 
         #[test]
@@ -703,6 +773,18 @@ touched=4
                 .expect_err("bad readiness"),
                 LinuxNumaPolicyReadinessOutputParseError::Line(
                     LinuxNumaPolicyReadinessLineParseError::UnknownStatus("maybe".to_owned())
+                )
+            );
+            assert_eq!(
+                parse_linux_numa_policy_readiness_output(
+                    "memory_policy_readiness=not_ready reason=ready\n"
+                )
+                .expect_err("inconsistent readiness"),
+                LinuxNumaPolicyReadinessOutputParseError::Line(
+                    LinuxNumaPolicyReadinessLineParseError::InconsistentReadiness {
+                        status: LinuxNumaPolicyReadinessStatus::NotReady,
+                        reason: LinuxNumaPolicyReadinessReason::Ready,
+                    }
                 )
             );
         }
