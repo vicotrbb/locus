@@ -42,7 +42,7 @@ Before a validation run is treated as capable of proving placement, record both 
 
 If either readiness line reports `not_ready`, the run can still validate failure handling and parser plumbing, but it cannot produce a successful placement proof.
 
-Captured probe outputs should be evaluated with `cargo run -p locus-validate --example placement_validation_gate -- <memory-policy-output> <placement-readiness-output> <placement-proof-output>`. A verified run requires `placement_validation_gate=verified reason=verified`.
+The preferred one-command validation path is `cargo run -p locus-validate --example live_placement_validation_gate`. Captured probe outputs can also be evaluated with `cargo run -p locus-validate --example placement_validation_gate -- <memory-policy-output> <placement-readiness-output> <placement-proof-output>`. A verified run requires `placement_validation_gate=verified reason=verified`.
 
 ## Current Docker Result
 
@@ -74,7 +74,7 @@ The next meaningful validation run needs a Linux host or container configuration
 - `/proc/self/numa_maps` is readable;
 - cgroup v2 `memory.numa_stat` is exposed for the current process cgroup;
 - `/sys/devices/system/node/node*/numastat` is readable;
-- the placement validation readiness line reports `ready`.
+- the placement validation readiness line reports `ready`;
 - the combined validation gate reports `verified`.
 
 Only then can the mapped scratch bind probe produce a placement proof rather than an unavailable-evidence report.
