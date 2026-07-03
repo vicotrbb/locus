@@ -2536,6 +2536,48 @@ pub fn parse_remote_free_service_telemetry_collection_summary_rollup_check_log_s
     )
 }
 
+/// Summarizes saved verifier-summary verification rollup verification JSON records found in a log.
+///
+/// # Errors
+///
+/// Returns an error when no verifier JSON records are found, a record cannot
+/// be parsed, or aggregate counters overflow.
+pub fn summarize_remote_free_service_telemetry_collection_summary_rollup_check_log_summary_verification_rollup_verification_summary_verification_rollup_verification_json_log(
+    input: &str,
+) -> Result<
+    RemoteFreeServiceTelemetryCollectionSummaryRollupCheckLogSummaryVerificationRollupVerificationSummaryVerificationRollup,
+    RemoteFreeServiceTelemetryCollectionSummaryRollupError,
+>{
+    let mut rollup =
+        RemoteFreeServiceTelemetryCollectionSummaryRollupCheckLogSummaryVerificationRollupVerificationSummaryVerificationRollup::default();
+    for line in input.lines().map(str::trim).filter(|line| !line.is_empty()) {
+        if line.starts_with('{') {
+            let value = serde_json::from_str::<Value>(line)
+                .map_err(RemoteFreeServiceTelemetryCollectionSummaryRollupError::Json)?;
+            if value.get("schema").and_then(Value::as_str)
+                == Some(
+                    REMOTE_FREE_SERVICE_TELEMETRY_COLLECTION_SUMMARY_ROLLUP_CHECK_LOG_SUMMARY_VERIFICATION_ROLLUP_VERIFICATION_SUMMARY_VERIFICATION_ROLLUP_VERIFICATION_SCHEMA,
+                )
+            {
+                let report =
+                    parse_remote_free_service_telemetry_collection_summary_rollup_check_log_summary_verification_rollup_verification_summary_verification_rollup_verification_json_line(line)?;
+                add_rollup_check_log_summary_verification_rollup_verification_summary_verification_rollup_verification_to_rollup(
+                    &mut rollup,
+                    &report,
+                )?;
+            }
+        }
+    }
+    if rollup.summary.records == 0 {
+        return Err(
+            RemoteFreeServiceTelemetryCollectionSummaryRollupError::MissingField(
+                "rollup_check_log_summary_verification_rollup_verification_summary_verification_rollup_verification_json_line",
+            ),
+        );
+    }
+    Ok(rollup)
+}
+
 /// Parses a compact JSON line emitted for a saved verdict rollup verification summary.
 ///
 /// # Errors
@@ -3738,6 +3780,28 @@ fn add_rollup_check_log_summary_verification_rollup_verification_summary_verific
     Ok(())
 }
 
+fn add_rollup_check_log_summary_verification_rollup_verification_summary_verification_rollup_verification_to_rollup(
+    rollup: &mut RemoteFreeServiceTelemetryCollectionSummaryRollupCheckLogSummaryVerificationRollupVerificationSummaryVerificationRollup,
+    report: &RemoteFreeServiceTelemetryCollectionSummaryRollupCheckLogSummaryVerificationRollupVerificationSummaryVerificationRollupVerification,
+) -> Result<(), RemoteFreeServiceTelemetryCollectionSummaryRollupError> {
+    let summary = &mut rollup.summary;
+    summary.records = checked_add_rollup_check_log_summary_count(summary.records, 1, "records")?;
+    if let Some(drift) = &report.drift {
+        summary.drifted =
+            checked_add_rollup_check_log_summary_count(summary.drifted, 1, "drifted")?;
+        let (bucket, field) =
+            rollup_check_log_summary_verification_rollup_verification_summary_drift_bucket(
+                summary,
+                drift.field,
+            )?;
+        *bucket = checked_add_rollup_check_log_summary_count(*bucket, 1, field)?;
+    } else {
+        summary.matched =
+            checked_add_rollup_check_log_summary_count(summary.matched, 1, "matched")?;
+    }
+    Ok(())
+}
+
 fn rollup_check_log_summary_verification_rollup_verification_summary_drift_bucket<'a>(
     summary: &'a mut RemoteFreeServiceTelemetryCollectionSummaryRollupCheckLogSummaryVerificationRollupVerificationSummary,
     field: &'static str,
@@ -4734,6 +4798,7 @@ mod tests {
         summarize_remote_free_service_telemetry_collection_summary_rollup_check_log_summary_verification_json_log,
         summarize_remote_free_service_telemetry_collection_summary_rollup_check_log_summary_verification_rollup_verification_json_log,
         summarize_remote_free_service_telemetry_collection_summary_rollup_check_log_summary_verification_rollup_verification_summary_verification_json_log,
+        summarize_remote_free_service_telemetry_collection_summary_rollup_check_log_summary_verification_rollup_verification_summary_verification_rollup_verification_json_log,
         validate_remote_free_service_telemetry_collection_summary_rollup_artifact,
         verify_remote_free_service_telemetry_collection_summary_artifacts,
         verify_remote_free_service_telemetry_collection_summary_rollup_check_log_summary_json_log,
@@ -7488,6 +7553,86 @@ mod tests {
             }
         ));
         Ok(())
+    }
+
+    #[test]
+    fn summarizes_rollup_check_log_summary_json_verification_rollup_verdict_summary_verdict_rollup_verification_json(
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let source_log =
+            sample_rollup_check_log_summary_json_verification_rollup_verdict_summary_verdict_log()?;
+        let rollup =
+            summarize_remote_free_service_telemetry_collection_summary_rollup_check_log_summary_verification_rollup_verification_summary_verification_json_log(
+                &source_log,
+            )?;
+        let matched_rollup_json =
+            format_remote_free_service_telemetry_collection_summary_rollup_check_log_summary_verification_rollup_verification_summary_verification_rollup_json_line(
+                &rollup,
+            )?;
+        let matched_report =
+            check_remote_free_service_telemetry_collection_summary_rollup_check_log_summary_verification_rollup_verification_summary_verification_rollup_json_log(
+                &source_log,
+                &matched_rollup_json,
+            )?;
+        let matched_verdict_json =
+            format_remote_free_service_telemetry_collection_summary_rollup_check_log_summary_verification_rollup_verification_summary_verification_rollup_verification_json_line(
+                &matched_report,
+            )?;
+        let mut rollup_value = serde_json::from_str::<serde_json::Value>(&matched_rollup_json)?;
+        rollup_value["records"] = json!(1);
+        let drifted_rollup_json = serde_json::to_string(&rollup_value)?;
+        let drifted_report =
+            check_remote_free_service_telemetry_collection_summary_rollup_check_log_summary_verification_rollup_verification_summary_verification_rollup_json_log(
+                &source_log,
+                &drifted_rollup_json,
+            )?;
+        let drifted_verdict_json =
+            format_remote_free_service_telemetry_collection_summary_rollup_check_log_summary_verification_rollup_verification_summary_verification_rollup_verification_json_line(
+                &drifted_report,
+            )?;
+        let log = format!(
+            "matched check\n{matched_verdict_json}\ndrifted check\n{drifted_verdict_json}\n"
+        );
+
+        let rollup =
+            summarize_remote_free_service_telemetry_collection_summary_rollup_check_log_summary_verification_rollup_verification_summary_verification_rollup_verification_json_log(
+                &log,
+            )?;
+        let json_line =
+            format_remote_free_service_telemetry_collection_summary_rollup_check_log_summary_verification_rollup_verification_summary_verification_rollup_json_line(
+                &rollup,
+            )?;
+        let value = serde_json::from_str::<serde_json::Value>(&json_line)?;
+
+        assert_eq!(rollup.summary.records, 2);
+        assert_eq!(rollup.summary.matched, 1);
+        assert_eq!(rollup.summary.drifted, 1);
+        assert_eq!(rollup.summary.drift_records, 1);
+        assert_eq!(
+            value["schema"],
+            REMOTE_FREE_SERVICE_TELEMETRY_COLLECTION_SUMMARY_ROLLUP_CHECK_LOG_SUMMARY_VERIFICATION_ROLLUP_VERIFICATION_SUMMARY_VERIFICATION_ROLLUP_SCHEMA
+        );
+        assert_eq!(value["records"], 2);
+        assert_eq!(value["status_coverage"]["matched"], 1);
+        assert_eq!(value["status_coverage"]["drifted"], 1);
+        assert_eq!(value["drift_fields"]["records"], 1);
+        Ok(())
+    }
+
+    #[test]
+    fn rejects_rollup_check_log_summary_json_verification_rollup_verdict_summary_verdict_rollup_verification_log_without_records(
+    ) {
+        let error =
+            summarize_remote_free_service_telemetry_collection_summary_rollup_check_log_summary_verification_rollup_verification_summary_verification_rollup_verification_json_log(
+                "dashboard noise\n",
+            )
+            .expect_err("missing verifier-summary verification rollup verification JSON");
+
+        assert!(matches!(
+            error,
+            RemoteFreeServiceTelemetryCollectionSummaryRollupError::MissingField(
+                "rollup_check_log_summary_verification_rollup_verification_summary_verification_rollup_verification_json_line"
+            )
+        ));
     }
 
     #[test]
