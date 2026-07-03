@@ -5,7 +5,7 @@ use std::collections::btree_map::Entry;
 use std::collections::BTreeMap;
 use std::fmt;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::mpsc::{sync_channel, Receiver, SyncSender, TryRecvError};
+use std::sync::mpsc::{sync_channel, Receiver, SyncSender, TryRecvError, TrySendError};
 use std::sync::Arc;
 
 use locus_core::{
@@ -129,6 +129,8 @@ pub struct RemoteFreeQueue<T> {
 pub struct RemoteFreeSink<T> {
     sender: SyncSender<T>,
     submitted_count: Arc<AtomicU64>,
+    full_count: Arc<AtomicU64>,
+    disconnected_count: Arc<AtomicU64>,
 }
 
 /// Reusable request scratch pool accounting.
@@ -153,6 +155,12 @@ pub struct RemoteFreeQueueStats {
     pub batch_limit: usize,
     /// Successfully enqueued item count.
     pub submitted_count: u64,
+    /// Submitted items that have not yet been drained by the owner.
+    pub pending_count: u64,
+    /// Nonblocking enqueue attempts rejected because the queue was full.
+    pub full_count: u64,
+    /// Enqueue attempts rejected because the owning queue was dropped.
+    pub disconnected_count: u64,
     /// Items drained by the owner.
     pub drained_count: u64,
 }
@@ -1039,9 +1047,13 @@ impl<T> RemoteFreeQueue<T> {
 
         let (sender, receiver) = sync_channel(capacity);
         let submitted_count = Arc::new(AtomicU64::new(0));
+        let full_count = Arc::new(AtomicU64::new(0));
+        let disconnected_count = Arc::new(AtomicU64::new(0));
         let sink = RemoteFreeSink {
             sender,
             submitted_count,
+            full_count,
+            disconnected_count,
         };
 
         Ok(Self {
@@ -1085,10 +1097,14 @@ impl<T> RemoteFreeQueue<T> {
     /// Returns current queue accounting.
     #[must_use]
     pub fn stats(&self) -> RemoteFreeQueueStats {
+        let submitted_count = self.sink.submitted_count();
         RemoteFreeQueueStats {
             capacity: self.capacity,
             batch_limit: self.batch_limit,
-            submitted_count: self.sink.submitted_count(),
+            submitted_count,
+            pending_count: submitted_count.saturating_sub(self.drained_count),
+            full_count: self.sink.full_count(),
+            disconnected_count: self.sink.disconnected_count(),
             drained_count: self.drained_count,
         }
     }
@@ -1101,17 +1117,59 @@ impl<T> RemoteFreeSink<T> {
     ///
     /// Returns the item when the owning queue has been dropped.
     pub fn enqueue(&self, item: T) -> Result<(), RemoteFreeEnqueueError<T>> {
-        self.sender
-            .send(item)
-            .map_err(|source| RemoteFreeEnqueueError { item: source.0 })?;
+        self.sender.send(item).map_err(|source| {
+            self.disconnected_count.fetch_add(1, Ordering::Relaxed);
+            RemoteFreeEnqueueError { item: source.0 }
+        })?;
         self.submitted_count.fetch_add(1, Ordering::Relaxed);
         Ok(())
+    }
+
+    /// Attempts to enqueue one item for owner-side release without blocking.
+    ///
+    /// # Errors
+    ///
+    /// Returns the item and a failure kind when the bounded queue is full or the
+    /// owning queue has been dropped.
+    pub fn try_enqueue(&self, item: T) -> Result<(), RemoteFreeTryEnqueueError<T>> {
+        match self.sender.try_send(item) {
+            Ok(()) => {
+                self.submitted_count.fetch_add(1, Ordering::Relaxed);
+                Ok(())
+            }
+            Err(TrySendError::Full(item)) => {
+                self.full_count.fetch_add(1, Ordering::Relaxed);
+                Err(RemoteFreeTryEnqueueError {
+                    item,
+                    kind: RemoteFreeTryEnqueueErrorKind::Full,
+                })
+            }
+            Err(TrySendError::Disconnected(item)) => {
+                self.disconnected_count.fetch_add(1, Ordering::Relaxed);
+                Err(RemoteFreeTryEnqueueError {
+                    item,
+                    kind: RemoteFreeTryEnqueueErrorKind::Disconnected,
+                })
+            }
+        }
     }
 
     /// Returns the number of successfully submitted items.
     #[must_use]
     pub fn submitted_count(&self) -> u64 {
         self.submitted_count.load(Ordering::Relaxed)
+    }
+
+    /// Returns the number of nonblocking enqueue attempts rejected as full.
+    #[must_use]
+    pub fn full_count(&self) -> u64 {
+        self.full_count.load(Ordering::Relaxed)
+    }
+
+    /// Returns the number of enqueue attempts rejected as disconnected.
+    #[must_use]
+    pub fn disconnected_count(&self) -> u64 {
+        self.disconnected_count.load(Ordering::Relaxed)
     }
 }
 
@@ -1120,6 +1178,8 @@ impl<T> Clone for RemoteFreeSink<T> {
         Self {
             sender: self.sender.clone(),
             submitted_count: Arc::clone(&self.submitted_count),
+            full_count: Arc::clone(&self.full_count),
+            disconnected_count: Arc::clone(&self.disconnected_count),
         }
     }
 }
@@ -1138,6 +1198,8 @@ impl<T> fmt::Debug for RemoteFreeSink<T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("RemoteFreeSink")
             .field("submitted_count", &self.submitted_count())
+            .field("full_count", &self.full_count())
+            .field("disconnected_count", &self.disconnected_count())
             .finish_non_exhaustive()
     }
 }
@@ -2338,7 +2400,36 @@ pub struct RemoteFreeEnqueueError<T> {
     item: T,
 }
 
+/// Remote free nonblocking enqueue failure.
+pub struct RemoteFreeTryEnqueueError<T> {
+    item: T,
+    kind: RemoteFreeTryEnqueueErrorKind,
+}
+
+/// Reason a nonblocking remote free enqueue failed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RemoteFreeTryEnqueueErrorKind {
+    /// The bounded queue was full.
+    Full,
+    /// The owning queue was dropped.
+    Disconnected,
+}
+
 impl<T> RemoteFreeEnqueueError<T> {
+    /// Returns the item that could not be enqueued.
+    #[must_use]
+    pub fn into_item(self) -> T {
+        self.item
+    }
+}
+
+impl<T> RemoteFreeTryEnqueueError<T> {
+    /// Returns why the item could not be enqueued.
+    #[must_use]
+    pub fn kind(&self) -> RemoteFreeTryEnqueueErrorKind {
+        self.kind
+    }
+
     /// Returns the item that could not be enqueued.
     #[must_use]
     pub fn into_item(self) -> T {
@@ -2398,13 +2489,34 @@ impl<T> fmt::Debug for RemoteFreeEnqueueError<T> {
     }
 }
 
+impl<T> fmt::Debug for RemoteFreeTryEnqueueError<T> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("RemoteFreeTryEnqueueError")
+            .field("kind", &self.kind)
+            .finish_non_exhaustive()
+    }
+}
+
 impl<T> fmt::Display for RemoteFreeEnqueueError<T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str("remote free queue receiver is closed")
     }
 }
 
+impl<T> fmt::Display for RemoteFreeTryEnqueueError<T> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self.kind {
+            RemoteFreeTryEnqueueErrorKind::Full => f.write_str("remote free queue is full"),
+            RemoteFreeTryEnqueueErrorKind::Disconnected => {
+                f.write_str("remote free queue receiver is closed")
+            }
+        }
+    }
+}
+
 impl<T> std::error::Error for RemoteFreeEnqueueError<T> {}
+
+impl<T> std::error::Error for RemoteFreeTryEnqueueError<T> {}
 
 impl fmt::Display for ScratchAllocError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -4435,8 +4547,9 @@ mod tests {
         PinnedScratchPoolProbeEventLine, PinnedScratchPoolProbeLineParseError,
         PinnedScratchPoolProbeOutput, PinnedScratchPoolProbeOutputParseError,
         PinnedScratchPoolProbePhase, PinnedScratchPoolProbeStatsLine, PinnedScratchPoolProbeStatus,
-        RemoteFreeQueue, RemoteFreeQueueError, RequestScratch, RequestScratchError,
-        RequestScratchPool, ScratchAllocError, ScratchArena, MAX_SUPPORTED_ALIGN,
+        RemoteFreeQueue, RemoteFreeQueueError, RemoteFreeTryEnqueueErrorKind, RequestScratch,
+        RequestScratchError, RequestScratchPool, ScratchAllocError, ScratchArena,
+        MAX_SUPPORTED_ALIGN,
     };
 
     #[test]
@@ -6039,6 +6152,9 @@ pool_stats phase=after_release locked_bytes=1 checked_out=0 idle=1 created_arena
                 capacity: 8,
                 batch_limit: 2,
                 submitted_count: 3,
+                pending_count: 1,
+                full_count: 0,
+                disconnected_count: 0,
                 drained_count: 2,
             }
         );
@@ -6048,6 +6164,42 @@ pool_stats phase=after_release locked_bytes=1 checked_out=0 idle=1 created_arena
         assert_eq!(second.drained, 1);
         assert_eq!(second.total_drained, 3);
         assert_eq!(released, vec![1, 2, 3]);
+    }
+
+    #[test]
+    fn remote_free_try_enqueue_reports_backpressure() {
+        let mut queue = RemoteFreeQueue::new(1, 1).expect("queue");
+        let sink = queue.sink();
+
+        sink.try_enqueue(1).expect("enqueue first");
+        let error = sink.try_enqueue(2).expect_err("queue should be full");
+
+        assert_eq!(error.kind(), RemoteFreeTryEnqueueErrorKind::Full);
+        assert_eq!(error.into_item(), 2);
+        assert_eq!(sink.submitted_count(), 1);
+        assert_eq!(sink.full_count(), 1);
+        assert_eq!(sink.disconnected_count(), 0);
+        assert_eq!(
+            queue.stats(),
+            super::RemoteFreeQueueStats {
+                capacity: 1,
+                batch_limit: 1,
+                submitted_count: 1,
+                pending_count: 1,
+                full_count: 1,
+                disconnected_count: 0,
+                drained_count: 0,
+            }
+        );
+
+        let mut released = Vec::new();
+        let drain = queue.drain_batch(|item| released.push(item));
+
+        assert_eq!(drain.drained, 1);
+        assert_eq!(released, vec![1]);
+        sink.try_enqueue(3).expect("enqueue after drain");
+        assert_eq!(sink.submitted_count(), 2);
+        assert_eq!(sink.full_count(), 1);
     }
 
     #[test]
@@ -6072,5 +6224,14 @@ pool_stats phase=after_release locked_bytes=1 checked_out=0 idle=1 created_arena
 
         assert_eq!(error.into_item(), 7);
         assert_eq!(sink.submitted_count(), 0);
+        assert_eq!(sink.disconnected_count(), 1);
+
+        let error = sink.try_enqueue(8).expect_err("receiver is closed");
+
+        assert_eq!(error.kind(), RemoteFreeTryEnqueueErrorKind::Disconnected);
+        assert_eq!(error.into_item(), 8);
+        assert_eq!(sink.submitted_count(), 0);
+        assert_eq!(sink.full_count(), 0);
+        assert_eq!(sink.disconnected_count(), 2);
     }
 }
