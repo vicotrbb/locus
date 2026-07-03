@@ -9,6 +9,7 @@ use std::{
 };
 
 use locus_validate::{
+    collect_remote_free_service_telemetry_collection_summary_paths,
     parse_remote_free_service_telemetry_collection_summary,
     parse_remote_free_service_telemetry_timing_stability_manifest,
     resolve_remote_free_service_telemetry_collection_summary_manifest_path,
@@ -172,9 +173,7 @@ fn validate_summary_path(summary_path: &Path) -> Result<BundleValidationReport, 
 }
 
 fn validate_summary_directory(root: &Path) -> Result<DirectoryRollup, Box<dyn Error>> {
-    let mut summary_paths = Vec::new();
-    collect_summary_paths(root, &mut summary_paths)?;
-    summary_paths.sort();
+    let summary_paths = collect_remote_free_service_telemetry_collection_summary_paths(root)?;
 
     let mut rollup = DirectoryRollup {
         root: root.to_path_buf(),
@@ -285,22 +284,6 @@ fn to_collection_summary_rollup(
         timing_ranges: u64::try_from(rollup.timing_ranges)?,
         bundles,
     })
-}
-
-fn collect_summary_paths(root: &Path, summary_paths: &mut Vec<PathBuf>) -> io::Result<()> {
-    for entry in fs::read_dir(root)? {
-        let entry = entry?;
-        let path = entry.path();
-        if path.is_dir() {
-            collect_summary_paths(&path, summary_paths)?;
-        } else if path
-            .file_name()
-            .is_some_and(|file_name| file_name == "collection-summary.json")
-        {
-            summary_paths.push(path);
-        }
-    }
-    Ok(())
 }
 
 struct StabilityOutput {

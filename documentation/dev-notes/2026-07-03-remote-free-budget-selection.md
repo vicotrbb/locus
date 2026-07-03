@@ -588,6 +588,12 @@ added exported rollup data and bundle status types. The real evidence root
 still wrote a 511-byte artifact with one valid bundle row, and the public
 release-check helper accepted the result.
 
+Experiment 0239 moved recursive `collection-summary.json` discovery into
+`locus-validate` as
+`collect_remote_free_service_telemetry_collection_summary_paths`. The real
+evidence root still found one summary, wrote a 511-byte rollup artifact, and
+passed the public release check.
+
 ## Measured Thresholds
 
 | Path | Shape inputs | Budget | Matched counters |

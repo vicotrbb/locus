@@ -65,6 +65,15 @@ pub struct RemoteFreeServiceTelemetryCollectionSummaryArtifactReport {
     pub verified_bytes: u64,
 }
 
+/// Error returned when scanning for collection summary files.
+#[derive(Debug)]
+pub struct RemoteFreeServiceTelemetryCollectionSummaryScanError {
+    /// Directory that failed to scan.
+    pub path: PathBuf,
+    /// Underlying I/O error.
+    pub source: io::Error,
+}
+
 /// Release-check report for a collection summary rollup artifact.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RemoteFreeServiceTelemetryCollectionSummaryRollupCheck {
@@ -147,6 +156,23 @@ impl fmt::Display for RemoteFreeServiceTelemetryCollectionSummaryArtifactReport 
             "remote_free_service_telemetry_collection_summary_artifacts=verified verified_artifacts={} verified_bytes={}",
             self.verified_artifacts, self.verified_bytes
         )
+    }
+}
+
+impl fmt::Display for RemoteFreeServiceTelemetryCollectionSummaryScanError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "failed to scan remote-free service telemetry collection summary directory {}: {}",
+            self.path.display(),
+            self.source
+        )
+    }
+}
+
+impl std::error::Error for RemoteFreeServiceTelemetryCollectionSummaryScanError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        Some(&self.source)
     }
 }
 
@@ -542,6 +568,20 @@ pub fn resolve_remote_free_service_telemetry_collection_summary_validation_summa
     )
 }
 
+/// Recursively finds remote-free service telemetry collection summaries.
+///
+/// # Errors
+///
+/// Returns an error when a directory in the evidence tree cannot be read.
+pub fn collect_remote_free_service_telemetry_collection_summary_paths(
+    root: &Path,
+) -> Result<Vec<PathBuf>, RemoteFreeServiceTelemetryCollectionSummaryScanError> {
+    let mut summary_paths = Vec::new();
+    collect_summary_paths_recursive(root, &mut summary_paths)?;
+    summary_paths.sort();
+    Ok(summary_paths)
+}
+
 /// Writes a schema v2 collection summary rollup artifact at the evidence root.
 ///
 /// # Errors
@@ -858,6 +898,37 @@ fn require_rollup_count(
     )
 }
 
+fn collect_summary_paths_recursive(
+    root: &Path,
+    summary_paths: &mut Vec<PathBuf>,
+) -> Result<(), RemoteFreeServiceTelemetryCollectionSummaryScanError> {
+    let entries = fs::read_dir(root).map_err(|source| {
+        RemoteFreeServiceTelemetryCollectionSummaryScanError {
+            path: root.to_path_buf(),
+            source,
+        }
+    })?;
+    for entry in entries {
+        let entry =
+            entry.map_err(
+                |source| RemoteFreeServiceTelemetryCollectionSummaryScanError {
+                    path: root.to_path_buf(),
+                    source,
+                },
+            )?;
+        let path = entry.path();
+        if path.is_dir() {
+            collect_summary_paths_recursive(&path, summary_paths)?;
+        } else if path
+            .file_name()
+            .is_some_and(|file_name| file_name == "collection-summary.json")
+        {
+            summary_paths.push(path);
+        }
+    }
+    Ok(())
+}
+
 fn resolve_summary_artifact_path(
     base_dir: &Path,
     relative_path: &str,
@@ -888,6 +959,7 @@ fn resolve_summary_artifact_path(
 #[cfg(test)]
 mod tests {
     use super::{
+        collect_remote_free_service_telemetry_collection_summary_paths,
         parse_remote_free_service_telemetry_collection_summary,
         resolve_remote_free_service_telemetry_collection_summary_manifest_path,
         resolve_remote_free_service_telemetry_collection_summary_validation_summary_path,
@@ -1005,6 +1077,40 @@ mod tests {
             error,
             RemoteFreeServiceTelemetryCollectionSummaryError::OutputCountMismatch { .. }
         ));
+    }
+
+    #[test]
+    fn scans_collection_summary_paths_sorted() -> Result<(), Box<dyn std::error::Error>> {
+        let dir = temp_dir()?;
+        let a = dir.join("a");
+        let z = dir.join("z").join("nested");
+        fs::create_dir_all(&a)?;
+        fs::create_dir_all(&z)?;
+        fs::write(a.join("collection-summary.json"), "{}")?;
+        fs::write(z.join("collection-summary.json"), "{}")?;
+        fs::write(dir.join("collection-summary-rollup.json"), "{}")?;
+        fs::write(dir.join("not-a-summary.json"), "{}")?;
+
+        let paths = collect_remote_free_service_telemetry_collection_summary_paths(&dir)?;
+        let relative_paths = paths
+            .iter()
+            .map(|path| {
+                path.strip_prefix(&dir)
+                    .expect("under root")
+                    .display()
+                    .to_string()
+            })
+            .collect::<Vec<_>>();
+
+        assert_eq!(
+            relative_paths,
+            vec![
+                "a/collection-summary.json",
+                "z/nested/collection-summary.json"
+            ]
+        );
+        fs::remove_dir_all(dir)?;
+        Ok(())
     }
 
     #[test]
