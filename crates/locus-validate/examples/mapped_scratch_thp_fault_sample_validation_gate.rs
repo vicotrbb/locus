@@ -18,6 +18,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let benchmark_output = fs::read_to_string(benchmark_output_path)?;
     let gate = evaluate_mapped_scratch_thp_fault_sample_validation_output(&benchmark_output)?;
     println!("{gate}");
+    println!("{}", gate.comparison_output());
 
     Ok(())
 }

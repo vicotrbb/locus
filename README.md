@@ -64,6 +64,8 @@ cargo run -p locus-validate --example mapped_scratch_thp_validation_gate -- mapp
 cargo run -p locus-validate --example mapped_scratch_thp_fault_sample_validation_gate -- mapped-scratch-thp-bench.out
 ```
 
+The mapped scratch THP fault sample validation command prints both a sample availability gate and a comparison line for the process minor-fault deltas when counters are usable.
+
 Captured outputs from `mbind_region`, `locality_environment`, and `mapped_scratch_bind` can be combined with:
 
 ```sh
