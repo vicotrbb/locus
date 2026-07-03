@@ -1503,6 +1503,9 @@ Experiment 0335 aggregated those saved matched and stale JSON verdict records
 into a compact dashboard rollup with one matched record, one drifted record,
 and one `records` drift bucket. It also recorded a malformed token extraction
 regex before rerunning with the corrected inspection pattern.
+Experiment 0336 made that saved aggregate rollup recheck cohort rollup
+recheck verdict rollup drift JSON artifact reloadable through the parser-only
+path, preserving the same two-record cohort counters.
 
 ## Open Questions
 
