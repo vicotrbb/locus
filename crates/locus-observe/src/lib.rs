@@ -76,6 +76,58 @@ pub struct NodeNumastatMetric {
     pub value: u64,
 }
 
+/// Fault counters parsed from `/proc/<pid>/stat`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct ProcessFaultCounts {
+    /// Minor faults for the process.
+    pub minor_faults: u64,
+    /// Minor faults waited for by child processes.
+    pub child_minor_faults: u64,
+    /// Major faults for the process.
+    pub major_faults: u64,
+    /// Major faults waited for by child processes.
+    pub child_major_faults: u64,
+}
+
+impl ProcessFaultCounts {
+    /// Computes signed fault deltas from `previous` to `self`.
+    #[must_use]
+    pub fn delta_since(self, previous: Self) -> ProcessFaultDelta {
+        ProcessFaultDelta {
+            minor_faults_delta: i128::from(self.minor_faults) - i128::from(previous.minor_faults),
+            child_minor_faults_delta: i128::from(self.child_minor_faults)
+                - i128::from(previous.child_minor_faults),
+            major_faults_delta: i128::from(self.major_faults) - i128::from(previous.major_faults),
+            child_major_faults_delta: i128::from(self.child_major_faults)
+                - i128::from(previous.child_major_faults),
+        }
+    }
+}
+
+/// Signed delta between two process fault counter snapshots.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct ProcessFaultDelta {
+    /// Signed process minor-fault delta.
+    pub minor_faults_delta: i128,
+    /// Signed child minor-fault delta.
+    pub child_minor_faults_delta: i128,
+    /// Signed process major-fault delta.
+    pub major_faults_delta: i128,
+    /// Signed child major-fault delta.
+    pub child_major_faults_delta: i128,
+}
+
+impl ProcessFaultDelta {
+    /// Returns true when any fault counter changed.
+    #[must_use]
+    pub fn has_nonzero_delta(self) -> bool {
+        self.minor_faults_delta != 0
+            || self.child_minor_faults_delta != 0
+            || self.major_faults_delta != 0
+            || self.child_major_faults_delta != 0
+    }
+}
+
 /// Snapshot of one node `numastat` file.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct NodeNumastatSnapshot {
@@ -1152,6 +1204,29 @@ pub fn read_self_numa_maps() -> Result<Vec<NumaMapsEntry>, ObserveReadError> {
     read_numa_maps("/proc/self/numa_maps")
 }
 
+/// Reads and parses process fault counters from an explicit proc stat path.
+///
+/// # Errors
+///
+/// Returns an error when the file cannot be read or parsing fails.
+pub fn read_process_fault_counts(
+    path: impl AsRef<Path>,
+) -> Result<ProcessFaultCounts, ObserveReadError> {
+    let path = path.as_ref();
+    let input = read_to_string(path)?;
+    parse_process_stat_fault_counts(&input).map_err(ObserveReadError::Parse)
+}
+
+/// Reads and parses `/proc/self/stat` process fault counters.
+///
+/// # Errors
+///
+/// Returns an error when `/proc/self/stat` cannot be read or parsing fails.
+/// Non-Linux hosts normally return a read error.
+pub fn read_self_process_fault_counts() -> Result<ProcessFaultCounts, ObserveReadError> {
+    read_process_fault_counts("/proc/self/stat")
+}
+
 /// Finds the `numa_maps` entry with an exact start address.
 #[must_use]
 pub fn numa_maps_entry_by_start_address(
@@ -1447,6 +1522,61 @@ pub fn parse_node_numastat_line(line: &str) -> Result<NodeNumastatMetric, Observ
     })
 }
 
+/// Parses fault counters from `/proc/<pid>/stat` content.
+///
+/// # Errors
+///
+/// Returns an error when the stat content is missing required fields or fault
+/// fields are malformed.
+pub fn parse_process_stat_fault_counts(
+    input: &str,
+) -> Result<ProcessFaultCounts, ObserveParseError> {
+    let tail = process_stat_after_command(input)?;
+    let mut tokens = tail.split_whitespace();
+
+    let _state = tokens
+        .next()
+        .ok_or(ObserveParseError::MissingProcStatField("state"))?;
+
+    for field in ["ppid", "pgrp", "session", "tty_nr", "tpgid", "flags"] {
+        tokens
+            .next()
+            .ok_or(ObserveParseError::MissingProcStatField(field))?;
+    }
+
+    let minor_faults = parse_process_stat_u64(
+        tokens
+            .next()
+            .ok_or(ObserveParseError::MissingProcStatField("minflt"))?,
+        "minflt",
+    )?;
+    let child_minor_faults = parse_process_stat_u64(
+        tokens
+            .next()
+            .ok_or(ObserveParseError::MissingProcStatField("cminflt"))?,
+        "cminflt",
+    )?;
+    let major_faults = parse_process_stat_u64(
+        tokens
+            .next()
+            .ok_or(ObserveParseError::MissingProcStatField("majflt"))?,
+        "majflt",
+    )?;
+    let child_major_faults = parse_process_stat_u64(
+        tokens
+            .next()
+            .ok_or(ObserveParseError::MissingProcStatField("cmajflt"))?,
+        "cmajflt",
+    )?;
+
+    Ok(ProcessFaultCounts {
+        minor_faults,
+        child_minor_faults,
+        major_faults,
+        child_major_faults,
+    })
+}
+
 /// Parser errors for Linux NUMA observability files.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ObserveParseError {
@@ -1463,6 +1593,8 @@ pub enum ObserveParseError {
     MissingPolicy,
     /// A metric line did not include a metric name.
     MissingMetric,
+    /// A `/proc/<pid>/stat` field was missing.
+    MissingProcStatField(&'static str),
     /// A mapping address was not hexadecimal.
     InvalidAddress(String),
     /// A token was malformed for its expected file format.
@@ -1485,6 +1617,9 @@ impl fmt::Display for ObserveParseError {
             Self::MissingAddress => f.write_str("missing numa_maps address"),
             Self::MissingPolicy => f.write_str("missing numa_maps policy"),
             Self::MissingMetric => f.write_str("missing NUMA metric"),
+            Self::MissingProcStatField(field) => {
+                write!(f, "missing proc stat field: {field}")
+            }
             Self::InvalidAddress(value) => write!(f, "invalid mapping address: {value}"),
             Self::InvalidToken(token) => write!(f, "invalid token: {token}"),
             Self::InvalidNodeKey(key) => write!(f, "invalid NUMA node key: {key}"),
@@ -1577,6 +1712,17 @@ fn parse_node_dir_name(name: &str) -> Option<NodeId> {
     rest.parse::<u32>().ok().map(NodeId)
 }
 
+fn process_stat_after_command(input: &str) -> Result<&str, ObserveParseError> {
+    let close_command = input
+        .rfind(')')
+        .ok_or_else(|| ObserveParseError::InvalidToken(input.trim().to_owned()))?;
+    Ok(&input[close_command + 1..])
+}
+
+fn parse_process_stat_u64(value: &str, field: &str) -> Result<u64, ObserveParseError> {
+    parse_u64(value, field)
+}
+
 fn parse_u64(value: &str, token: &str) -> Result<u64, ObserveParseError> {
     value
         .parse::<u64>()
@@ -1600,16 +1746,17 @@ mod tests {
         numa_maps_entry_for_address, parse_cgroup_numa_stat, parse_node_numastat, parse_numa_maps,
         parse_numa_maps_line, parse_numa_placement_proof_line, parse_numa_placement_proof_output,
         parse_numa_placement_readiness_line, parse_numa_placement_readiness_output,
-        read_cgroup_numa_stat, read_cgroup_numa_summary, read_node_numastat,
-        read_node_numastat_system_snapshot, read_numa_maps,
-        resolve_cgroup_v2_memory_numa_stat_path, CgroupNumaDelta, CgroupNumaSummary,
-        CgroupPathError, NodeNumastatSnapshot, NodeNumastatSystemSnapshot,
+        parse_process_stat_fault_counts, read_cgroup_numa_stat, read_cgroup_numa_summary,
+        read_node_numastat, read_node_numastat_system_snapshot, read_numa_maps,
+        read_process_fault_counts, resolve_cgroup_v2_memory_numa_stat_path, CgroupNumaDelta,
+        CgroupNumaSummary, CgroupPathError, NodeNumastatSnapshot, NodeNumastatSystemSnapshot,
         NumaMapsAddressMatchKind, NumaMapsSummary, NumaPlacementEvidence, NumaPlacementProof,
         NumaPlacementProofLineParseError, NumaPlacementProofOutputParseError,
         NumaPlacementProofReason, NumaPlacementProofStatus, NumaPlacementReadinessLineParseError,
         NumaPlacementReadinessOutputParseError, NumaPlacementStatus,
         NumaPlacementValidationReadiness, NumaPlacementValidationReadinessReason,
-        NumaPlacementValidationReadinessStatus, ObserveParseError,
+        NumaPlacementValidationReadinessStatus, ObserveParseError, ProcessFaultCounts,
+        ProcessFaultDelta,
     };
 
     #[test]
@@ -1729,6 +1876,77 @@ mod tests {
     }
 
     #[test]
+    fn parses_process_stat_fault_counts_with_spaced_command_name() {
+        let counts = parse_process_stat_fault_counts(
+            "123 (locus bench (probe)) R 1 2 3 4 5 6 100 7 8 9 0 0 0 0\n",
+        )
+        .expect("valid process stat");
+
+        assert_eq!(
+            counts,
+            ProcessFaultCounts {
+                minor_faults: 100,
+                child_minor_faults: 7,
+                major_faults: 8,
+                child_major_faults: 9,
+            }
+        );
+    }
+
+    #[test]
+    fn rejects_invalid_process_stat_fault_counts() {
+        assert_eq!(
+            parse_process_stat_fault_counts("123 locus R 1 2 3 4 5 6 100 7 8 9\n")
+                .expect_err("missing command delimiter"),
+            ObserveParseError::InvalidToken("123 locus R 1 2 3 4 5 6 100 7 8 9".to_owned())
+        );
+        assert_eq!(
+            parse_process_stat_fault_counts("123 (locus) R 1 2 3 4 5 6 100 7 8\n")
+                .expect_err("missing cmajflt"),
+            ObserveParseError::MissingProcStatField("cmajflt")
+        );
+        assert_eq!(
+            parse_process_stat_fault_counts("123 (locus) R 1 2 3 4 5 6 bad 7 8 9\n")
+                .expect_err("bad minflt"),
+            ObserveParseError::InvalidNumber {
+                token: "minflt".to_owned(),
+                value: "bad".to_owned(),
+            }
+        );
+    }
+
+    #[test]
+    fn computes_process_fault_count_delta() {
+        let before = ProcessFaultCounts {
+            minor_faults: 10,
+            child_minor_faults: 5,
+            major_faults: 2,
+            child_major_faults: 1,
+        };
+        let after = ProcessFaultCounts {
+            minor_faults: 15,
+            child_minor_faults: 3,
+            major_faults: 2,
+            child_major_faults: 4,
+        };
+
+        let delta = after.delta_since(before);
+        let zero_delta = before.delta_since(before);
+
+        assert_eq!(
+            delta,
+            ProcessFaultDelta {
+                minor_faults_delta: 5,
+                child_minor_faults_delta: -2,
+                major_faults_delta: 0,
+                child_major_faults_delta: 3,
+            }
+        );
+        assert!(delta.has_nonzero_delta());
+        assert!(!zero_delta.has_nonzero_delta());
+    }
+
+    #[test]
     fn summarizes_node_numastat_metrics_and_deltas() {
         let before =
             parse_node_numastat("numa_hit 10\nnuma_miss 2\nother_node 1\n").expect("before");
@@ -1814,6 +2032,7 @@ mod tests {
         let numa_maps = temp.path().join("numa_maps");
         let cgroup_stat = temp.path().join("memory.numa_stat");
         let node_stat = temp.path().join("numastat");
+        let process_stat = temp.path().join("stat");
 
         fs::write(
             &numa_maps,
@@ -1822,6 +2041,11 @@ mod tests {
         .expect("write numa_maps");
         fs::write(&cgroup_stat, "anon N0=4096 N1=8192\n").expect("write cgroup stat");
         fs::write(&node_stat, "numa_hit 10\nother_node 1\n").expect("write node stat");
+        fs::write(
+            &process_stat,
+            "123 (locus bench (probe)) R 1 2 3 4 5 6 100 7 8 9 0 0 0 0\n",
+        )
+        .expect("write process stat");
 
         assert_eq!(read_numa_maps(&numa_maps).expect("read numa maps").len(), 1);
         assert_eq!(
@@ -1841,6 +2065,15 @@ mod tests {
                 .expect("read node stat")
                 .len(),
             2
+        );
+        assert_eq!(
+            read_process_fault_counts(&process_stat).expect("read process stat"),
+            ProcessFaultCounts {
+                minor_faults: 100,
+                child_minor_faults: 7,
+                major_faults: 8,
+                child_major_faults: 9,
+            }
         );
     }
 
