@@ -110,6 +110,17 @@ pub struct RemoteFreeServiceTelemetryCollectionSummaryRollup {
     pub bundles: Vec<RemoteFreeServiceTelemetryCollectionSummaryRollupBundle>,
 }
 
+/// Caller-provided result for one collection summary path during rollup build.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RemoteFreeServiceTelemetryCollectionSummaryBundleValidation {
+    /// Run id when the summary could be parsed.
+    pub run_id: Option<String>,
+    /// Bundle validation status.
+    pub status: RemoteFreeServiceTelemetryCollectionSummaryRollupBundleStatus,
+    /// Number of timing ranges for this bundle.
+    pub timing_ranges: usize,
+}
+
 /// One bundle row in a collection summary rollup artifact.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RemoteFreeServiceTelemetryCollectionSummaryRollupBundle {
@@ -186,6 +197,22 @@ impl fmt::Display for RemoteFreeServiceTelemetryCollectionSummaryRollupCheck {
             self.valid_bundles,
             self.timing_ranges,
             self.bundles
+        )
+    }
+}
+
+impl fmt::Display for RemoteFreeServiceTelemetryCollectionSummaryRollup {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "remote_free_service_telemetry_collection_summary_rollup root={} summaries={} valid_bundles={} drifted_summaries={} missing_artifacts={} other_failures={} timing_ranges={}",
+            self.root.display(),
+            self.summaries,
+            self.valid_bundles,
+            self.drifted_summaries,
+            self.missing_artifacts,
+            self.other_failures,
+            self.timing_ranges
         )
     }
 }
@@ -297,6 +324,39 @@ impl std::error::Error for RemoteFreeServiceTelemetryCollectionSummaryError {
             | Self::MissingValidationSummaryArtifact
             | Self::InvalidArtifactPath(_)
             | Self::ByteCountMismatch { .. } => None,
+        }
+    }
+}
+
+/// Error returned when building a collection summary directory rollup.
+#[derive(Debug)]
+pub enum RemoteFreeServiceTelemetryCollectionSummaryDirectoryRollupError {
+    /// Directory scanning failed.
+    Scan(RemoteFreeServiceTelemetryCollectionSummaryScanError),
+    /// A count did not fit in the exported rollup representation.
+    CountOverflow(&'static str),
+}
+
+impl fmt::Display for RemoteFreeServiceTelemetryCollectionSummaryDirectoryRollupError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Scan(source) => write!(
+                f,
+                "failed to build remote-free service telemetry collection summary directory rollup: {source}"
+            ),
+            Self::CountOverflow(field) => write!(
+                f,
+                "remote-free service telemetry collection summary directory rollup count overflow: {field}"
+            ),
+        }
+    }
+}
+
+impl std::error::Error for RemoteFreeServiceTelemetryCollectionSummaryDirectoryRollupError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Scan(source) => Some(source),
+            Self::CountOverflow(_) => None,
         }
     }
 }
@@ -580,6 +640,77 @@ pub fn collect_remote_free_service_telemetry_collection_summary_paths(
     collect_summary_paths_recursive(root, &mut summary_paths)?;
     summary_paths.sort();
     Ok(summary_paths)
+}
+
+/// Builds a directory rollup from caller-provided per-summary validation.
+///
+/// # Errors
+///
+/// Returns an error when the evidence root cannot be scanned or a count does
+/// not fit the exported rollup representation.
+pub fn build_remote_free_service_telemetry_collection_summary_directory_rollup(
+    root: &Path,
+    mut validate_summary: impl FnMut(
+        &Path,
+    ) -> RemoteFreeServiceTelemetryCollectionSummaryBundleValidation,
+) -> Result<
+    RemoteFreeServiceTelemetryCollectionSummaryRollup,
+    RemoteFreeServiceTelemetryCollectionSummaryDirectoryRollupError,
+> {
+    let summary_paths = collect_remote_free_service_telemetry_collection_summary_paths(root)
+        .map_err(RemoteFreeServiceTelemetryCollectionSummaryDirectoryRollupError::Scan)?;
+
+    let mut rollup = RemoteFreeServiceTelemetryCollectionSummaryRollup {
+        root: root.to_path_buf(),
+        summaries: usize_to_u64(summary_paths.len(), "summaries")?,
+        valid_bundles: 0,
+        drifted_summaries: 0,
+        missing_artifacts: 0,
+        other_failures: 0,
+        timing_ranges: 0,
+        bundles: Vec::with_capacity(summary_paths.len()),
+    };
+
+    for summary_path in summary_paths {
+        let validation = validate_summary(&summary_path);
+        let timing_ranges = usize_to_u64(validation.timing_ranges, "timing_ranges")?;
+        match validation.status {
+            RemoteFreeServiceTelemetryCollectionSummaryRollupBundleStatus::Valid => {
+                rollup.valid_bundles =
+                    checked_add_rollup_count(rollup.valid_bundles, 1, "valid_bundles")?;
+                rollup.timing_ranges =
+                    checked_add_rollup_count(rollup.timing_ranges, timing_ranges, "timing_ranges")?;
+            }
+            RemoteFreeServiceTelemetryCollectionSummaryRollupBundleStatus::DriftedSummary => {
+                rollup.drifted_summaries =
+                    checked_add_rollup_count(rollup.drifted_summaries, 1, "drifted_summaries")?;
+            }
+            RemoteFreeServiceTelemetryCollectionSummaryRollupBundleStatus::MissingArtifact => {
+                rollup.missing_artifacts =
+                    checked_add_rollup_count(rollup.missing_artifacts, 1, "missing_artifacts")?;
+            }
+            RemoteFreeServiceTelemetryCollectionSummaryRollupBundleStatus::OtherFailure => {
+                rollup.other_failures =
+                    checked_add_rollup_count(rollup.other_failures, 1, "other_failures")?;
+            }
+        }
+
+        let summary = summary_path
+            .strip_prefix(root)
+            .unwrap_or(&summary_path)
+            .display()
+            .to_string();
+        rollup
+            .bundles
+            .push(RemoteFreeServiceTelemetryCollectionSummaryRollupBundle {
+                summary,
+                run_id: validation.run_id,
+                status: validation.status,
+                timing_ranges,
+            });
+    }
+
+    Ok(rollup)
 }
 
 /// Writes a schema v2 collection summary rollup artifact at the evidence root.
@@ -898,6 +1029,25 @@ fn require_rollup_count(
     )
 }
 
+fn usize_to_u64(
+    value: usize,
+    field: &'static str,
+) -> Result<u64, RemoteFreeServiceTelemetryCollectionSummaryDirectoryRollupError> {
+    value.try_into().map_err(|_| {
+        RemoteFreeServiceTelemetryCollectionSummaryDirectoryRollupError::CountOverflow(field)
+    })
+}
+
+fn checked_add_rollup_count(
+    lhs: u64,
+    rhs: u64,
+    field: &'static str,
+) -> Result<u64, RemoteFreeServiceTelemetryCollectionSummaryDirectoryRollupError> {
+    lhs.checked_add(rhs).ok_or(
+        RemoteFreeServiceTelemetryCollectionSummaryDirectoryRollupError::CountOverflow(field),
+    )
+}
+
 fn collect_summary_paths_recursive(
     root: &Path,
     summary_paths: &mut Vec<PathBuf>,
@@ -959,6 +1109,7 @@ fn resolve_summary_artifact_path(
 #[cfg(test)]
 mod tests {
     use super::{
+        build_remote_free_service_telemetry_collection_summary_directory_rollup,
         collect_remote_free_service_telemetry_collection_summary_paths,
         parse_remote_free_service_telemetry_collection_summary,
         resolve_remote_free_service_telemetry_collection_summary_manifest_path,
@@ -966,6 +1117,7 @@ mod tests {
         validate_remote_free_service_telemetry_collection_summary_rollup_artifact,
         verify_remote_free_service_telemetry_collection_summary_artifacts,
         write_remote_free_service_telemetry_collection_summary_rollup_artifact,
+        RemoteFreeServiceTelemetryCollectionSummaryBundleValidation,
         RemoteFreeServiceTelemetryCollectionSummaryError,
         RemoteFreeServiceTelemetryCollectionSummaryRollup,
         RemoteFreeServiceTelemetryCollectionSummaryRollupBundle,
@@ -1107,6 +1259,99 @@ mod tests {
             vec![
                 "a/collection-summary.json",
                 "z/nested/collection-summary.json"
+            ]
+        );
+        fs::remove_dir_all(dir)?;
+        Ok(())
+    }
+
+    #[test]
+    fn builds_collection_summary_directory_rollup_from_validator(
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let dir = temp_dir()?;
+        fs::create_dir_all(dir.join("valid"))?;
+        fs::create_dir_all(dir.join("drifted"))?;
+        fs::create_dir_all(dir.join("missing"))?;
+        fs::write(dir.join("valid").join("collection-summary.json"), "{}")?;
+        fs::write(dir.join("drifted").join("collection-summary.json"), "{}")?;
+        fs::write(dir.join("missing").join("collection-summary.json"), "{}")?;
+        fs::write(dir.join("collection-summary-rollup.json"), "{}")?;
+
+        let rollup = build_remote_free_service_telemetry_collection_summary_directory_rollup(
+            &dir,
+            |summary_path| {
+                let bundle = summary_path
+                    .parent()
+                    .and_then(|path| path.file_name())
+                    .and_then(|name| name.to_str())
+                    .expect("bundle name");
+                match bundle {
+                    "valid" => RemoteFreeServiceTelemetryCollectionSummaryBundleValidation {
+                        run_id: Some("valid".to_owned()),
+                        status: RemoteFreeServiceTelemetryCollectionSummaryRollupBundleStatus::Valid,
+                        timing_ranges: 2,
+                    },
+                    "drifted" => RemoteFreeServiceTelemetryCollectionSummaryBundleValidation {
+                        run_id: Some("drifted".to_owned()),
+                        status: RemoteFreeServiceTelemetryCollectionSummaryRollupBundleStatus::DriftedSummary,
+                        timing_ranges: 0,
+                    },
+                    "missing" => RemoteFreeServiceTelemetryCollectionSummaryBundleValidation {
+                        run_id: Some("missing".to_owned()),
+                        status: RemoteFreeServiceTelemetryCollectionSummaryRollupBundleStatus::MissingArtifact,
+                        timing_ranges: 0,
+                    },
+                    _ => RemoteFreeServiceTelemetryCollectionSummaryBundleValidation {
+                        run_id: None,
+                        status: RemoteFreeServiceTelemetryCollectionSummaryRollupBundleStatus::OtherFailure,
+                        timing_ranges: 0,
+                    },
+                }
+            },
+        )?;
+
+        assert_eq!(rollup.root, dir);
+        assert_eq!(rollup.summaries, 3);
+        assert_eq!(rollup.valid_bundles, 1);
+        assert_eq!(rollup.drifted_summaries, 1);
+        assert_eq!(rollup.missing_artifacts, 1);
+        assert_eq!(rollup.other_failures, 0);
+        assert_eq!(rollup.timing_ranges, 2);
+        assert_eq!(
+            rollup.to_string(),
+            format!(
+                "remote_free_service_telemetry_collection_summary_rollup root={} summaries=3 valid_bundles=1 drifted_summaries=1 missing_artifacts=1 other_failures=0 timing_ranges=2",
+                rollup.root.display()
+            )
+        );
+        let bundle_rows = rollup
+            .bundles
+            .iter()
+            .map(|bundle| {
+                (
+                    bundle.summary.as_str(),
+                    bundle.run_id.as_deref(),
+                    bundle.status.as_str(),
+                    bundle.timing_ranges,
+                )
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(
+            bundle_rows,
+            vec![
+                (
+                    "drifted/collection-summary.json",
+                    Some("drifted"),
+                    "drifted_summary",
+                    0
+                ),
+                (
+                    "missing/collection-summary.json",
+                    Some("missing"),
+                    "missing_artifact",
+                    0
+                ),
+                ("valid/collection-summary.json", Some("valid"), "valid", 2),
             ]
         );
         fs::remove_dir_all(dir)?;

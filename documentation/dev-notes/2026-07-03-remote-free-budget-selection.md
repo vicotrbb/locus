@@ -594,6 +594,15 @@ Experiment 0239 moved recursive `collection-summary.json` discovery into
 evidence root still found one summary, wrote a 511-byte rollup artifact, and
 passed the public release check.
 
+Experiment 0240 moved full directory rollup aggregation into `locus-validate`
+as `build_remote_free_service_telemetry_collection_summary_directory_rollup`.
+The caller still owns manifest-backed stability recomputation and
+validation-summary drift classification, while the library owns sorted
+scanning, relative bundle row construction, count aggregation, overflow checks,
+artifact writing, and artifact checking. The real evidence root still wrote a
+511-byte rollup artifact with one valid bundle and passed the public release
+check.
+
 ## Measured Thresholds
 
 | Path | Shape inputs | Budget | Matched counters |
@@ -883,6 +892,9 @@ passed the public release check.
 - Do not treat direct benchmark capture as a separate validation path. The
   collector must still persist captured outputs, write `manifest.txt`, and
   validate through `validation-summary.txt`.
+- Do not duplicate directory rollup aggregation in benchmark callers. Use the
+  `locus-validate` builder and keep only benchmark-specific stability
+  recomputation in the caller.
 - Recheck thresholds when KV block size, request arena capacity, burst size,
   request concurrency, or batch size changes.
 - For heterogeneous traces, derive the budget from actual retained item sizes
@@ -948,6 +960,18 @@ passed the public release check.
 - `documentation/experiments/0226-remote-free-service-telemetry-stability-manifest.md`
 - `documentation/experiments/0227-remote-free-service-telemetry-evidence-collection.md`
 - `documentation/experiments/0228-remote-free-service-telemetry-direct-capture.md`
+- `documentation/experiments/0229-remote-free-service-telemetry-repeated-direct-capture.md`
+- `documentation/experiments/0230-remote-free-service-telemetry-evidence-summary-json.md`
+- `documentation/experiments/0231-remote-free-service-telemetry-summary-validation.md`
+- `documentation/experiments/0232-remote-free-service-telemetry-validation-summary-drift.md`
+- `documentation/experiments/0233-remote-free-service-telemetry-summary-directory-rollup.md`
+- `documentation/experiments/0234-remote-free-service-telemetry-summary-rollup-artifact.md`
+- `documentation/experiments/0235-remote-free-service-telemetry-rollup-bundle-table.md`
+- `documentation/experiments/0236-remote-free-service-telemetry-rollup-release-check.md`
+- `documentation/experiments/0237-remote-free-service-telemetry-rollup-library-helper.md`
+- `documentation/experiments/0238-remote-free-service-telemetry-rollup-writer-helper.md`
+- `documentation/experiments/0239-remote-free-service-telemetry-directory-scan-helper.md`
+- `documentation/experiments/0240-remote-free-service-telemetry-directory-rollup-builder.md`
 
 ## Open Questions
 

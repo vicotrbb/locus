@@ -34,6 +34,7 @@ pub use pinned_scratch_near_gpu_gate::{
     PinnedScratchNearGpuValidationGateVerdict,
 };
 pub use remote_free_service_collection_summary::{
+    build_remote_free_service_telemetry_collection_summary_directory_rollup,
     collect_remote_free_service_telemetry_collection_summary_paths,
     parse_remote_free_service_telemetry_collection_summary,
     resolve_remote_free_service_telemetry_collection_summary_manifest_path,
@@ -44,6 +45,8 @@ pub use remote_free_service_collection_summary::{
     RemoteFreeServiceTelemetryCollectionSummary,
     RemoteFreeServiceTelemetryCollectionSummaryArtifact,
     RemoteFreeServiceTelemetryCollectionSummaryArtifactReport,
+    RemoteFreeServiceTelemetryCollectionSummaryBundleValidation,
+    RemoteFreeServiceTelemetryCollectionSummaryDirectoryRollupError,
     RemoteFreeServiceTelemetryCollectionSummaryError,
     RemoteFreeServiceTelemetryCollectionSummaryRollup,
     RemoteFreeServiceTelemetryCollectionSummaryRollupBundle,
