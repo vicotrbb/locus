@@ -33,18 +33,21 @@ This note summarizes the allocator benchmark coverage currently recorded in expe
 | KV block remote-free queue batch-size sweep | `kv_remote_free_queue_release_batch8_256x4k`, `kv_remote_free_queue_release_256x4k`, `kv_remote_free_queue_release_batch64_256x4k` | None | 36.920 us to 38.124 us, 20.059 us to 20.257 us, 14.637 us to 14.913 us | `documentation/experiments/0057-kv-remote-free-batch-size.md` |
 | KV block remote-free queue large-batch sweep | `kv_remote_free_queue_release_batch128_256x4k`, `kv_remote_free_queue_release_batch256_256x4k` | None | 10.894 us to 11.011 us, 5.5519 us to 5.7110 us | `documentation/experiments/0059-kv-remote-free-large-batches.md` |
 | Request scratch remote-free queue return | `request_remote_free_queue_return_16x64x256b` | `request_scratch_pool_cycle_16x64x256b` | 6.7133 us to 6.8108 us vs 3.0811 us to 3.0954 us | `documentation/experiments/0058-request-remote-free-queue-return.md` |
+| Mapped scratch 4 MiB write-touch with THP advice | `mapped_scratch_write_touch_4mib_hugepage_advice` | `mapped_scratch_write_touch_4mib_default` and `mapped_scratch_write_touch_4mib_no_hugepage_advice` | 27.359 us to 27.781 us vs 675.72 us to 695.21 us and 682.37 us to 694.57 us | `documentation/experiments/0110-mapped-scratch-thp-write-touch-benchmark.md` |
 
 ## Interpretation
 
 - The safe scratch and KV reuse paths are consistently faster than repeated default allocation in these microbenchmarks.
 - The uninitialized-capacity Vec baseline is a better allocator-cost baseline than zero-filled `Vec<u8>` when comparing against arena memory that is not byte-initialized on each allocation.
 - The first-touch mapped arena result is intentionally slower than the default vector case because it includes mapping and page fault materialization. It should not be compared with reset-cycle fast paths.
+- The short THP write-touch sample shows a large difference for `hugepage` advice in Docker, but it is baseline evidence only until repeated runs and live page-size proof confirm the mapping behavior.
 - None of these benchmark rows prove NUMA placement. Placement proof still depends on `mbind` or first-touch policy plus corroborating observability from `numa_maps`, cgroup `memory.numa_stat`, or node `numastat`.
 
 ## Missing Baselines
 
 - Optimized domain allocator remote-free batching behavior is still missing.
 - End-to-end LLM serving traces are still missing.
+- Repeated THP benchmark runs tied to `mapped_scratch_thp_validation_gate=ready` evidence are still missing.
 
 ## Next Benchmarking Step
 
