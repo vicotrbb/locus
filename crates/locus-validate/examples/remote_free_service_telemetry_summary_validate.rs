@@ -699,6 +699,24 @@ mod tests {
             json_line["artifact_fingerprint"],
             check.artifact_fingerprint
         );
+        assert_eq!(json_line["artifact"]["path"], path.display().to_string());
+        assert_eq!(json_line["artifact"]["bytes"], check.artifact_bytes);
+        assert_eq!(
+            json_line["artifact"]["fingerprint"],
+            check.artifact_fingerprint
+        );
+        assert_eq!(
+            json_line["host_coverage"]["rollup_host_present"],
+            check.rollup_host_present
+        );
+        assert_eq!(
+            json_line["host_coverage"]["bundle_hosts"],
+            check.bundle_hosts
+        );
+        assert_eq!(
+            json_line["status_coverage"]["valid_bundles"],
+            check.valid_bundles
+        );
 
         fs::remove_dir_all(root)?;
         Ok(())

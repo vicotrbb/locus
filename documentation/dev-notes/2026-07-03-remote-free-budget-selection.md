@@ -666,6 +666,13 @@ coverage. The host-bearing and older no-host-bundle rollups preserved the same
 first-line values while exposing machine-readable records for CI and release
 dashboards.
 
+Experiment 0250 added nested JSON groups to the release-check JSON line while
+keeping the flat fields intact. The grouped fields are `artifact`, `counts`,
+`host_coverage`, and `status_coverage`. Real host-bearing and older
+no-host-bundle rollups preserve the same human line and flat JSON counters
+while making artifact identity, host coverage, and status coverage explicit for
+typed consumers.
+
 ## Measured Thresholds
 
 | Path | Shape inputs | Budget | Matched counters |
@@ -1050,6 +1057,7 @@ dashboards.
 - `documentation/experiments/0247-remote-free-service-telemetry-rollup-artifact-context.md`
 - `documentation/experiments/0248-remote-free-service-telemetry-rollup-fingerprint.md`
 - `documentation/experiments/0249-remote-free-service-telemetry-rollup-check-json.md`
+- `documentation/experiments/0250-remote-free-service-telemetry-rollup-check-json-groups.md`
 
 ## Open Questions
 

@@ -995,6 +995,29 @@ pub fn format_remote_free_service_telemetry_collection_summary_rollup_check_json
         "status_drifted_summaries": check.drifted_summaries,
         "status_missing_artifacts": check.missing_artifacts,
         "status_other_failures": check.other_failures,
+        "artifact": {
+            "path": check.path.display().to_string(),
+            "rollup_schema": check.schema.as_str(),
+            "bytes": check.artifact_bytes,
+            "fingerprint": check.artifact_fingerprint.as_str(),
+        },
+        "counts": {
+            "summaries": check.summaries,
+            "valid_bundles": check.valid_bundles,
+            "timing_ranges": check.timing_ranges,
+            "bundles": check.bundles,
+        },
+        "host_coverage": {
+            "rollup_host_present": check.rollup_host_present,
+            "bundle_hosts": check.bundle_hosts,
+            "bundle_hosts_missing": check.bundle_hosts_missing,
+        },
+        "status_coverage": {
+            "valid_bundles": check.valid_bundles,
+            "drifted_summaries": check.drifted_summaries,
+            "missing_artifacts": check.missing_artifacts,
+            "other_failures": check.other_failures,
+        },
     });
     serde_json::to_string(&line)
         .map_err(RemoteFreeServiceTelemetryCollectionSummaryRollupError::Serialize)
@@ -1900,6 +1923,33 @@ mod tests {
         );
         assert_eq!(json_line["status_valid_bundles"], 1);
         assert_eq!(json_line["status_drifted_summaries"], 0);
+        assert_eq!(
+            json_line["artifact"]["path"],
+            check.path.display().to_string()
+        );
+        assert_eq!(json_line["artifact"]["bytes"], check.artifact_bytes);
+        assert_eq!(
+            json_line["artifact"]["fingerprint"],
+            check.artifact_fingerprint
+        );
+        assert_eq!(json_line["counts"]["summaries"], check.summaries);
+        assert_eq!(json_line["counts"]["timing_ranges"], check.timing_ranges);
+        assert_eq!(
+            json_line["host_coverage"]["rollup_host_present"],
+            check.rollup_host_present
+        );
+        assert_eq!(
+            json_line["host_coverage"]["bundle_hosts_missing"],
+            check.bundle_hosts_missing
+        );
+        assert_eq!(
+            json_line["status_coverage"]["valid_bundles"],
+            check.valid_bundles
+        );
+        assert_eq!(
+            json_line["status_coverage"]["drifted_summaries"],
+            check.drifted_summaries
+        );
         fs::remove_dir_all(dir)?;
         Ok(())
     }
