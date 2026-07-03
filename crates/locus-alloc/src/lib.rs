@@ -88,12 +88,13 @@ pub use remote_free::{
     RemoteFreeServiceRuntimeDirtyOwnerLocalBuffers, RemoteFreeServiceRuntimeDirtyOwnerLocalMarker,
     RemoteFreeServiceRuntimeDirtyOwnerSnapshot, RemoteFreeServiceRuntimeDirtyOwnerTracker,
     RemoteFreeServiceRuntimeDirtyOwners, RemoteFreeServiceRuntimeDirtySink,
-    RemoteFreeServiceRuntimeOwnerId, RemoteFreeServiceRuntimeRetuneCoordinator,
-    RemoteFreeServiceRuntimeRetuneError, RemoteFreeServiceRuntimeRetuneOutcome,
-    RemoteFreeServiceRuntimeRetuneOwnerError, RemoteFreeServiceRuntimeRetuneOwners,
-    RemoteFreeServiceRuntimeWindowCollectionError, RemoteFreeServiceRuntimeWindowError,
-    RemoteFreeServiceRuntimeWindowObservation, RemoteFreeServiceRuntimeWindowStats, RemoteFreeSink,
-    RemoteFreeTrackedDrain, RemoteFreeTryEnqueueError, RemoteFreeTryEnqueueErrorKind,
+    RemoteFreeServiceRuntimeLocalDirtyWindowStats, RemoteFreeServiceRuntimeOwnerId,
+    RemoteFreeServiceRuntimeRetuneCoordinator, RemoteFreeServiceRuntimeRetuneError,
+    RemoteFreeServiceRuntimeRetuneOutcome, RemoteFreeServiceRuntimeRetuneOwnerError,
+    RemoteFreeServiceRuntimeRetuneOwners, RemoteFreeServiceRuntimeWindowCollectionError,
+    RemoteFreeServiceRuntimeWindowError, RemoteFreeServiceRuntimeWindowObservation,
+    RemoteFreeServiceRuntimeWindowStats, RemoteFreeSink, RemoteFreeTrackedDrain,
+    RemoteFreeTryEnqueueError, RemoteFreeTryEnqueueErrorKind,
 };
 
 pub use request_scratch::{

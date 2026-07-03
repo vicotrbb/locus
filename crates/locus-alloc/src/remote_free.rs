@@ -41,6 +41,7 @@ pub use dirty_buffer::{
 pub use dirty_window::{
     RemoteFreeServiceRuntimeDirtyOwnerSnapshot, RemoteFreeServiceRuntimeDirtyOwnerTracker,
     RemoteFreeServiceRuntimeDirtyOwners, RemoteFreeServiceRuntimeDirtySink,
+    RemoteFreeServiceRuntimeLocalDirtyWindowStats,
 };
 pub use drift::{
     RemoteFreeQueuedByteDriftReport, RemoteFreeQueuedByteRetuneAction,

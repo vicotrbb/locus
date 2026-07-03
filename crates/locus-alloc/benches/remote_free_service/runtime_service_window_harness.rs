@@ -53,6 +53,7 @@ enum ServiceWindowRunnerMode {
     DirtyLocalBuffer,
     DirtyLocalReusedBuffer,
     DirtyLocalBufferGroup,
+    DirtyLocalBufferGroupIntegrated,
     DirtyLocalBurstFlush,
     DirtyLocalThresholdFlush,
 }
@@ -234,6 +235,32 @@ pub(crate) fn benchmark_runtime_dirty_local_buffer_group_collection_sequence(c: 
             bench.iter(|| {
                 let stats = run_runtime_service_window_sequence(
                     ServiceWindowRunnerMode::DirtyLocalBufferGroup,
+                );
+                assert_service_window_stats(&stats);
+                black_box(stats);
+            });
+        },
+    );
+}
+
+pub(crate) fn benchmark_runtime_dirty_local_buffer_group_integrated_collection_sequence(
+    c: &mut Criterion,
+) {
+    print_service_window_sample(
+        ServiceWindowRunnerMode::DirtyLocalBufferGroupIntegrated,
+        "remote_free_service_runtime_dirty_local_buffer_group_integrated_collection_sample",
+    );
+    print_service_window_sample_summary(
+        ServiceWindowRunnerMode::DirtyLocalBufferGroupIntegrated,
+        "remote_free_service_runtime_dirty_local_buffer_group_integrated_collection_sample_summary",
+    );
+
+    c.bench_function(
+        "remote_free_service_runtime_dirty_local_buffer_group_integrated_collection_sequence",
+        |bench| {
+            bench.iter(|| {
+                let stats = run_runtime_service_window_sequence(
+                    ServiceWindowRunnerMode::DirtyLocalBufferGroupIntegrated,
                 );
                 assert_service_window_stats(&stats);
                 black_box(stats);
@@ -433,11 +460,34 @@ fn run_runtime_service_window_sequence(
         &mut dirty_local_state,
     );
 
+    assert_dirty_local_sequence_state(mode, &dirty_local_state);
+
+    let missing = RemoteFreeServiceRuntimeOwnerId::new(usize::MAX);
+    assert_missing_owner(&mut owners, missing, mode);
+    stats.missing_owner_checks = stats.missing_owner_checks.saturating_add(1);
+
+    stats.runtime.install_count = stats.window.applied_outcomes();
+    stats.runtime.confirm_count = stats.window.confirmed_outcomes();
+    stats.runtime.rollback_count = stats.window.rolled_back_outcomes();
+
+    let guard = owners.coordinator().guard();
+    stats.final_guard_applied_mutations = guard.applied_mutations();
+    stats.final_guard_confirmed_mutations = guard.confirmed_mutations();
+    stats.final_guard_rollbacks = guard.rollbacks();
+    stats.final_guard_pending_candidate = guard.pending_validation();
+    stats
+}
+
+fn assert_dirty_local_sequence_state(
+    mode: ServiceWindowRunnerMode,
+    dirty_local_state: &ServiceWindowDirtyLocalState,
+) {
+    let expected_duplicate_marks = SERVICE_WINDOW_WINDOWS
+        .saturating_mul(BURSTS)
+        .saturating_mul(BURST_BLOCKS)
+        .saturating_sub(SERVICE_WINDOW_WINDOWS);
+
     if mode == ServiceWindowRunnerMode::DirtyLocalReusedBuffer {
-        let expected_duplicate_marks = SERVICE_WINDOW_WINDOWS
-            .saturating_mul(BURSTS)
-            .saturating_mul(BURST_BLOCKS)
-            .saturating_sub(SERVICE_WINDOW_WINDOWS);
         assert_eq!(
             dirty_local_state.flush_stats.flush_count,
             SERVICE_WINDOW_WINDOWS
@@ -457,11 +507,11 @@ fn run_runtime_service_window_sequence(
         assert!(dirty_local_state.tracker.is_empty());
     }
 
-    if mode == ServiceWindowRunnerMode::DirtyLocalBufferGroup {
-        let expected_duplicate_marks = SERVICE_WINDOW_WINDOWS
-            .saturating_mul(BURSTS)
-            .saturating_mul(BURST_BLOCKS)
-            .saturating_sub(SERVICE_WINDOW_WINDOWS);
+    if matches!(
+        mode,
+        ServiceWindowRunnerMode::DirtyLocalBufferGroup
+            | ServiceWindowRunnerMode::DirtyLocalBufferGroupIntegrated
+    ) {
         assert_eq!(
             dirty_local_state.buffer_group_flush_stats.flush_count,
             SERVICE_WINDOW_WINDOWS
@@ -482,21 +532,6 @@ fn run_runtime_service_window_sequence(
         );
         assert!(dirty_local_state.buffer_group.tracker().is_empty());
     }
-
-    let missing = RemoteFreeServiceRuntimeOwnerId::new(usize::MAX);
-    assert_missing_owner(&mut owners, missing, mode);
-    stats.missing_owner_checks = stats.missing_owner_checks.saturating_add(1);
-
-    stats.runtime.install_count = stats.window.applied_outcomes();
-    stats.runtime.confirm_count = stats.window.confirmed_outcomes();
-    stats.runtime.rollback_count = stats.window.rolled_back_outcomes();
-
-    let guard = owners.coordinator().guard();
-    stats.final_guard_applied_mutations = guard.applied_mutations();
-    stats.final_guard_confirmed_mutations = guard.confirmed_mutations();
-    stats.final_guard_rollbacks = guard.rollbacks();
-    stats.final_guard_pending_candidate = guard.pending_validation();
-    stats
 }
 
 fn run_confirmed_owner(
@@ -690,6 +725,15 @@ fn observe_window(
             block_bytes,
             dirty_local_state,
         ),
+        ServiceWindowRunnerMode::DirtyLocalBufferGroupIntegrated => {
+            collect_dirty_local_buffer_group_integrated_window(
+                owners,
+                owner_id,
+                stats,
+                block_bytes,
+                dirty_local_state,
+            )
+        }
         ServiceWindowRunnerMode::DirtyLocalBurstFlush => {
             collect_dirty_local_burst_window(owners, owner_id, stats, block_bytes)
         }
@@ -864,6 +908,61 @@ fn collect_dirty_local_buffer_group_window(
     stats
 }
 
+fn collect_dirty_local_buffer_group_integrated_window(
+    owners: &mut RemoteFreeServiceRuntimeRetuneOwners<RuntimeTraceBlock>,
+    owner_id: RemoteFreeServiceRuntimeOwnerId,
+    stats: &mut ServiceWindowSequenceStats,
+    block_bytes: u64,
+    dirty_local_state: &mut ServiceWindowDirtyLocalState,
+) -> RemoteFreeServiceRuntimeWindowStats {
+    let previous_capacity = dirty_local_state
+        .buffer_group
+        .local_buffer_capacity(owner_id);
+    let summary = run_runtime_owner_window_with_local_dirty_group_summary_and_block_bytes(
+        owners
+            .owner_mut(owner_id)
+            .expect("owner for integrated local dirty buffer group"),
+        &mut stats.runtime,
+        block_bytes,
+        owner_id,
+        &mut dirty_local_state.buffer_group,
+    );
+    let expected_duplicate_marks = BURSTS.saturating_mul(BURST_BLOCKS).saturating_sub(1);
+    let buffer = dirty_local_state
+        .buffer_group
+        .local_buffer(owner_id)
+        .expect("integrated local dirty group buffer");
+    assert_eq!(buffer.owner_ids(), &[owner_id]);
+    assert_eq!(buffer.duplicate_marks(), expected_duplicate_marks);
+
+    let collection = owners
+        .collect_local_dirty_service_window(
+            &mut dirty_local_state.buffer_group,
+            owner_id,
+            |_, _| Ok::<_, Infallible>(summary),
+        )
+        .expect("integrated local dirty buffer group service window stats");
+    let flush = collection.flush_stats();
+    dirty_local_state.buffer_group_flush_stats.observe(flush);
+    assert_eq!(flush.owner_count, 1);
+    assert_eq!(flush.new_tracker_marks, 1);
+    assert_eq!(flush.duplicate_local_marks, expected_duplicate_marks);
+    assert!(
+        dirty_local_state
+            .buffer_group
+            .local_buffer_capacity(owner_id)
+            >= 1
+    );
+    assert!(
+        dirty_local_state
+            .buffer_group
+            .local_buffer_capacity(owner_id)
+            >= previous_capacity
+    );
+    assert!(dirty_local_state.buffer_group.tracker().is_empty());
+    collection.window_stats()
+}
+
 fn collect_dirty_local_burst_window(
     owners: &mut RemoteFreeServiceRuntimeRetuneOwners<RuntimeTraceBlock>,
     owner_id: RemoteFreeServiceRuntimeOwnerId,
@@ -1005,6 +1104,9 @@ fn assert_missing_owner(
         | ServiceWindowRunnerMode::DirtyLocalThresholdFlush => {
             assert_local_buffer_missing_owner(owners, missing);
         }
+        ServiceWindowRunnerMode::DirtyLocalBufferGroupIntegrated => {
+            assert_local_buffer_group_integrated_missing_owner(owners, missing);
+        }
     }
 }
 
@@ -1025,6 +1127,21 @@ fn assert_local_buffer_missing_owner(
         .expect_err("missing owner");
     assert_eq!(error.owner_id(), missing);
     assert_eq!(tracker.owner_ids(), vec![missing]);
+}
+
+fn assert_local_buffer_group_integrated_missing_owner(
+    owners: &mut RemoteFreeServiceRuntimeRetuneOwners<RuntimeTraceBlock>,
+    missing: RemoteFreeServiceRuntimeOwnerId,
+) {
+    let mut buffer_group = RemoteFreeServiceRuntimeDirtyOwnerLocalBuffers::new();
+    let error = owners
+        .collect_local_dirty_service_window(&mut buffer_group, missing, |_, _| {
+            Ok::<_, Infallible>(RemoteFreeServiceRetuneSummary::new())
+        })
+        .expect_err("missing owner");
+    assert_eq!(error.owner_id(), missing);
+    assert!(buffer_group.tracker().is_empty());
+    assert!(buffer_group.local_buffer(missing).is_none());
 }
 
 fn assert_one_window_decision(

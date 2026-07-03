@@ -2,9 +2,11 @@ use std::collections::BTreeSet;
 use std::sync::{Arc, Mutex};
 
 use super::{
-    RemoteFreeOwnerRuntime, RemoteFreeServiceRetuneSummary, RemoteFreeServiceRuntimeOwnerId,
-    RemoteFreeServiceRuntimeRetuneOwners, RemoteFreeServiceRuntimeWindowCollectionError,
-    RemoteFreeServiceRuntimeWindowStats, RemoteFreeSink,
+    RemoteFreeOwnerRuntime, RemoteFreeServiceRetuneSummary,
+    RemoteFreeServiceRuntimeDirtyOwnerFlushStats, RemoteFreeServiceRuntimeDirtyOwnerLocalBuffers,
+    RemoteFreeServiceRuntimeOwnerId, RemoteFreeServiceRuntimeRetuneOwners,
+    RemoteFreeServiceRuntimeWindowCollectionError, RemoteFreeServiceRuntimeWindowStats,
+    RemoteFreeSink,
 };
 
 /// Ordered set of owner runtimes that should be collected in a service window.
@@ -32,6 +34,13 @@ pub struct RemoteFreeServiceRuntimeDirtySink<T> {
     owner_id: RemoteFreeServiceRuntimeOwnerId,
     sink: RemoteFreeSink<T>,
     tracker: RemoteFreeServiceRuntimeDirtyOwnerTracker,
+}
+
+/// Stats returned after flushing a local dirty buffer and collecting its tracker.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct RemoteFreeServiceRuntimeLocalDirtyWindowStats {
+    window: RemoteFreeServiceRuntimeWindowStats,
+    flush: RemoteFreeServiceRuntimeDirtyOwnerFlushStats,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -225,6 +234,29 @@ impl<T> RemoteFreeServiceRuntimeDirtySink<T> {
     }
 }
 
+impl RemoteFreeServiceRuntimeLocalDirtyWindowStats {
+    /// Creates local dirty collection stats from window and flush counters.
+    #[must_use]
+    pub const fn new(
+        window: RemoteFreeServiceRuntimeWindowStats,
+        flush: RemoteFreeServiceRuntimeDirtyOwnerFlushStats,
+    ) -> Self {
+        Self { window, flush }
+    }
+
+    /// Returns service-window stats from the tracked dirty collection pass.
+    #[must_use]
+    pub const fn window_stats(self) -> RemoteFreeServiceRuntimeWindowStats {
+        self.window
+    }
+
+    /// Returns counters from flushing the local owner buffer into the tracker.
+    #[must_use]
+    pub const fn flush_stats(self) -> RemoteFreeServiceRuntimeDirtyOwnerFlushStats {
+        self.flush
+    }
+}
+
 impl DirtyOwnerTrackerState {
     fn new() -> Self {
         Self {
@@ -340,13 +372,46 @@ impl<T> RemoteFreeServiceRuntimeRetuneOwners<T> {
         tracker.clear_snapshot(&snapshot);
         Ok(stats)
     }
+
+    /// Flushes one local dirty-owner buffer and collects the shared tracker.
+    ///
+    /// The flush happens before the tracker snapshot. A successful collection
+    /// clears only the generations captured from the tracker snapshot. Failed
+    /// collection leaves tracker marks available for retry.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error with owner ID context if an owner is missing, summary
+    /// collection fails, or routing the collected summary fails.
+    pub fn collect_local_dirty_service_window<E>(
+        &mut self,
+        dirty_buffers: &mut RemoteFreeServiceRuntimeDirtyOwnerLocalBuffers,
+        owner_id: RemoteFreeServiceRuntimeOwnerId,
+        collect: impl FnMut(
+            RemoteFreeServiceRuntimeOwnerId,
+            &mut RemoteFreeOwnerRuntime<T>,
+        ) -> Result<RemoteFreeServiceRetuneSummary, E>,
+    ) -> Result<
+        RemoteFreeServiceRuntimeLocalDirtyWindowStats,
+        RemoteFreeServiceRuntimeWindowCollectionError<E>,
+    > {
+        if self.owner(owner_id).is_none() {
+            return Err(RemoteFreeServiceRuntimeWindowCollectionError::MissingOwner { owner_id });
+        }
+
+        let flush = dirty_buffers.flush_owner(owner_id);
+        let window = self.collect_tracked_dirty_service_window(dirty_buffers.tracker(), collect)?;
+        Ok(RemoteFreeServiceRuntimeLocalDirtyWindowStats::new(
+            window, flush,
+        ))
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::{
-        DirtyOwnerTrackerState, RemoteFreeServiceRuntimeDirtyOwnerTracker,
-        RemoteFreeServiceRuntimeDirtyOwners,
+        DirtyOwnerTrackerState, RemoteFreeServiceRuntimeDirtyOwnerLocalBuffers,
+        RemoteFreeServiceRuntimeDirtyOwnerTracker, RemoteFreeServiceRuntimeDirtyOwners,
     };
     use crate::{
         RemoteFreeDrainObservation, RemoteFreeOwnerRuntime, RemoteFreeQueue, RemoteFreeQueueStats,
@@ -581,5 +646,120 @@ mod tests {
             owners.coordinator().guard().pending_validation(),
             Some(RemoteFreeServiceRetuneCandidate::DrainEarlier)
         );
+    }
+
+    #[test]
+    fn local_dirty_buffer_group_collection_flushes_and_clears_after_success() {
+        let mut owners = owners(2);
+        let owner_id = owners
+            .register_owner(RemoteFreeOwnerRuntime::<usize>::new(config(256)).expect("runtime"));
+        let mut dirty_buffers = RemoteFreeServiceRuntimeDirtyOwnerLocalBuffers::new();
+
+        assert!(dirty_buffers.mark_dirty(owner_id));
+        assert!(!dirty_buffers.mark_dirty(owner_id));
+
+        let stats = owners
+            .collect_local_dirty_service_window(&mut dirty_buffers, owner_id, |_, runtime| {
+                Ok::<_, &'static str>(summary(report(runtime.config(), 96, 524_288, 0)))
+            })
+            .expect("local dirty collection");
+
+        assert_eq!(stats.flush_stats().owner_count, 1);
+        assert_eq!(stats.flush_stats().new_tracker_marks, 1);
+        assert_eq!(stats.flush_stats().duplicate_local_marks, 1);
+        assert_eq!(stats.window_stats().owner_observations(), 1);
+        assert_eq!(stats.window_stats().hold_decisions(), 1);
+        assert!(dirty_buffers.tracker().is_empty());
+        assert!(dirty_buffers
+            .local_buffer(owner_id)
+            .expect("local buffer")
+            .is_empty());
+    }
+
+    #[test]
+    fn local_dirty_buffer_group_collection_keeps_tracker_after_error() {
+        let mut owners = owners(2);
+        let owner_id = owners
+            .register_owner(RemoteFreeOwnerRuntime::<usize>::new(config(256)).expect("runtime"));
+        let mut dirty_buffers = RemoteFreeServiceRuntimeDirtyOwnerLocalBuffers::new();
+
+        assert!(dirty_buffers.mark_dirty(owner_id));
+
+        assert_eq!(
+            owners.collect_local_dirty_service_window(&mut dirty_buffers, owner_id, |_, _| {
+                Err::<RemoteFreeServiceRetuneSummary, _>("collection failed")
+            }),
+            Err(RemoteFreeServiceRuntimeWindowCollectionError::Collect {
+                owner_id,
+                source: "collection failed",
+            })
+        );
+        assert_eq!(dirty_buffers.tracker().owner_ids(), vec![owner_id]);
+        assert!(dirty_buffers
+            .local_buffer(owner_id)
+            .expect("local buffer")
+            .is_empty());
+    }
+
+    #[test]
+    fn local_dirty_buffer_group_collection_rejects_missing_owner_before_flush() {
+        let mut owners = owners(2);
+        let missing = RemoteFreeServiceRuntimeOwnerId::new(usize::MAX);
+        let mut dirty_buffers = RemoteFreeServiceRuntimeDirtyOwnerLocalBuffers::new();
+
+        assert_eq!(
+            owners.collect_local_dirty_service_window(&mut dirty_buffers, missing, |_, _| {
+                Ok::<_, &'static str>(RemoteFreeServiceRetuneSummary::new())
+            }),
+            Err(RemoteFreeServiceRuntimeWindowCollectionError::MissingOwner { owner_id: missing })
+        );
+        assert!(dirty_buffers.tracker().is_empty());
+        assert!(dirty_buffers.local_buffer(missing).is_none());
+    }
+
+    #[test]
+    fn local_dirty_buffer_group_collection_rejects_locally_marked_missing_owner_before_flush() {
+        let mut owners = owners(2);
+        let missing = RemoteFreeServiceRuntimeOwnerId::new(7);
+        let mut dirty_buffers = RemoteFreeServiceRuntimeDirtyOwnerLocalBuffers::new();
+
+        assert!(dirty_buffers.mark_dirty(missing));
+
+        assert_eq!(
+            owners.collect_local_dirty_service_window(&mut dirty_buffers, missing, |_, _| {
+                Ok::<_, &'static str>(RemoteFreeServiceRetuneSummary::new())
+            }),
+            Err(RemoteFreeServiceRuntimeWindowCollectionError::MissingOwner { owner_id: missing })
+        );
+        assert!(dirty_buffers.tracker().is_empty());
+        assert_eq!(
+            dirty_buffers
+                .local_buffer(missing)
+                .expect("missing owner local buffer")
+                .owner_ids(),
+            &[missing]
+        );
+    }
+
+    #[test]
+    fn local_dirty_buffer_group_collection_preserves_new_marks_after_snapshot() {
+        let mut owners = owners(2);
+        let owner_id = owners
+            .register_owner(RemoteFreeOwnerRuntime::<usize>::new(config(256)).expect("runtime"));
+        let mut dirty_buffers = RemoteFreeServiceRuntimeDirtyOwnerLocalBuffers::new();
+        let tracker = dirty_buffers.tracker().clone();
+
+        assert!(dirty_buffers.mark_dirty(owner_id));
+
+        let stats = owners
+            .collect_local_dirty_service_window(&mut dirty_buffers, owner_id, |_, runtime| {
+                let _ = tracker.mark_dirty(owner_id);
+                Ok::<_, &'static str>(summary(report(runtime.config(), 96, 524_288, 0)))
+            })
+            .expect("local dirty collection");
+
+        assert_eq!(stats.flush_stats().owner_count, 1);
+        assert_eq!(stats.window_stats().owner_observations(), 1);
+        assert_eq!(dirty_buffers.tracker().owner_ids(), vec![owner_id]);
     }
 }
