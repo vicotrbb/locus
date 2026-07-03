@@ -20,6 +20,8 @@ mod remote_free_service_runtime_collected_multi_owner_harness;
 mod remote_free_service_runtime_collected_rollback_harness;
 #[path = "remote_free_service/runtime_coordinator_harness.rs"]
 mod remote_free_service_runtime_coordinator_harness;
+#[path = "remote_free_service/runtime_local_dirty_group_harness.rs"]
+mod remote_free_service_runtime_local_dirty_group_harness;
 #[path = "remote_free_service/runtime_registry_harness.rs"]
 mod remote_free_service_runtime_registry_harness;
 #[path = "remote_free_service/runtime_service_window_harness.rs"]

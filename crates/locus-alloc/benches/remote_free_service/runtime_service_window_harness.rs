@@ -14,20 +14,21 @@ use locus_alloc::{
 };
 
 use crate::remote_free_service_application_harness::{
-    run_runtime_owner_window_with_bounded_local_dirty_group_summary_and_block_bytes,
     run_runtime_owner_window_with_dirty_summary_and_block_bytes,
     run_runtime_owner_window_with_local_dirty_burst_summary_and_block_bytes,
-    run_runtime_owner_window_with_local_dirty_group_summary_and_block_bytes,
     run_runtime_owner_window_with_local_dirty_summary_and_block_bytes,
     run_runtime_owner_window_with_local_dirty_threshold_summary_and_block_bytes,
     run_runtime_owner_window_with_summary, run_runtime_owner_window_with_summary_and_block_bytes,
-    run_runtime_owner_window_with_validated_local_dirty_group_summary_and_block_bytes,
     service_config, RuntimeApplicationStats, RuntimeLocalDirtyFlushStats, RuntimeTraceBlock,
     QUEUE_CAPACITY_GROWTH_FACTOR, RUNTIME_INITIAL_QUEUE_CAPACITY,
 };
 use crate::remote_free_service_harness::{
     format_milli, CounterSummary, BURSTS, BURST_BLOCKS, BYTES_PER_BLOCK, QUEUE_CAPACITY, SAMPLES,
     TARGET_PENDING_BLOCKS,
+};
+use crate::remote_free_service_runtime_local_dirty_group_harness::{
+    assert_bounded_missing_owner, assert_integrated_missing_owner, assert_validated_missing_owner,
+    collect_runtime_local_dirty_group_window, RuntimeLocalDirtyGroupCollectionMode,
 };
 
 const SERVICE_WINDOW_STABLE_WINDOWS: u64 = 2;
@@ -776,7 +777,8 @@ fn observe_window(
             block_bytes,
             dirty_local_state,
         ),
-        ServiceWindowRunnerMode::DirtyLocalBufferGroup => collect_dirty_local_buffer_group_window(
+        ServiceWindowRunnerMode::DirtyLocalBufferGroup => collect_dirty_local_group_window(
+            RuntimeLocalDirtyGroupCollectionMode::Manual,
             owners,
             owner_id,
             stats,
@@ -784,7 +786,8 @@ fn observe_window(
             dirty_local_state,
         ),
         ServiceWindowRunnerMode::DirtyLocalBufferGroupIntegrated => {
-            collect_dirty_local_buffer_group_integrated_window(
+            collect_dirty_local_group_window(
+                RuntimeLocalDirtyGroupCollectionMode::Integrated,
                 owners,
                 owner_id,
                 stats,
@@ -792,17 +795,17 @@ fn observe_window(
                 dirty_local_state,
             )
         }
-        ServiceWindowRunnerMode::DirtyLocalBufferGroupBounded => {
-            collect_dirty_local_buffer_group_bounded_window(
-                owners,
-                owner_id,
-                stats,
-                block_bytes,
-                dirty_local_state,
-            )
-        }
+        ServiceWindowRunnerMode::DirtyLocalBufferGroupBounded => collect_dirty_local_group_window(
+            RuntimeLocalDirtyGroupCollectionMode::Bounded,
+            owners,
+            owner_id,
+            stats,
+            block_bytes,
+            dirty_local_state,
+        ),
         ServiceWindowRunnerMode::DirtyLocalBufferGroupValidated => {
-            collect_dirty_local_buffer_group_validated_window(
+            collect_dirty_local_group_window(
+                RuntimeLocalDirtyGroupCollectionMode::Validated,
                 owners,
                 owner_id,
                 stats,
@@ -926,232 +929,23 @@ fn collect_dirty_local_reused_window(
     stats
 }
 
-fn collect_dirty_local_buffer_group_window(
+fn collect_dirty_local_group_window(
+    mode: RuntimeLocalDirtyGroupCollectionMode,
     owners: &mut RemoteFreeServiceRuntimeRetuneOwners<RuntimeTraceBlock>,
     owner_id: RemoteFreeServiceRuntimeOwnerId,
     stats: &mut ServiceWindowSequenceStats,
     block_bytes: u64,
     dirty_local_state: &mut ServiceWindowDirtyLocalState,
 ) -> RemoteFreeServiceRuntimeWindowStats {
-    let previous_capacity = dirty_local_state
-        .buffer_group
-        .local_buffer_capacity(owner_id);
-    let summary = run_runtime_owner_window_with_local_dirty_group_summary_and_block_bytes(
-        owners
-            .owner_mut(owner_id)
-            .expect("owner for local dirty buffer group"),
-        &mut stats.runtime,
-        block_bytes,
+    collect_runtime_local_dirty_group_window(
+        mode,
+        owners,
         owner_id,
-        &mut dirty_local_state.buffer_group,
-    );
-    let expected_duplicate_marks = BURSTS.saturating_mul(BURST_BLOCKS).saturating_sub(1);
-    let buffer = dirty_local_state
-        .buffer_group
-        .local_buffer(owner_id)
-        .expect("local dirty group buffer");
-    assert_eq!(buffer.owner_ids(), &[owner_id]);
-    assert_eq!(buffer.duplicate_marks(), expected_duplicate_marks);
-
-    let flush = dirty_local_state.buffer_group.flush_owner(owner_id);
-    dirty_local_state.buffer_group_flush_stats.observe(flush);
-    assert_eq!(flush.owner_count, 1);
-    assert_eq!(flush.new_tracker_marks, 1);
-    assert_eq!(flush.duplicate_local_marks, expected_duplicate_marks);
-    assert!(
-        dirty_local_state
-            .buffer_group
-            .local_buffer_capacity(owner_id)
-            >= 1
-    );
-    assert!(
-        dirty_local_state
-            .buffer_group
-            .local_buffer_capacity(owner_id)
-            >= previous_capacity
-    );
-    assert_eq!(
-        dirty_local_state.buffer_group.tracker().owner_ids(),
-        vec![owner_id]
-    );
-
-    let stats = owners
-        .collect_tracked_dirty_service_window(dirty_local_state.buffer_group.tracker(), |_, _| {
-            Ok::<_, Infallible>(summary)
-        })
-        .expect("local dirty buffer group service window stats");
-    assert!(dirty_local_state.buffer_group.tracker().is_empty());
-    stats
-}
-
-fn collect_dirty_local_buffer_group_integrated_window(
-    owners: &mut RemoteFreeServiceRuntimeRetuneOwners<RuntimeTraceBlock>,
-    owner_id: RemoteFreeServiceRuntimeOwnerId,
-    stats: &mut ServiceWindowSequenceStats,
-    block_bytes: u64,
-    dirty_local_state: &mut ServiceWindowDirtyLocalState,
-) -> RemoteFreeServiceRuntimeWindowStats {
-    let previous_capacity = dirty_local_state
-        .buffer_group
-        .local_buffer_capacity(owner_id);
-    let summary = run_runtime_owner_window_with_local_dirty_group_summary_and_block_bytes(
-        owners
-            .owner_mut(owner_id)
-            .expect("owner for integrated local dirty buffer group"),
         &mut stats.runtime,
         block_bytes,
-        owner_id,
         &mut dirty_local_state.buffer_group,
-    );
-    let expected_duplicate_marks = BURSTS.saturating_mul(BURST_BLOCKS).saturating_sub(1);
-    let buffer = dirty_local_state
-        .buffer_group
-        .local_buffer(owner_id)
-        .expect("integrated local dirty group buffer");
-    assert_eq!(buffer.owner_ids(), &[owner_id]);
-    assert_eq!(buffer.duplicate_marks(), expected_duplicate_marks);
-
-    let collection = owners
-        .collect_local_dirty_service_window(
-            &mut dirty_local_state.buffer_group,
-            owner_id,
-            |_, _| Ok::<_, Infallible>(summary),
-        )
-        .expect("integrated local dirty buffer group service window stats");
-    let flush = collection.flush_stats();
-    dirty_local_state.buffer_group_flush_stats.observe(flush);
-    assert_eq!(flush.owner_count, 1);
-    assert_eq!(flush.new_tracker_marks, 1);
-    assert_eq!(flush.duplicate_local_marks, expected_duplicate_marks);
-    assert!(
-        dirty_local_state
-            .buffer_group
-            .local_buffer_capacity(owner_id)
-            >= 1
-    );
-    assert!(
-        dirty_local_state
-            .buffer_group
-            .local_buffer_capacity(owner_id)
-            >= previous_capacity
-    );
-    assert!(dirty_local_state.buffer_group.tracker().is_empty());
-    collection.window_stats()
-}
-
-fn collect_dirty_local_buffer_group_bounded_window(
-    owners: &mut RemoteFreeServiceRuntimeRetuneOwners<RuntimeTraceBlock>,
-    owner_id: RemoteFreeServiceRuntimeOwnerId,
-    stats: &mut ServiceWindowSequenceStats,
-    block_bytes: u64,
-    dirty_local_state: &mut ServiceWindowDirtyLocalState,
-) -> RemoteFreeServiceRuntimeWindowStats {
-    let owner_limit = owners.len();
-    let previous_capacity = dirty_local_state
-        .buffer_group
-        .local_buffer_capacity(owner_id);
-    let summary = run_runtime_owner_window_with_bounded_local_dirty_group_summary_and_block_bytes(
-        owners
-            .owner_mut(owner_id)
-            .expect("owner for bounded local dirty buffer group"),
-        &mut stats.runtime,
-        block_bytes,
-        owner_id,
-        owner_limit,
-        &mut dirty_local_state.buffer_group,
-    );
-    let expected_duplicate_marks = BURSTS.saturating_mul(BURST_BLOCKS).saturating_sub(1);
-    let buffer = dirty_local_state
-        .buffer_group
-        .local_buffer(owner_id)
-        .expect("bounded local dirty group buffer");
-    assert_eq!(buffer.owner_ids(), &[owner_id]);
-    assert_eq!(buffer.duplicate_marks(), expected_duplicate_marks);
-
-    let collection = owners
-        .collect_local_dirty_service_window(
-            &mut dirty_local_state.buffer_group,
-            owner_id,
-            |_, _| Ok::<_, Infallible>(summary),
-        )
-        .expect("bounded local dirty buffer group service window stats");
-    let flush = collection.flush_stats();
-    dirty_local_state.buffer_group_flush_stats.observe(flush);
-    assert_eq!(flush.owner_count, 1);
-    assert_eq!(flush.new_tracker_marks, 1);
-    assert_eq!(flush.duplicate_local_marks, expected_duplicate_marks);
-    assert!(
-        dirty_local_state
-            .buffer_group
-            .local_buffer_capacity(owner_id)
-            >= 1
-    );
-    assert!(
-        dirty_local_state
-            .buffer_group
-            .local_buffer_capacity(owner_id)
-            >= previous_capacity
-    );
-    assert!(dirty_local_state.buffer_group.tracker().is_empty());
-    collection.window_stats()
-}
-
-fn collect_dirty_local_buffer_group_validated_window(
-    owners: &mut RemoteFreeServiceRuntimeRetuneOwners<RuntimeTraceBlock>,
-    owner_id: RemoteFreeServiceRuntimeOwnerId,
-    stats: &mut ServiceWindowSequenceStats,
-    block_bytes: u64,
-    dirty_local_state: &mut ServiceWindowDirtyLocalState,
-) -> RemoteFreeServiceRuntimeWindowStats {
-    let owner = owners
-        .validate_local_dirty_owner(owner_id)
-        .expect("validated local dirty owner");
-    let previous_capacity = dirty_local_state
-        .buffer_group
-        .local_buffer_capacity(owner_id);
-    let summary = run_runtime_owner_window_with_validated_local_dirty_group_summary_and_block_bytes(
-        owners
-            .owner_mut(owner_id)
-            .expect("owner for validated local dirty buffer group"),
-        &mut stats.runtime,
-        block_bytes,
-        owner,
-        &mut dirty_local_state.buffer_group,
-    );
-    let expected_duplicate_marks = BURSTS.saturating_mul(BURST_BLOCKS).saturating_sub(1);
-    let buffer = dirty_local_state
-        .buffer_group
-        .local_buffer(owner_id)
-        .expect("validated local dirty group buffer");
-    assert_eq!(buffer.owner_ids(), &[owner_id]);
-    assert_eq!(buffer.duplicate_marks(), expected_duplicate_marks);
-
-    let collection = owners
-        .collect_local_dirty_service_window(
-            &mut dirty_local_state.buffer_group,
-            owner_id,
-            |_, _| Ok::<_, Infallible>(summary),
-        )
-        .expect("validated local dirty buffer group service window stats");
-    let flush = collection.flush_stats();
-    dirty_local_state.buffer_group_flush_stats.observe(flush);
-    assert_eq!(flush.owner_count, 1);
-    assert_eq!(flush.new_tracker_marks, 1);
-    assert_eq!(flush.duplicate_local_marks, expected_duplicate_marks);
-    assert!(
-        dirty_local_state
-            .buffer_group
-            .local_buffer_capacity(owner_id)
-            >= 1
-    );
-    assert!(
-        dirty_local_state
-            .buffer_group
-            .local_buffer_capacity(owner_id)
-            >= previous_capacity
-    );
-    assert!(dirty_local_state.buffer_group.tracker().is_empty());
-    collection.window_stats()
+        &mut dirty_local_state.buffer_group_flush_stats,
+    )
 }
 
 fn collect_dirty_local_burst_window(
@@ -1296,13 +1090,13 @@ fn assert_missing_owner(
             assert_local_buffer_missing_owner(owners, missing);
         }
         ServiceWindowRunnerMode::DirtyLocalBufferGroupIntegrated => {
-            assert_local_buffer_group_integrated_missing_owner(owners, missing);
+            assert_integrated_missing_owner(owners, missing);
         }
         ServiceWindowRunnerMode::DirtyLocalBufferGroupBounded => {
-            assert_local_buffer_group_bounded_missing_owner(owners, missing);
+            assert_bounded_missing_owner(owners, missing);
         }
         ServiceWindowRunnerMode::DirtyLocalBufferGroupValidated => {
-            assert_local_buffer_group_validated_missing_owner(owners, missing);
+            assert_validated_missing_owner(owners, missing);
         }
     }
 }
@@ -1324,57 +1118,6 @@ fn assert_local_buffer_missing_owner(
         .expect_err("missing owner");
     assert_eq!(error.owner_id(), missing);
     assert_eq!(tracker.owner_ids(), vec![missing]);
-}
-
-fn assert_local_buffer_group_integrated_missing_owner(
-    owners: &mut RemoteFreeServiceRuntimeRetuneOwners<RuntimeTraceBlock>,
-    missing: RemoteFreeServiceRuntimeOwnerId,
-) {
-    let mut buffer_group = RemoteFreeServiceRuntimeDirtyOwnerLocalBuffers::new();
-    let error = owners
-        .collect_local_dirty_service_window(&mut buffer_group, missing, |_, _| {
-            Ok::<_, Infallible>(RemoteFreeServiceRetuneSummary::new())
-        })
-        .expect_err("missing owner");
-    assert_eq!(error.owner_id(), missing);
-    assert!(buffer_group.tracker().is_empty());
-    assert!(buffer_group.local_buffer(missing).is_none());
-}
-
-fn assert_local_buffer_group_bounded_missing_owner(
-    owners: &mut RemoteFreeServiceRuntimeRetuneOwners<RuntimeTraceBlock>,
-    missing: RemoteFreeServiceRuntimeOwnerId,
-) {
-    let mut buffer_group = RemoteFreeServiceRuntimeDirtyOwnerLocalBuffers::new();
-    let owner_limit = owners.len();
-    let mark_error = buffer_group
-        .try_mark_dirty(missing, owner_limit)
-        .expect_err("bounded mark rejects missing owner");
-    assert_eq!(mark_error.owner_id(), missing);
-    assert_eq!(mark_error.owner_limit(), owner_limit);
-    assert!(buffer_group.local_buffer(missing).is_none());
-
-    let error = owners
-        .collect_local_dirty_service_window(&mut buffer_group, missing, |_, _| {
-            Ok::<_, Infallible>(RemoteFreeServiceRetuneSummary::new())
-        })
-        .expect_err("missing owner");
-    assert_eq!(error.owner_id(), missing);
-    assert!(buffer_group.tracker().is_empty());
-    assert!(buffer_group.local_buffer(missing).is_none());
-}
-
-fn assert_local_buffer_group_validated_missing_owner(
-    owners: &mut RemoteFreeServiceRuntimeRetuneOwners<RuntimeTraceBlock>,
-    missing: RemoteFreeServiceRuntimeOwnerId,
-) {
-    let buffer_group = RemoteFreeServiceRuntimeDirtyOwnerLocalBuffers::new();
-    let error = owners
-        .validate_local_dirty_owner(missing)
-        .expect_err("validated owner rejects missing owner");
-    assert_eq!(error.owner_id(), missing);
-    assert_eq!(error.owner_limit(), owners.len());
-    assert!(buffer_group.local_buffer(missing).is_none());
 }
 
 fn assert_one_window_decision(
