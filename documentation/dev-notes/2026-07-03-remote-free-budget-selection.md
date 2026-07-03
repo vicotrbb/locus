@@ -811,6 +811,11 @@ Experiment 0272 added a dashboard rollup over saved verifier-summary drift
 verdict rollup check JSON records. The real mixed log reports two records, one
 matched check, one drifted check, and one `records` drift bucket.
 
+Experiment 0273 proved that repeated-check rollup JSON can reuse the existing
+verifier-summary verification rollup parser. The real repeated-check rollup
+reloads with two records, one matched check, one drifted check, and one
+`records` drift bucket.
+
 ## Measured Thresholds
 
 | Path | Shape inputs | Budget | Matched counters |
@@ -1218,6 +1223,7 @@ matched check, one drifted check, and one `records` drift bucket.
 - `documentation/experiments/0270-remote-free-service-telemetry-rollup-check-log-summary-verdict-rollup-verification-summary-drift-json-rollup-drift-json.md`
 - `documentation/experiments/0271-remote-free-service-telemetry-rollup-check-log-summary-verdict-rollup-verification-summary-drift-json-rollup-drift-json-parser.md`
 - `documentation/experiments/0272-remote-free-service-telemetry-rollup-check-log-summary-verdict-rollup-verification-summary-drift-json-rollup-drift-json-rollup.md`
+- `documentation/experiments/0273-remote-free-service-telemetry-rollup-check-log-summary-verdict-rollup-verification-summary-drift-json-rollup-drift-json-rollup-parser.md`
 
 ## Open Questions
 

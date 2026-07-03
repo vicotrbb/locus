@@ -7619,6 +7619,69 @@ mod tests {
     }
 
     #[test]
+    fn parses_rollup_check_log_summary_json_verification_rollup_verdict_summary_verdict_rollup_verification_rollup_json(
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let source_log =
+            sample_rollup_check_log_summary_json_verification_rollup_verdict_summary_verdict_log()?;
+        let rollup =
+            summarize_remote_free_service_telemetry_collection_summary_rollup_check_log_summary_verification_rollup_verification_summary_verification_json_log(
+                &source_log,
+            )?;
+        let matched_rollup_json =
+            format_remote_free_service_telemetry_collection_summary_rollup_check_log_summary_verification_rollup_verification_summary_verification_rollup_json_line(
+                &rollup,
+            )?;
+        let matched_report =
+            check_remote_free_service_telemetry_collection_summary_rollup_check_log_summary_verification_rollup_verification_summary_verification_rollup_json_log(
+                &source_log,
+                &matched_rollup_json,
+            )?;
+        let matched_verdict_json =
+            format_remote_free_service_telemetry_collection_summary_rollup_check_log_summary_verification_rollup_verification_summary_verification_rollup_verification_json_line(
+                &matched_report,
+            )?;
+        let mut rollup_value = serde_json::from_str::<serde_json::Value>(&matched_rollup_json)?;
+        rollup_value["records"] = json!(1);
+        let drifted_rollup_json = serde_json::to_string(&rollup_value)?;
+        let drifted_report =
+            check_remote_free_service_telemetry_collection_summary_rollup_check_log_summary_verification_rollup_verification_summary_verification_rollup_json_log(
+                &source_log,
+                &drifted_rollup_json,
+            )?;
+        let drifted_verdict_json =
+            format_remote_free_service_telemetry_collection_summary_rollup_check_log_summary_verification_rollup_verification_summary_verification_rollup_verification_json_line(
+                &drifted_report,
+            )?;
+        let log = format!("{matched_verdict_json}\n{drifted_verdict_json}\n");
+        let rollup =
+            summarize_remote_free_service_telemetry_collection_summary_rollup_check_log_summary_verification_rollup_verification_summary_verification_rollup_verification_json_log(
+                &log,
+            )?;
+        let json_line =
+            format_remote_free_service_telemetry_collection_summary_rollup_check_log_summary_verification_rollup_verification_summary_verification_rollup_json_line(
+                &rollup,
+            )?;
+        let json_log = format!("dashboard rollup\n{json_line}\n");
+
+        let parsed_line =
+            parse_remote_free_service_telemetry_collection_summary_rollup_check_log_summary_verification_rollup_verification_summary_verification_rollup_json_line(
+                &json_line,
+            )?;
+        let parsed_log =
+            parse_remote_free_service_telemetry_collection_summary_rollup_check_log_summary_verification_rollup_verification_summary_verification_rollup_json_log(
+                &json_log,
+            )?;
+
+        assert_eq!(parsed_line, rollup);
+        assert_eq!(parsed_log, rollup);
+        assert_eq!(parsed_log.summary.records, 2);
+        assert_eq!(parsed_log.summary.matched, 1);
+        assert_eq!(parsed_log.summary.drifted, 1);
+        assert_eq!(parsed_log.summary.drift_records, 1);
+        Ok(())
+    }
+
+    #[test]
     fn rejects_rollup_check_log_summary_json_verification_rollup_verdict_summary_verdict_rollup_verification_log_without_records(
     ) {
         let error =
