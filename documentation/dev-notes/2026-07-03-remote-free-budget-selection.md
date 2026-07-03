@@ -1487,6 +1487,9 @@ Experiment 0330 aggregated those saved matched and stale JSON verdict records
 into a compact dashboard rollup with one matched record, one drifted record,
 and one `records` drift bucket. It also recorded a failed over-deep mode
 suffix before rerunning with the accepted aggregate mode.
+Experiment 0331 made that saved aggregate rollup recheck cohort rollup
+recheck verdict rollup JSON artifact reloadable through the parser-only path,
+preserving the same two-record cohort counters.
 
 ## Open Questions
 
