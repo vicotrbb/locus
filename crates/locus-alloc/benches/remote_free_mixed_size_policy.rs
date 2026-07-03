@@ -174,11 +174,10 @@ fn run_trace_sample(capacity: usize, batch_limit: usize, policy: TracePolicy) ->
                     Ok(()) => {
                         stats.submitted_count = stats.submitted_count.saturating_add(1);
                         controller.record_submit(burst, size_u64);
-                        stats.queued_bytes = controller.tracker().queued_bytes();
+                        stats.queued_bytes = controller.queued_bytes();
                         stats.max_queued_bytes = stats.max_queued_bytes.max(stats.queued_bytes);
-                        stats.max_pending_count = stats
-                            .max_pending_count
-                            .max(controller.tracker().pending_count());
+                        stats.max_pending_count =
+                            stats.max_pending_count.max(controller.pending_count());
                         break;
                     }
                     Err(error) if error.kind() == RemoteFreeTryEnqueueErrorKind::Full => {
@@ -217,7 +216,7 @@ fn run_trace_sample(capacity: usize, batch_limit: usize, policy: TracePolicy) ->
     let queue_stats = queue.stats();
     assert_eq!(queue_stats.pending_count, 0);
     assert_eq!(queue_stats.full_count, stats.full_count);
-    assert!(controller.tracker().is_empty());
+    assert!(controller.is_empty());
     stats
 }
 
@@ -236,7 +235,7 @@ fn drain_trace_batch(
         assert_eq!(tracked.submit_turn, block.submit_burst);
         assert_eq!(tracked.released_bytes, allocation_len);
         let wait_bursts = current_burst.saturating_sub(block.submit_burst);
-        stats.queued_bytes = controller.tracker().queued_bytes();
+        stats.queued_bytes = controller.queued_bytes();
         stats.released_bytes = stats.released_bytes.saturating_add(allocation_len);
         stats.max_wait_bursts = stats.max_wait_bursts.max(wait_bursts);
         stats.total_wait_bursts = stats.total_wait_bursts.saturating_add(wait_bursts);

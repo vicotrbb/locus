@@ -228,11 +228,9 @@ fn run_kv_policy_iteration(
             controller.record_submit(burst, BLOCK_SIZE_U64);
             stats.submitted_count = stats.submitted_count.saturating_add(1);
         }
-        stats.queued_bytes = controller.tracker().queued_bytes();
+        stats.queued_bytes = controller.queued_bytes();
         stats.max_queued_bytes = stats.max_queued_bytes.max(stats.queued_bytes);
-        stats.max_pending_count = stats
-            .max_pending_count
-            .max(controller.tracker().pending_count());
+        stats.max_pending_count = stats.max_pending_count.max(controller.pending_count());
 
         let completed_bursts = burst.saturating_add(1);
         let policy_report = controller
@@ -255,7 +253,7 @@ fn run_kv_policy_iteration(
     let queue_stats = queue.stats();
     assert_eq!(queue_stats.pending_count, 0);
     assert_eq!(queue_stats.disconnected_count, 0);
-    assert!(controller.tracker().is_empty());
+    assert!(controller.is_empty());
     stats.full_count = queue_stats.full_count;
     stats
 }
@@ -273,7 +271,7 @@ fn drain_kv_policy_batch(
             .expect("tracked drain");
         pool.free(handle).expect("free block");
         let wait_bursts = current_burst.saturating_sub(drain_record.submit_turn);
-        stats.queued_bytes = controller.tracker().queued_bytes();
+        stats.queued_bytes = controller.queued_bytes();
         stats.released_bytes = stats
             .released_bytes
             .saturating_add(drain_record.released_bytes);

@@ -101,7 +101,7 @@ pub struct RemoteFreeDrainPolicy {
 ///     });
 /// }
 ///
-/// assert!(controller.tracker().is_empty());
+/// assert!(controller.is_empty());
 /// ```
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RemoteFreeDrainController {
@@ -298,6 +298,24 @@ impl RemoteFreeDrainController {
     #[must_use]
     pub const fn tracker(&self) -> &RemoteFreeDrainTracker {
         &self.tracker
+    }
+
+    /// Returns current tracked pending work count.
+    #[must_use]
+    pub fn pending_count(&self) -> u64 {
+        self.tracker.pending_count()
+    }
+
+    /// Returns current tracked retained queued bytes.
+    #[must_use]
+    pub fn queued_bytes(&self) -> u64 {
+        self.tracker.queued_bytes()
+    }
+
+    /// Returns true when no tracked remote-free work is pending.
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.tracker.is_empty()
     }
 
     /// Records one successfully submitted remote-free work item.
@@ -1003,6 +1021,9 @@ mod tests {
             .expect("controller status");
 
         assert_eq!(status.queue_stats.pending_count, 2);
+        assert_eq!(controller.pending_count(), 2);
+        assert_eq!(controller.queued_bytes(), 12_288);
+        assert!(!controller.is_empty());
         assert_eq!(
             status.observation,
             RemoteFreeDrainObservation::new(2, 12_288, 1)
@@ -1054,7 +1075,7 @@ mod tests {
 
         assert_eq!(drain_stats.drained, 2);
         assert_eq!(released, vec![(1, 0, 4096), (2, 0, 8192)]);
-        assert!(controller.tracker().is_empty());
+        assert!(controller.is_empty());
         assert_eq!(
             controller
                 .decide_for_queue(&queue, 1)
@@ -1102,7 +1123,7 @@ mod tests {
                 .decision,
             RemoteFreeDrainDecision::Defer
         );
-        assert!(controller.tracker().is_empty());
+        assert!(controller.is_empty());
     }
 
     #[test]
