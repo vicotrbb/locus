@@ -7,6 +7,7 @@ mod application;
 mod budget;
 mod config;
 mod controller;
+mod coordinator;
 mod drift;
 mod guard;
 mod planner;
@@ -24,6 +25,10 @@ pub use controller::{
     RemoteFreeDrainDecision, RemoteFreeDrainObservation, RemoteFreeDrainPolicy,
     RemoteFreeDrainReason, RemoteFreeDrainTracker, RemoteFreeDrainTrackerError,
     RemoteFreeTrackedDrain,
+};
+pub use coordinator::{
+    RemoteFreeServiceRuntimeRetuneCoordinator, RemoteFreeServiceRuntimeRetuneError,
+    RemoteFreeServiceRuntimeRetuneOutcome,
 };
 pub use drift::{
     RemoteFreeQueuedByteDriftReport, RemoteFreeQueuedByteRetuneAction,
