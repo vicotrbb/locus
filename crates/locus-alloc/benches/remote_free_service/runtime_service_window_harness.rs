@@ -1,6 +1,6 @@
 #![allow(missing_docs)]
 
-use std::convert::Infallible;
+use std::{convert::Infallible, env};
 
 use criterion::{black_box, Criterion};
 use locus_alloc::{
@@ -333,6 +333,10 @@ pub(crate) fn benchmark_runtime_dirty_local_threshold_collection_sequence(c: &mu
 }
 
 fn print_service_window_sample(mode: ServiceWindowRunnerMode, sample_name: &str) {
+    if !should_print_service_window_sample(sample_name) {
+        return;
+    }
+
     let stats = run_runtime_service_window_sequence(mode);
     assert_service_window_stats(&stats);
 
@@ -372,6 +376,10 @@ fn print_service_window_sample(mode: ServiceWindowRunnerMode, sample_name: &str)
 }
 
 fn print_service_window_sample_summary(mode: ServiceWindowRunnerMode, sample_name: &str) {
+    if !should_print_service_window_sample(sample_name) {
+        return;
+    }
+
     let mut policy_drains = CounterSummary::new();
     let mut drain_rounds = CounterSummary::new();
     let mut reports_needing_retune = CounterSummary::new();
@@ -427,6 +435,70 @@ fn print_service_window_sample_summary(mode: ServiceWindowRunnerMode, sample_nam
         format_milli(mean_wait.max),
         format_milli(mean_wait.mean_milli(SAMPLES) / 1000),
     );
+}
+
+fn should_print_service_window_sample(sample_name: &str) -> bool {
+    let filters = criterion_filter_tokens();
+    filters.is_empty()
+        || filters
+            .iter()
+            .any(|filter| service_window_sample_matches_filter(sample_name, filter))
+}
+
+fn service_window_sample_matches_filter(sample_name: &str, filter: &str) -> bool {
+    sample_name.contains(filter)
+        || service_window_sample_benchmark_name(sample_name)
+            .is_some_and(|benchmark_name| benchmark_name.contains(filter))
+}
+
+fn service_window_sample_benchmark_name(sample_name: &str) -> Option<String> {
+    sample_name
+        .strip_suffix("_sample_summary")
+        .or_else(|| sample_name.strip_suffix("_sample"))
+        .map(|prefix| format!("{prefix}_sequence"))
+}
+
+fn criterion_filter_tokens() -> Vec<String> {
+    let mut args = env::args().skip(1);
+    let mut filters = Vec::new();
+
+    while let Some(arg) = args.next() {
+        if arg == "--bench" || arg == "bench" {
+            continue;
+        }
+        if arg.starts_with("--") {
+            if criterion_option_takes_value(&arg) {
+                let _ = args.next();
+            }
+            continue;
+        }
+        if arg.starts_with('-') {
+            continue;
+        }
+        filters.push(arg);
+    }
+
+    filters
+}
+
+fn criterion_option_takes_value(arg: &str) -> bool {
+    !arg.contains('=')
+        && matches!(
+            arg,
+            "--baseline"
+                | "--color"
+                | "--confidence-level"
+                | "--measurement-time"
+                | "--noise-threshold"
+                | "--nresamples"
+                | "--output-format"
+                | "--plotting-backend"
+                | "--profile-time"
+                | "--sample-size"
+                | "--save-baseline"
+                | "--significance-level"
+                | "--warm-up-time"
+        )
 }
 
 fn run_runtime_service_window_sequence(

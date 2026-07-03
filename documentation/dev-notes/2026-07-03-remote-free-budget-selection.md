@@ -433,6 +433,17 @@ shrank from 1246 lines to 1204 lines. A first validated timing block reported
 199.02 us without code changes. Treat descriptor registration as a
 maintainability improvement, not a performance claim.
 
+Experiment 0220 made `runtime_service_window_harness.rs` sample printing aware
+of Criterion filter tokens. An exact validated local dirty group filter printed
+only the validated service-window sample and summary while preserving 2048
+submitted blocks, 2048 drained blocks, 9,437,440 released bytes, 12 policy
+drains, 36 drain rounds, 46 reports needing retune, two apply decisions, one
+confirm, one rollback, one mutation-limit decision, max wait 8 bursts, and
+mean wait 3.312 bursts. A broad local group filter still printed all four
+local group sample pairs, and a no-filter `--list` check printed 24
+service-window sample lines. Treat the helper as service-window scoped until
+the other telemetry harnesses share the same filter logic.
+
 ## Measured Thresholds
 
 | Path | Shape inputs | Budget | Matched counters |
@@ -561,6 +572,8 @@ maintainability improvement, not a performance claim.
 37. Register future local dirty-buffer group Criterion cases in
     `LOCAL_DIRTY_GROUP_BENCHMARKS` so benchmark name, sample label, and mode
     stay in one descriptor.
+38. Keep service-window sample printing tied to Criterion filter tokens so
+    exact focused runs do not print unrelated service-window sample labels.
 
 ## Guardrails
 
@@ -665,6 +678,9 @@ maintainability improvement, not a performance claim.
 - Do not treat a single Criterion regression block as proof when a same-code
   rerun contradicts it. Experiment 0219 recorded one noisy validated block and
   an exact rerun that returned to the normal range.
+- Do not assume the whole service telemetry target has filter-clean output
+  just because service-window samples are filtered. Experiment 0220 only gated
+  `runtime_service_window_harness.rs`.
 - Recheck thresholds when KV block size, request arena capacity, burst size,
   request concurrency, or batch size changes.
 - For heterogeneous traces, derive the budget from actual retained item sizes
@@ -721,11 +737,13 @@ maintainability improvement, not a performance claim.
 - `documentation/experiments/0217-remote-free-validated-local-dirty-owner-handle.md`
 - `documentation/experiments/0218-remote-free-local-dirty-group-benchmark-helper.md`
 - `documentation/experiments/0219-remote-free-local-dirty-group-benchmark-descriptors.md`
+- `documentation/experiments/0220-remote-free-service-window-filtered-sample-printing.md`
 
 ## Open Questions
 
-- Can service-window benchmark sample printing become filter-aware so a
-  focused Criterion run does not print unrelated sample blocks?
+- Can the remote-free service telemetry benchmark share one filter-aware
+  sample printing helper across all harness modules so focused runs suppress
+  unrelated sample blocks target-wide?
 - Which workload signal should set the retained item window in production:
   scheduler turn age, active request concurrency, KV cache pressure, or memory
   pressure from observability counters?
