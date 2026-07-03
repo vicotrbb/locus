@@ -21,6 +21,7 @@ struct CapacityCase {
     label: &'static str,
     capacity: usize,
     config: RemoteFreeQueuedByteDrainConfig,
+    drain_with_policy: bool,
     expected: ExpectedCapacityStats,
 }
 
@@ -28,6 +29,7 @@ struct CapacityCase {
 struct ExpectedCapacityStats {
     full_count: u64,
     forced_drains: u64,
+    policy_drains: u64,
     drain_rounds: u64,
     max_pending_count: u64,
     max_queued_bytes: u64,
@@ -50,6 +52,7 @@ struct CapacityStats {
     drained_count: u64,
     full_count: u64,
     forced_drains: u64,
+    policy_drains: u64,
     drain_rounds: u64,
     max_pending_count: u64,
     queued_bytes: u64,
@@ -76,14 +79,18 @@ const CAPACITY_CASES: [fn() -> CapacityCase; 3] = [
     candidate_capacity256,
 ];
 
+const POLICY_CASES: [fn() -> CapacityCase; 2] = [policy_capacity128, policy_capacity256];
+
 fn baseline_capacity64() -> CapacityCase {
     CapacityCase {
         label: "baseline_capacity64",
         capacity: 64,
         config: config_for_capacity(64),
+        drain_with_policy: false,
         expected: ExpectedCapacityStats {
             full_count: 3,
             forced_drains: 3,
+            policy_drains: 0,
             drain_rounds: 4,
             max_pending_count: 64,
             max_queued_bytes: 262_144,
@@ -101,9 +108,11 @@ fn candidate_capacity128() -> CapacityCase {
         label: "candidate_capacity128",
         capacity: 128,
         config: config_for_capacity(128),
+        drain_with_policy: false,
         expected: ExpectedCapacityStats {
             full_count: 2,
             forced_drains: 2,
+            policy_drains: 0,
             drain_rounds: 4,
             max_pending_count: 128,
             max_queued_bytes: 524_288,
@@ -121,9 +130,11 @@ fn candidate_capacity256() -> CapacityCase {
         label: "candidate_capacity256",
         capacity: 256,
         config: config_for_capacity(256),
+        drain_with_policy: false,
         expected: ExpectedCapacityStats {
             full_count: 0,
             forced_drains: 0,
+            policy_drains: 0,
             drain_rounds: 4,
             max_pending_count: 256,
             max_queued_bytes: 1_048_576,
@@ -132,6 +143,50 @@ fn candidate_capacity256() -> CapacityCase {
             max_wait_bursts: 8,
             mean_wait_milli: 4500,
             retune_hint: RemoteFreeQueuedByteRetuneHint::ReviewMultipleSignals,
+        },
+    }
+}
+
+fn policy_capacity128() -> CapacityCase {
+    CapacityCase {
+        label: "policy_capacity128",
+        capacity: 128,
+        config: config_for_capacity(128),
+        drain_with_policy: true,
+        expected: ExpectedCapacityStats {
+            full_count: 0,
+            forced_drains: 0,
+            policy_drains: 4,
+            drain_rounds: 4,
+            max_pending_count: 64,
+            max_queued_bytes: 262_144,
+            max_pending_over_target: 0,
+            max_queued_bytes_over_budget: 0,
+            max_wait_bursts: 2,
+            mean_wait_milli: 1500,
+            retune_hint: RemoteFreeQueuedByteRetuneHint::KeepConfig,
+        },
+    }
+}
+
+fn policy_capacity256() -> CapacityCase {
+    CapacityCase {
+        label: "policy_capacity256",
+        capacity: 256,
+        config: config_for_capacity(256),
+        drain_with_policy: true,
+        expected: ExpectedCapacityStats {
+            full_count: 0,
+            forced_drains: 0,
+            policy_drains: 4,
+            drain_rounds: 4,
+            max_pending_count: 64,
+            max_queued_bytes: 262_144,
+            max_pending_over_target: 0,
+            max_queued_bytes_over_budget: 0,
+            max_wait_bursts: 2,
+            mean_wait_milli: 1500,
+            retune_hint: RemoteFreeQueuedByteRetuneHint::KeepConfig,
         },
     }
 }
@@ -153,6 +208,7 @@ impl CapacityStats {
             drained_count: 0,
             full_count: 0,
             forced_drains: 0,
+            policy_drains: 0,
             drain_rounds: 0,
             max_pending_count: 0,
             queued_bytes: 0,
@@ -219,20 +275,29 @@ fn remote_free_capacity_retune(c: &mut Criterion) {
     print_capacity_retune_summary();
 
     for build_case in CAPACITY_CASES {
-        let case = build_case();
-        let name = format!("remote_free_capacity_retune_{}", case.label);
-        c.bench_function(&name, |bench| {
-            bench.iter(|| {
-                let stats = run_capacity_case(case);
-                assert_capacity_case(case, stats);
-                black_box(stats);
-            });
-        });
+        bench_capacity_case(c, build_case());
     }
+    for build_case in POLICY_CASES {
+        bench_capacity_case(c, build_case());
+    }
+}
+
+fn bench_capacity_case(c: &mut Criterion, case: CapacityCase) {
+    let name = format!("remote_free_capacity_retune_{}", case.label);
+    c.bench_function(&name, |bench| {
+        bench.iter(|| {
+            let stats = run_capacity_case(case);
+            assert_capacity_case(case, stats);
+            black_box(stats);
+        });
+    });
 }
 
 fn print_capacity_retune_summary() {
     for build_case in CAPACITY_CASES {
+        print_capacity_case_summary(build_case());
+    }
+    for build_case in POLICY_CASES {
         print_capacity_case_summary(build_case());
     }
 }
@@ -242,6 +307,7 @@ fn print_capacity_case_summary(case: CapacityCase) {
 
     let mut full = CounterSummary::new();
     let mut forced_drains = CounterSummary::new();
+    let mut policy_drains = CounterSummary::new();
     let mut drain_rounds = CounterSummary::new();
     let mut max_pending = CounterSummary::new();
     let mut max_queued_bytes = CounterSummary::new();
@@ -255,6 +321,7 @@ fn print_capacity_case_summary(case: CapacityCase) {
         assert_capacity_case(case, stats);
         full.observe(stats.full_count);
         forced_drains.observe(stats.forced_drains);
+        policy_drains.observe(stats.policy_drains);
         drain_rounds.observe(stats.drain_rounds);
         max_pending.observe(stats.max_pending_count);
         max_queued_bytes.observe(stats.max_queued_bytes);
@@ -266,8 +333,9 @@ fn print_capacity_case_summary(case: CapacityCase) {
 
     let label = case.label;
     println!(
-        "remote_free_capacity_retune_sample_summary={label} blocks={BLOCKS} bursts={BURSTS} burst_blocks={BURST_BLOCKS} capacity={} batch_limit={BATCH_LIMIT} retune_hint={} samples={SAMPLES} full_min={} full_max={} full_mean={} forced_drains_min={} forced_drains_max={} forced_drains_mean={} drain_rounds_min={} drain_rounds_max={} drain_rounds_mean={} max_pending_min={} max_pending_max={} max_pending_mean={} max_queued_bytes_min={} max_queued_bytes_max={} max_queued_bytes_mean={} max_pending_over_target_min={} max_pending_over_target_max={} max_pending_over_target_mean={} max_queued_bytes_over_budget_min={} max_queued_bytes_over_budget_max={} max_queued_bytes_over_budget_mean={} max_wait_min={} max_wait_max={} max_wait_mean={} mean_wait_min={} mean_wait_max={} mean_wait_mean={}",
+        "remote_free_capacity_retune_sample_summary={label} blocks={BLOCKS} bursts={BURSTS} burst_blocks={BURST_BLOCKS} capacity={} batch_limit={BATCH_LIMIT} drain_with_policy={} retune_hint={} samples={SAMPLES} full_min={} full_max={} full_mean={} forced_drains_min={} forced_drains_max={} forced_drains_mean={} policy_drains_min={} policy_drains_max={} policy_drains_mean={} drain_rounds_min={} drain_rounds_max={} drain_rounds_mean={} max_pending_min={} max_pending_max={} max_pending_mean={} max_queued_bytes_min={} max_queued_bytes_max={} max_queued_bytes_mean={} max_pending_over_target_min={} max_pending_over_target_max={} max_pending_over_target_mean={} max_queued_bytes_over_budget_min={} max_queued_bytes_over_budget_max={} max_queued_bytes_over_budget_mean={} max_wait_min={} max_wait_max={} max_wait_mean={} mean_wait_min={} mean_wait_max={} mean_wait_mean={}",
         case.capacity,
+        u64::from(case.drain_with_policy),
         case.expected.retune_hint.as_str(),
         full.min,
         full.max,
@@ -275,6 +343,9 @@ fn print_capacity_case_summary(case: CapacityCase) {
         forced_drains.min,
         forced_drains.max,
         format_milli(forced_drains.mean_milli(SAMPLES)),
+        policy_drains.min,
+        policy_drains.max,
+        format_milli(policy_drains.mean_milli(SAMPLES)),
         drain_rounds.min,
         drain_rounds.max,
         format_milli(drain_rounds.mean_milli(SAMPLES)),
@@ -303,7 +374,12 @@ fn run_capacity_case(case: CapacityCase) -> CapacityStats {
     let mut queue = RemoteFreeQueue::new(case.capacity, BATCH_LIMIT).expect("queue");
     let sink = queue.sink();
     let mut stats = CapacityStats::new();
-    let mut controller = RemoteFreeDrainController::new(RemoteFreeDrainPolicy::new());
+    let drain_policy = if case.drain_with_policy {
+        case.config.drain_policy()
+    } else {
+        RemoteFreeDrainPolicy::new()
+    };
+    let mut controller = RemoteFreeDrainController::new(drain_policy);
 
     for burst in 0..BURSTS {
         for _ in 0..BURST_BLOCKS {
@@ -343,6 +419,11 @@ fn run_capacity_case(case: CapacityCase) -> CapacityStats {
             case.config,
             controller_status,
         ));
+        if controller_status.decision.should_drain()
+            && drain_trace_batch(&mut queue, completed_bursts, &mut stats, &mut controller) > 0
+        {
+            stats.policy_drains = stats.policy_drains.saturating_add(1);
+        }
     }
 
     while stats.drained_count < stats.submitted_count {
@@ -396,6 +477,7 @@ fn assert_capacity_case(case: CapacityCase, stats: CapacityStats) {
     assert_eq!(stats.released_bytes, TOTAL_BYTES);
     assert_eq!(stats.full_count, case.expected.full_count);
     assert_eq!(stats.forced_drains, case.expected.forced_drains);
+    assert_eq!(stats.policy_drains, case.expected.policy_drains);
     assert_eq!(stats.drain_rounds, case.expected.drain_rounds);
     assert_eq!(stats.max_pending_count, case.expected.max_pending_count);
     assert_eq!(stats.max_queued_bytes, case.expected.max_queued_bytes);

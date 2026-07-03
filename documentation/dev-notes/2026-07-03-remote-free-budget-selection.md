@@ -99,6 +99,12 @@ raised max pending items from 64 to 256, retained queued bytes from 262,144 to
 bursts. Treat capacity increases as backpressure fixes that need separate
 latency and retained-byte validation.
 
+Experiment 0182 tested the same larger-capacity cases with queued-byte policy
+drains enabled. Capacity 128 and capacity 256 both kept `full_count=0` while
+preserving the 64-item, 262,144-byte, max wait 2 burst, and mean wait 1.500
+burst window. Treat earlier owner-side drains as the first adaptive action
+when retained-memory and release-latency targets must remain fixed.
+
 ## Measured Thresholds
 
 | Path | Shape inputs | Budget | Matched counters |
@@ -153,6 +159,7 @@ latency and retained-byte validation.
 - `documentation/experiments/0179-remote-free-positive-drift-matrix.md`
 - `documentation/experiments/0180-remote-free-drift-retune-hint.md`
 - `documentation/experiments/0181-remote-free-capacity-retune-action.md`
+- `documentation/experiments/0182-remote-free-earlier-drain-retune-action.md`
 
 ## Open Questions
 
