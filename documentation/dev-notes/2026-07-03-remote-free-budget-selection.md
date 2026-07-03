@@ -837,6 +837,11 @@ test for repeated-check rollup drift verdict JSON. The real mixed log reports
 two records, one matched repeated check, one drifted repeated check, and one
 `records` drift bucket.
 
+Experiment 0278 added a repeated-check CLI parse alias and focused parser test
+for repeated-check rollup drift verdict rollup JSON. The real mixed rollup
+reloads with two records, one matched check, one drifted check, and one
+`records` drift bucket.
+
 ## Measured Thresholds
 
 | Path | Shape inputs | Budget | Matched counters |
@@ -1249,6 +1254,7 @@ two records, one matched repeated check, one drifted repeated check, and one
 - `documentation/experiments/0275-remote-free-service-telemetry-rollup-check-log-summary-verdict-rollup-verification-summary-drift-json-rollup-drift-json-rollup-drift-json.md`
 - `documentation/experiments/0276-remote-free-service-telemetry-rollup-check-log-summary-verdict-rollup-verification-summary-drift-json-rollup-drift-json-rollup-drift-json-parser.md`
 - `documentation/experiments/0277-remote-free-service-telemetry-rollup-check-log-summary-verdict-rollup-verification-summary-drift-json-rollup-drift-json-rollup-drift-json-rollup.md`
+- `documentation/experiments/0278-remote-free-service-telemetry-rollup-check-log-summary-verdict-rollup-verification-summary-drift-json-rollup-drift-json-rollup-drift-json-rollup-parser.md`
 
 ## Open Questions
 

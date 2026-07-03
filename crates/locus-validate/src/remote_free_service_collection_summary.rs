@@ -8032,6 +8032,36 @@ mod tests {
     }
 
     #[test]
+    fn parses_rollup_check_log_summary_json_verification_rollup_verdict_summary_verdict_rollup_verification_rollup_verification_rollup_json(
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let (log, json_line) =
+            sample_rollup_check_log_summary_json_verification_rollup_verdict_summary_verdict_rollup_verification_inputs(
+            )?;
+        let rollup =
+            summarize_remote_free_service_telemetry_collection_summary_rollup_check_log_summary_verification_rollup_verification_summary_verification_rollup_verification_json_log(
+                &log,
+            )?;
+        let json_log = format!("repeated check verdict rollup\n{json_line}\n");
+
+        let parsed_line =
+            parse_remote_free_service_telemetry_collection_summary_rollup_check_log_summary_verification_rollup_verification_summary_verification_rollup_json_line(
+                &json_line,
+            )?;
+        let parsed_log =
+            parse_remote_free_service_telemetry_collection_summary_rollup_check_log_summary_verification_rollup_verification_summary_verification_rollup_json_log(
+                &json_log,
+            )?;
+
+        assert_eq!(parsed_line, rollup);
+        assert_eq!(parsed_log, rollup);
+        assert_eq!(parsed_log.summary.records, 2);
+        assert_eq!(parsed_log.summary.matched, 1);
+        assert_eq!(parsed_log.summary.drifted, 1);
+        assert_eq!(parsed_log.summary.drift_records, 1);
+        Ok(())
+    }
+
+    #[test]
     fn rejects_rollup_check_log_summary_json_verification_rollup_verdict_summary_verdict_rollup_verification_rollup_group_drift_before_compare(
     ) -> Result<(), Box<dyn std::error::Error>> {
         let (source_log, rollup_json) =
