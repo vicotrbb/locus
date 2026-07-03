@@ -16,6 +16,7 @@ const TRACE_SIZES_U64: [u64; 8] = [4096, 4096, 8192, 4096, 16384, 4096, 32768, 8
 const TRACE_SIZE_COUNT: u64 = 8;
 const TRACE_PATTERN_BYTES: u64 = 4096 + 4096 + 8192 + 4096 + 16384 + 4096 + 32768 + 8192;
 const TRACE_TOTAL_BYTES: u64 = TRACE_PATTERN_BYTES * (TRACE_BLOCKS / TRACE_SIZE_COUNT);
+const TRACE_TARGET_QUEUED_BYTES: u64 = 655_360;
 
 #[derive(Debug, Clone, Copy)]
 struct TracePolicy {
@@ -65,6 +66,15 @@ impl TracePolicy {
             label: "max_wait2",
             drain_policy: RemoteFreeDrainPolicy::new()
                 .with_max_pending_age(NonZeroU64::new(2).expect("non-zero")),
+        }
+    }
+
+    fn max_queued640kib() -> Self {
+        Self {
+            label: "max_queued640kib",
+            drain_policy: RemoteFreeDrainPolicy::new().with_max_queued_bytes(
+                NonZeroU64::new(TRACE_TARGET_QUEUED_BYTES).expect("non-zero"),
+            ),
         }
     }
 }
@@ -138,6 +148,18 @@ fn remote_free_mixed_size_max_wait2_capacity256_batch64(c: &mut Criterion) {
     remote_free_mixed_size_policy(
         c,
         "remote_free_mixed_size_trace_capacity256_batch64_max_wait2",
+        256,
+        64,
+        policy,
+    );
+}
+
+fn remote_free_mixed_size_max_queued640kib_capacity256_batch64(c: &mut Criterion) {
+    let policy = TracePolicy::max_queued640kib();
+    print_trace_sample(policy, 256, 64);
+    remote_free_mixed_size_policy(
+        c,
+        "remote_free_mixed_size_trace_capacity256_batch64_max_queued640kib",
         256,
         64,
         policy,
@@ -348,6 +370,7 @@ fn format_milli(value: u64) -> String {
 criterion_group!(
     benches,
     remote_free_mixed_size_end_drain_capacity256_batch64,
-    remote_free_mixed_size_max_wait2_capacity256_batch64
+    remote_free_mixed_size_max_wait2_capacity256_batch64,
+    remote_free_mixed_size_max_queued640kib_capacity256_batch64
 );
 criterion_main!(benches);
