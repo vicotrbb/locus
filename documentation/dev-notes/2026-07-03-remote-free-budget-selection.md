@@ -553,6 +553,12 @@ real Experiment 0230 bundle matched exactly at 330 bytes while preserving the
 same verified artifact total and stable 53,611,000 ps to 56,031,000 ps timing
 range. The focused command test rejects drifted saved summary text.
 
+Experiment 0233 added directory rollup mode to the summary validator. The real
+`target/locus-evidence/remote-free-service-summary-json` evidence root
+contained one `collection-summary.json`, one valid bundle, zero drifted
+summaries, zero missing artifacts, zero other failures, and one surviving
+timing range.
+
 ## Measured Thresholds
 
 | Path | Shape inputs | Budget | Matched counters |
