@@ -58,6 +58,13 @@ pub enum RemoteFreeQueuedByteBudgetError {
         /// Representative bytes retained by each pending item.
         bytes_per_item: u64,
     },
+    /// Summing heterogeneous retained item sizes overflowed.
+    RetainedBytesSumOverflow {
+        /// Bytes accumulated before adding the next item.
+        accumulated_bytes: u64,
+        /// Bytes retained by the next item.
+        next_item_bytes: u64,
+    },
 }
 
 impl RemoteFreeQueuedByteBudget {
@@ -136,6 +143,43 @@ impl RemoteFreeQueuedByteBudget {
         Self::from_item_shape(pending_items, bytes_per_item)
     }
 
+    /// Derives a budget from heterogeneous retained item sizes.
+    ///
+    /// This matches traces where pending remote-free items can retain
+    /// different byte sizes.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the iterator is empty, any item size is zero, or
+    /// summing item sizes overflows `u64`.
+    pub fn from_item_sizes(
+        item_sizes: impl IntoIterator<Item = u64>,
+    ) -> Result<Self, RemoteFreeQueuedByteBudgetError> {
+        let mut retained_bytes = 0_u64;
+        let mut has_item = false;
+
+        for next_item_bytes in item_sizes {
+            has_item = true;
+
+            if next_item_bytes == 0 {
+                return Err(RemoteFreeQueuedByteBudgetError::ZeroBytesPerItem);
+            }
+
+            retained_bytes = retained_bytes.checked_add(next_item_bytes).ok_or(
+                RemoteFreeQueuedByteBudgetError::RetainedBytesSumOverflow {
+                    accumulated_bytes: retained_bytes,
+                    next_item_bytes,
+                },
+            )?;
+        }
+
+        if !has_item {
+            return Err(RemoteFreeQueuedByteBudgetError::ZeroPendingItems);
+        }
+
+        Self::try_new(retained_bytes)
+    }
+
     /// Returns the queued-byte budget.
     #[must_use]
     pub const fn bytes(self) -> u64 {
@@ -182,6 +226,13 @@ impl fmt::Display for RemoteFreeQueuedByteBudgetError {
             } => write!(
                 f,
                 "remote-free queued-byte budget overflowed for {pending_items} items and {bytes_per_item} bytes per item"
+            ),
+            Self::RetainedBytesSumOverflow {
+                accumulated_bytes,
+                next_item_bytes,
+            } => write!(
+                f,
+                "remote-free queued-byte budget overflowed while adding {next_item_bytes} bytes to {accumulated_bytes} accumulated bytes"
             ),
         }
     }
@@ -281,6 +332,42 @@ mod tests {
             Err(RemoteFreeQueuedByteBudgetError::RetainedBytesOverflow {
                 pending_items: u64::MAX - 1,
                 bytes_per_item: 3,
+            })
+        );
+    }
+
+    #[test]
+    fn remote_free_queued_byte_budget_derives_heterogeneous_item_sizes() {
+        let item_sizes = [4096, 4096, 8192, 4096, 16_384, 4096, 32_768, 8192];
+        let budget =
+            RemoteFreeQueuedByteBudget::from_item_sizes(item_sizes).expect("budget from sizes");
+
+        assert_eq!(budget.bytes(), 81_920);
+    }
+
+    #[test]
+    fn remote_free_queued_byte_budget_rejects_empty_item_sizes() {
+        assert_eq!(
+            RemoteFreeQueuedByteBudget::from_item_sizes([]),
+            Err(RemoteFreeQueuedByteBudgetError::ZeroPendingItems)
+        );
+    }
+
+    #[test]
+    fn remote_free_queued_byte_budget_rejects_zero_item_size() {
+        assert_eq!(
+            RemoteFreeQueuedByteBudget::from_item_sizes([4096, 0, 8192]),
+            Err(RemoteFreeQueuedByteBudgetError::ZeroBytesPerItem)
+        );
+    }
+
+    #[test]
+    fn remote_free_queued_byte_budget_rejects_item_size_sum_overflow() {
+        assert_eq!(
+            RemoteFreeQueuedByteBudget::from_item_sizes([u64::MAX, 1]),
+            Err(RemoteFreeQueuedByteBudgetError::RetainedBytesSumOverflow {
+                accumulated_bytes: u64::MAX,
+                next_item_bytes: 1,
             })
         );
     }

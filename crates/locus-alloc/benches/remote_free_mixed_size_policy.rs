@@ -4,7 +4,7 @@ use std::{num::NonZeroU64, thread};
 
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use locus_alloc::{
-    RemoteFreeDrainController, RemoteFreeDrainPolicy, RemoteFreeQueue,
+    RemoteFreeDrainController, RemoteFreeDrainPolicy, RemoteFreeQueue, RemoteFreeQueuedByteBudget,
     RemoteFreeTryEnqueueErrorKind,
 };
 
@@ -16,7 +16,7 @@ const TRACE_SIZES_U64: [u64; 8] = [4096, 4096, 8192, 4096, 16384, 4096, 32768, 8
 const TRACE_SIZE_COUNT: u64 = 8;
 const TRACE_PATTERN_BYTES: u64 = 4096 + 4096 + 8192 + 4096 + 16384 + 4096 + 32768 + 8192;
 const TRACE_TOTAL_BYTES: u64 = TRACE_PATTERN_BYTES * (TRACE_BLOCKS / TRACE_SIZE_COUNT);
-const TRACE_TARGET_QUEUED_BYTES: u64 = 655_360;
+const TRACE_TARGET_QUEUED_BURSTS: u64 = 2;
 
 #[derive(Debug, Clone, Copy)]
 struct TracePolicy {
@@ -70,13 +70,26 @@ impl TracePolicy {
     }
 
     fn max_queued640kib() -> Self {
+        let queued_byte_budget = trace_target_queued_byte_budget();
         Self {
             label: "max_queued640kib",
-            drain_policy: RemoteFreeDrainPolicy::new().with_max_queued_bytes(
-                NonZeroU64::new(TRACE_TARGET_QUEUED_BYTES).expect("non-zero"),
-            ),
+            drain_policy: queued_byte_budget.into_policy(),
         }
     }
+}
+
+fn trace_target_queued_byte_budget() -> RemoteFreeQueuedByteBudget {
+    let target_blocks = TRACE_BURST_BLOCKS
+        .checked_mul(TRACE_TARGET_QUEUED_BURSTS)
+        .and_then(|blocks| usize::try_from(blocks).ok())
+        .expect("trace target block count fits usize");
+    let budget = RemoteFreeQueuedByteBudget::from_item_sizes(
+        TRACE_SIZES_U64.iter().copied().cycle().take(target_blocks),
+    )
+    .expect("queued-byte budget");
+
+    debug_assert_eq!(budget.bytes(), 655_360);
+    budget
 }
 
 impl CounterSummary {
