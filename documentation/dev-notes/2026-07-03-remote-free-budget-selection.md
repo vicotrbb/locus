@@ -785,6 +785,11 @@ Experiment 0267 added a dashboard rollup over saved verifier-summary drift
 verdict JSON records. The real mixed log reports two records, one matched
 artifact, one drifted artifact, and one `records` drift bucket.
 
+Experiment 0268 added parsers for verifier-summary drift verdict rollup JSON.
+The real mixed artifact reloads with two records, one matched artifact, one
+drifted artifact, and one `records` drift bucket. The parser rejects grouped
+status and drift-field counter inconsistencies.
+
 ## Measured Thresholds
 
 | Path | Shape inputs | Budget | Matched counters |
@@ -1187,6 +1192,7 @@ artifact, one drifted artifact, and one `records` drift bucket.
 - `documentation/experiments/0265-remote-free-service-telemetry-rollup-check-log-summary-verdict-rollup-verification-summary-drift-json.md`
 - `documentation/experiments/0266-remote-free-service-telemetry-rollup-check-log-summary-verdict-rollup-verification-summary-drift-json-parser.md`
 - `documentation/experiments/0267-remote-free-service-telemetry-rollup-check-log-summary-verdict-rollup-verification-summary-drift-json-rollup.md`
+- `documentation/experiments/0268-remote-free-service-telemetry-rollup-check-log-summary-verdict-rollup-verification-summary-drift-json-rollup-parser.md`
 
 ## Open Questions
 

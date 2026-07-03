@@ -2226,6 +2226,62 @@ pub fn format_remote_free_service_telemetry_collection_summary_rollup_check_log_
         .map_err(RemoteFreeServiceTelemetryCollectionSummaryRollupError::Serialize)
 }
 
+/// Parses a compact JSON line emitted for a verifier-summary verification rollup.
+///
+/// # Errors
+///
+/// Returns an error when the line is malformed, has an unexpected schema, or
+/// has inconsistent flat and grouped fields.
+pub fn parse_remote_free_service_telemetry_collection_summary_rollup_check_log_summary_verification_rollup_verification_summary_verification_rollup_json_line(
+    input: &str,
+) -> Result<
+    RemoteFreeServiceTelemetryCollectionSummaryRollupCheckLogSummaryVerificationRollupVerificationSummaryVerificationRollup,
+    RemoteFreeServiceTelemetryCollectionSummaryRollupError,
+>{
+    let value = serde_json::from_str::<Value>(input)
+        .map_err(RemoteFreeServiceTelemetryCollectionSummaryRollupError::Json)?;
+    require_rollup_check_log_summary_verification_rollup_verification_summary_verification_rollup_json_schema(&value)?;
+    Ok(
+        RemoteFreeServiceTelemetryCollectionSummaryRollupCheckLogSummaryVerificationRollupVerificationSummaryVerificationRollup {
+            summary: parse_rollup_check_log_summary_verification_rollup_verification_summary_json_value(
+                &value,
+            )?,
+        },
+    )
+}
+
+/// Parses a compact JSON rollup line from a saved verifier-summary verification rollup log.
+///
+/// # Errors
+///
+/// Returns an error when a candidate JSON line is malformed, the rollup JSON
+/// line is malformed, or no rollup JSON line is found.
+pub fn parse_remote_free_service_telemetry_collection_summary_rollup_check_log_summary_verification_rollup_verification_summary_verification_rollup_json_log(
+    input: &str,
+) -> Result<
+    RemoteFreeServiceTelemetryCollectionSummaryRollupCheckLogSummaryVerificationRollupVerificationSummaryVerificationRollup,
+    RemoteFreeServiceTelemetryCollectionSummaryRollupError,
+>{
+    for line in input.lines().map(str::trim).filter(|line| !line.is_empty()) {
+        if line.starts_with('{') {
+            let value = serde_json::from_str::<Value>(line)
+                .map_err(RemoteFreeServiceTelemetryCollectionSummaryRollupError::Json)?;
+            if value.get("schema").and_then(Value::as_str)
+                == Some(
+                    REMOTE_FREE_SERVICE_TELEMETRY_COLLECTION_SUMMARY_ROLLUP_CHECK_LOG_SUMMARY_VERIFICATION_ROLLUP_VERIFICATION_SUMMARY_VERIFICATION_ROLLUP_SCHEMA,
+                )
+            {
+                return parse_remote_free_service_telemetry_collection_summary_rollup_check_log_summary_verification_rollup_verification_summary_verification_rollup_json_line(line);
+            }
+        }
+    }
+    Err(
+        RemoteFreeServiceTelemetryCollectionSummaryRollupError::MissingField(
+            "rollup_check_log_summary_verification_rollup_verification_summary_verification_rollup_json_line",
+        ),
+    )
+}
+
 /// Parses a compact JSON line emitted for a saved verdict rollup verification summary.
 ///
 /// # Errors
@@ -2405,6 +2461,22 @@ fn require_rollup_check_log_summary_verification_rollup_verification_summary_ver
     let schema = rollup_required_str(value, "schema")?;
     if schema
         != REMOTE_FREE_SERVICE_TELEMETRY_COLLECTION_SUMMARY_ROLLUP_CHECK_LOG_SUMMARY_VERIFICATION_ROLLUP_VERIFICATION_SUMMARY_VERIFICATION_SCHEMA
+    {
+        return Err(
+            RemoteFreeServiceTelemetryCollectionSummaryRollupError::UnexpectedSchema(
+                schema.to_owned(),
+            ),
+        );
+    }
+    Ok(())
+}
+
+fn require_rollup_check_log_summary_verification_rollup_verification_summary_verification_rollup_json_schema(
+    value: &Value,
+) -> Result<(), RemoteFreeServiceTelemetryCollectionSummaryRollupError> {
+    let schema = rollup_required_str(value, "schema")?;
+    if schema
+        != REMOTE_FREE_SERVICE_TELEMETRY_COLLECTION_SUMMARY_ROLLUP_CHECK_LOG_SUMMARY_VERIFICATION_ROLLUP_VERIFICATION_SUMMARY_VERIFICATION_ROLLUP_SCHEMA
     {
         return Err(
             RemoteFreeServiceTelemetryCollectionSummaryRollupError::UnexpectedSchema(
@@ -4364,6 +4436,8 @@ mod tests {
         parse_remote_free_service_telemetry_collection_summary_rollup_check_log_summary_verification_rollup_verification_summary_json_log,
         parse_remote_free_service_telemetry_collection_summary_rollup_check_log_summary_verification_rollup_verification_summary_verification_json_line,
         parse_remote_free_service_telemetry_collection_summary_rollup_check_log_summary_verification_rollup_verification_summary_verification_json_log,
+        parse_remote_free_service_telemetry_collection_summary_rollup_check_log_summary_verification_rollup_verification_summary_verification_rollup_json_line,
+        parse_remote_free_service_telemetry_collection_summary_rollup_check_log_summary_verification_rollup_verification_summary_verification_rollup_json_log,
         resolve_remote_free_service_telemetry_collection_summary_manifest_path,
         resolve_remote_free_service_telemetry_collection_summary_validation_summary_path,
         rollup_artifact_fingerprint,
@@ -6621,6 +6695,122 @@ mod tests {
             error,
             RemoteFreeServiceTelemetryCollectionSummaryRollupError::MissingField(
                 "rollup_check_log_summary_verification_rollup_verification_summary_verification_json_line"
+            )
+        ));
+    }
+
+    #[test]
+    fn parses_rollup_check_log_summary_json_verification_rollup_verdict_summary_verdict_rollup(
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let log =
+            sample_rollup_check_log_summary_json_verification_rollup_verdict_summary_verdict_log()?;
+        let rollup =
+            summarize_remote_free_service_telemetry_collection_summary_rollup_check_log_summary_verification_rollup_verification_summary_verification_json_log(
+                &log,
+            )?;
+        let json_line =
+            format_remote_free_service_telemetry_collection_summary_rollup_check_log_summary_verification_rollup_verification_summary_verification_rollup_json_line(
+                &rollup,
+            )?;
+        let rollup_log = format!("published summary verdict rollup\n{json_line}\n");
+
+        let parsed_line =
+            parse_remote_free_service_telemetry_collection_summary_rollup_check_log_summary_verification_rollup_verification_summary_verification_rollup_json_line(
+                &json_line,
+            )?;
+        let parsed_log =
+            parse_remote_free_service_telemetry_collection_summary_rollup_check_log_summary_verification_rollup_verification_summary_verification_rollup_json_log(
+                &rollup_log,
+            )?;
+
+        assert_eq!(parsed_line, rollup);
+        assert_eq!(parsed_log, rollup);
+        assert_eq!(parsed_log.summary.records, 2);
+        assert_eq!(parsed_log.summary.drift_records, 1);
+        Ok(())
+    }
+
+    #[test]
+    fn rejects_rollup_check_log_summary_json_verification_rollup_verdict_summary_verdict_rollup_status_group_drift(
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let log =
+            sample_rollup_check_log_summary_json_verification_rollup_verdict_summary_verdict_log()?;
+        let rollup =
+            summarize_remote_free_service_telemetry_collection_summary_rollup_check_log_summary_verification_rollup_verification_summary_verification_json_log(
+                &log,
+            )?;
+        let json_line =
+            format_remote_free_service_telemetry_collection_summary_rollup_check_log_summary_verification_rollup_verification_summary_verification_rollup_json_line(
+                &rollup,
+            )?;
+        let mut value = serde_json::from_str::<serde_json::Value>(&json_line)?;
+        value["status_coverage"]["matched"] = json!(0);
+        let value = serde_json::to_string(&value)?;
+
+        let error =
+            parse_remote_free_service_telemetry_collection_summary_rollup_check_log_summary_verification_rollup_verification_summary_verification_rollup_json_line(
+                &value,
+            )
+            .expect_err("status coverage drift");
+
+        assert!(matches!(
+            error,
+            RemoteFreeServiceTelemetryCollectionSummaryRollupError::CountDrift {
+                field: "status_coverage.matched",
+                expected: 1,
+                actual: 0
+            }
+        ));
+        Ok(())
+    }
+
+    #[test]
+    fn rejects_rollup_check_log_summary_json_verification_rollup_verdict_summary_verdict_rollup_drift_field_group_drift(
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let log =
+            sample_rollup_check_log_summary_json_verification_rollup_verdict_summary_verdict_log()?;
+        let rollup =
+            summarize_remote_free_service_telemetry_collection_summary_rollup_check_log_summary_verification_rollup_verification_summary_verification_json_log(
+                &log,
+            )?;
+        let json_line =
+            format_remote_free_service_telemetry_collection_summary_rollup_check_log_summary_verification_rollup_verification_summary_verification_rollup_json_line(
+                &rollup,
+            )?;
+        let mut value = serde_json::from_str::<serde_json::Value>(&json_line)?;
+        value["drift_fields"]["records"] = json!(0);
+        let value = serde_json::to_string(&value)?;
+
+        let error =
+            parse_remote_free_service_telemetry_collection_summary_rollup_check_log_summary_verification_rollup_verification_summary_verification_rollup_json_line(
+                &value,
+            )
+            .expect_err("drift fields drift");
+
+        assert!(matches!(
+            error,
+            RemoteFreeServiceTelemetryCollectionSummaryRollupError::CountDrift {
+                field: "drift_fields.records",
+                expected: 1,
+                actual: 0
+            }
+        ));
+        Ok(())
+    }
+
+    #[test]
+    fn rejects_rollup_check_log_summary_json_verification_rollup_verdict_summary_verdict_rollup_log_without_records(
+    ) {
+        let error =
+            parse_remote_free_service_telemetry_collection_summary_rollup_check_log_summary_verification_rollup_verification_summary_verification_rollup_json_log(
+                "dashboard noise\n",
+            )
+            .expect_err("missing verifier-summary verification rollup JSON");
+
+        assert!(matches!(
+            error,
+            RemoteFreeServiceTelemetryCollectionSummaryRollupError::MissingField(
+                "rollup_check_log_summary_verification_rollup_verification_summary_verification_rollup_json_line"
             )
         ));
     }
