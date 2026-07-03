@@ -610,6 +610,13 @@ environment. The public release checker still accepted the artifact while
 reporting only one summary, one valid bundle, one timing range, and one bundle
 row.
 
+Experiment 0242 added optional host metadata to `collection-summary.json`.
+A real two-run direct capture wrote `os=macos`, `arch=aarch64`, and
+`hostname=null`, then validated four listed artifacts, 6,937 verified bytes,
+a matched 335-byte validation summary, and a stable 53,099,000 ps to
+56,033,000 ps timing range. The initial parser patch rejected explicit null
+hostname; the fix now treats null as no hostname only for host metadata.
+
 ## Measured Thresholds
 
 | Path | Shape inputs | Budget | Matched counters |
@@ -904,6 +911,8 @@ row.
   recomputation in the caller.
 - Do not make rollup host metadata part of release-check pass or fail. It is
   benchmark triage context beside the integrity counters.
+- Do not assume benchmark host metadata always has a hostname. Real direct
+  capture on this machine exposed `os` and `arch` but no environment hostname.
 - Recheck thresholds when KV block size, request arena capacity, burst size,
   request concurrency, or batch size changes.
 - For heterogeneous traces, derive the budget from actual retained item sizes
@@ -982,6 +991,7 @@ row.
 - `documentation/experiments/0239-remote-free-service-telemetry-directory-scan-helper.md`
 - `documentation/experiments/0240-remote-free-service-telemetry-directory-rollup-builder.md`
 - `documentation/experiments/0241-remote-free-service-telemetry-rollup-host-metadata.md`
+- `documentation/experiments/0242-remote-free-service-telemetry-summary-host-metadata.md`
 
 ## Open Questions
 

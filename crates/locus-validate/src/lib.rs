@@ -48,6 +48,7 @@ pub use remote_free_service_collection_summary::{
     RemoteFreeServiceTelemetryCollectionSummaryBundleValidation,
     RemoteFreeServiceTelemetryCollectionSummaryDirectoryRollupError,
     RemoteFreeServiceTelemetryCollectionSummaryError,
+    RemoteFreeServiceTelemetryCollectionSummaryHost,
     RemoteFreeServiceTelemetryCollectionSummaryRollup,
     RemoteFreeServiceTelemetryCollectionSummaryRollupBundle,
     RemoteFreeServiceTelemetryCollectionSummaryRollupBundleStatus,

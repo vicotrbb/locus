@@ -14,7 +14,7 @@ use locus_validate::{
     format_remote_free_service_telemetry_timing_stability_manifest,
     remote_free_service_telemetry_repeated_capture_labels,
     summarize_remote_free_service_telemetry_timing_stability,
-    RemoteFreeServiceTelemetryTimingStabilityRun,
+    RemoteFreeServiceTelemetryCollectionSummaryHost, RemoteFreeServiceTelemetryTimingStabilityRun,
 };
 use serde_json::{json, Value};
 
@@ -298,11 +298,13 @@ fn write_collection_summary(
         None,
         "validation-summary.txt",
     )?);
+    let host = current_collection_summary_host_metadata();
 
     let summary = json!({
         "schema": "locus.remote_free_service.telemetry.collection_summary.v1",
         "collection_mode": mode.as_str(),
         "run_id": run_id,
+        "host": collection_summary_host_json(&host),
         "output_count": candidates.len() + 1,
         "criterion_args": criterion_args,
         "sources": sources,
@@ -312,6 +314,25 @@ fn write_collection_summary(
     let path = run_dir.join("collection-summary.json");
     fs::write(&path, output)?;
     Ok(path)
+}
+
+fn current_collection_summary_host_metadata() -> RemoteFreeServiceTelemetryCollectionSummaryHost {
+    RemoteFreeServiceTelemetryCollectionSummaryHost {
+        os: env::consts::OS.to_owned(),
+        arch: env::consts::ARCH.to_owned(),
+        hostname: env::var("HOSTNAME")
+            .or_else(|_| env::var("COMPUTERNAME"))
+            .ok()
+            .filter(|hostname| !hostname.is_empty()),
+    }
+}
+
+fn collection_summary_host_json(host: &RemoteFreeServiceTelemetryCollectionSummaryHost) -> Value {
+    json!({
+        "os": host.os.as_str(),
+        "arch": host.arch.as_str(),
+        "hostname": host.hostname.as_deref(),
+    })
 }
 
 fn source_json(role: &str, source: &SourceRun) -> Value {
@@ -462,6 +483,8 @@ mod tests {
         );
         assert_eq!(summary["collection_mode"], "benchmark_capture");
         assert_eq!(summary["run_id"], "run-id");
+        assert_eq!(summary["host"]["os"], std::env::consts::OS);
+        assert_eq!(summary["host"]["arch"], std::env::consts::ARCH);
         assert_eq!(summary["output_count"], 2);
         assert_eq!(
             summary["criterion_args"],

@@ -20,6 +20,8 @@ pub struct RemoteFreeServiceTelemetryCollectionSummary {
     pub collection_mode: String,
     /// Stable run id used as the evidence directory name.
     pub run_id: String,
+    /// Optional host metadata for the process that captured this bundle.
+    pub host: Option<RemoteFreeServiceTelemetryCollectionSummaryHost>,
     /// Number of captured output artifacts.
     pub output_count: usize,
     /// Criterion arguments used for benchmark capture.
@@ -28,6 +30,17 @@ pub struct RemoteFreeServiceTelemetryCollectionSummary {
     pub sources: Vec<RemoteFreeServiceTelemetryCollectionSummarySource>,
     /// Artifact entries indexed by the summary.
     pub artifacts: Vec<RemoteFreeServiceTelemetryCollectionSummaryArtifact>,
+}
+
+/// Host metadata associated with a collection summary capture.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RemoteFreeServiceTelemetryCollectionSummaryHost {
+    /// Operating system reported by the Rust target.
+    pub os: String,
+    /// CPU architecture reported by the Rust target.
+    pub arch: String,
+    /// Hostname visible to the capture process, when available.
+    pub hostname: Option<String>,
 }
 
 /// One source entry from a collection summary.
@@ -528,6 +541,7 @@ pub fn parse_remote_free_service_telemetry_collection_summary(
 
     let collection_mode = required_str(&value, "collection_mode")?.to_owned();
     let run_id = required_str(&value, "run_id")?.to_owned();
+    let host = optional_summary_host(&value)?;
     let output_count = required_usize(&value, "output_count")?;
     let criterion_args = required_string_array(&value, "criterion_args")?;
     let sources = required_array(&value, "sources")?
@@ -555,6 +569,7 @@ pub fn parse_remote_free_service_telemetry_collection_summary(
     Ok(RemoteFreeServiceTelemetryCollectionSummary {
         collection_mode,
         run_id,
+        host,
         output_count,
         criterion_args,
         sources,
@@ -917,6 +932,26 @@ fn parse_source(
     })
 }
 
+fn optional_summary_host(
+    value: &Value,
+) -> Result<
+    Option<RemoteFreeServiceTelemetryCollectionSummaryHost>,
+    RemoteFreeServiceTelemetryCollectionSummaryError,
+> {
+    let Some(host) = value.get("host") else {
+        return Ok(None);
+    };
+    let host_value = host;
+    if !host_value.is_object() {
+        return Err(RemoteFreeServiceTelemetryCollectionSummaryError::InvalidFieldType("host"));
+    }
+    Ok(Some(RemoteFreeServiceTelemetryCollectionSummaryHost {
+        os: required_str(host_value, "os")?.to_owned(),
+        arch: required_str(host_value, "arch")?.to_owned(),
+        hostname: optional_nullable_str(host_value, "hostname")?.map(str::to_owned),
+    }))
+}
+
 fn parse_artifact(
     value: &Value,
 ) -> Result<
@@ -949,6 +984,22 @@ fn optional_str<'a>(
     let Some(value) = value.get(field) else {
         return Ok(None);
     };
+    value
+        .as_str()
+        .map(Some)
+        .ok_or(RemoteFreeServiceTelemetryCollectionSummaryError::InvalidFieldType(field))
+}
+
+fn optional_nullable_str<'a>(
+    value: &'a Value,
+    field: &'static str,
+) -> Result<Option<&'a str>, RemoteFreeServiceTelemetryCollectionSummaryError> {
+    let Some(value) = value.get(field) else {
+        return Ok(None);
+    };
+    if value.is_null() {
+        return Ok(None);
+    }
     value
         .as_str()
         .map(Some)
@@ -1193,6 +1244,34 @@ mod tests {
         )
     }
 
+    fn summary_json_with_host() -> String {
+        let mut summary =
+            serde_json::from_str::<serde_json::Value>(&summary_json(3, "manifest.txt"))
+                .expect("summary json");
+        summary.as_object_mut().expect("summary object").insert(
+            "host".to_owned(),
+            json!({
+                "os": "linux",
+                "arch": "x86_64",
+                "hostname": "bench-host-01"
+            }),
+        );
+        format!(
+            "{}\n",
+            serde_json::to_string_pretty(&summary).expect("json")
+        )
+    }
+
+    fn summary_json_with_null_hostname() -> String {
+        let mut summary =
+            serde_json::from_str::<serde_json::Value>(&summary_json_with_host()).expect("summary");
+        summary["host"]["hostname"] = serde_json::Value::Null;
+        format!(
+            "{}\n",
+            serde_json::to_string_pretty(&summary).expect("json")
+        )
+    }
+
     fn rollup_json(status: &str, valid_bundles: u64, drifted_summaries: u64) -> String {
         let artifact = json!({
             "schema": "locus.remote_free_service.telemetry.collection_summary_rollup.v2",
@@ -1260,10 +1339,36 @@ mod tests {
 
         assert_eq!(summary.collection_mode, "benchmark_capture");
         assert_eq!(summary.run_id, "run-1");
+        assert_eq!(summary.host, None);
         assert_eq!(summary.output_count, 1);
         assert_eq!(summary.criterion_args, ["--sample-size", "10"]);
         assert_eq!(summary.sources[0].artifact, "run-01.txt");
         assert_eq!(summary.artifacts[0].byte_count, 3);
+    }
+
+    #[test]
+    fn parses_collection_summary_host_metadata() {
+        let summary =
+            parse_remote_free_service_telemetry_collection_summary(&summary_json_with_host())
+                .expect("summary");
+
+        let host = summary.host.expect("host metadata");
+        assert_eq!(host.os, "linux");
+        assert_eq!(host.arch, "x86_64");
+        assert_eq!(host.hostname.as_deref(), Some("bench-host-01"));
+    }
+
+    #[test]
+    fn parses_collection_summary_host_metadata_without_hostname() {
+        let summary = parse_remote_free_service_telemetry_collection_summary(
+            &summary_json_with_null_hostname(),
+        )
+        .expect("summary");
+
+        let host = summary.host.expect("host metadata");
+        assert_eq!(host.os, "linux");
+        assert_eq!(host.arch, "x86_64");
+        assert_eq!(host.hostname, None);
     }
 
     #[test]
