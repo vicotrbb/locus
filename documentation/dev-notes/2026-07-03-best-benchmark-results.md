@@ -18,7 +18,7 @@ These are best observed local microbenchmark results, not final claims about pro
 | KV block reuse vs uninitialized Vec | `kv_block_pool_cycle_256x4k`: 1.1526 us to 1.1558 us vs `kv_vec_uninit_capacity_allocation_cycle_256x4k`: 5.5628 us to 5.6642 us | `documentation/experiments/0046-vec-uninit-capacity-benchmark-baseline.md` |
 | Remote-free generic handoff | `remote_free_queue_persistent_handoff_256x4k`: 54.873 us to 55.169 us vs `vec_persistent_worker_handoff_256x4k`: 71.012 us to 72.160 us | `documentation/experiments/0055-remote-free-queue-benchmark.md` |
 | KV remote-free large batch | `kv_remote_free_queue_release_batch256_256x4k`: 5.5519 us to 5.7110 us, fastest observed KV remote-free batch sweep point | `documentation/experiments/0059-kv-remote-free-large-batches.md` |
-| Nonblocking remote-free backpressure | `remote_free_try_enqueue_backpressure_256x4k_batch64`: 53.494 us to 53.681 us, with repeated pre-sample `full_mean=0.000` | `documentation/experiments/0130-remote-free-repeated-backpressure-samples.md` |
+| Nonblocking remote-free backpressure | `remote_free_try_enqueue_backpressure_256x4k_capacity256_batch64`: 53.173 us to 53.643 us, with repeated pre-sample `full_mean=0.000`; capacity128/batch64 was close at 53.305 us to 53.598 us | `documentation/experiments/0142-remote-free-large-capacity-backpressure.md` |
 | THP-advised mapped scratch first touch | `mapped_scratch_write_touch_4mib_hugepage_advice`: 27.359 us to 27.781 us vs default 675.72 us to 695.21 us and no-hugepage 682.37 us to 694.57 us | `documentation/experiments/0110-mapped-scratch-thp-write-touch-benchmark.md` |
 
 ## Current Interpretation

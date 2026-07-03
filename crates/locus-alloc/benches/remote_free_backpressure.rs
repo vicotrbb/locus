@@ -79,6 +79,26 @@ fn remote_free_try_enqueue_backpressure_batch64(c: &mut Criterion) {
     );
 }
 
+fn remote_free_try_enqueue_backpressure_capacity128_batch64(c: &mut Criterion) {
+    print_backpressure_sample("capacity128_batch64", 128, 64);
+    remote_free_try_enqueue_backpressure(
+        c,
+        "remote_free_try_enqueue_backpressure_256x4k_capacity128_batch64",
+        128,
+        64,
+    );
+}
+
+fn remote_free_try_enqueue_backpressure_capacity256_batch64(c: &mut Criterion) {
+    print_backpressure_sample("capacity256_batch64", 256, 64);
+    remote_free_try_enqueue_backpressure(
+        c,
+        "remote_free_try_enqueue_backpressure_256x4k_capacity256_batch64",
+        256,
+        64,
+    );
+}
+
 fn remote_free_try_enqueue_backpressure(
     c: &mut Criterion,
     name: &'static str,
@@ -213,6 +233,8 @@ criterion_group!(
     remote_free_try_enqueue_backpressure_batch8,
     remote_free_try_enqueue_backpressure_capacity8_batch64,
     remote_free_try_enqueue_backpressure_capacity64_batch8,
-    remote_free_try_enqueue_backpressure_batch64
+    remote_free_try_enqueue_backpressure_batch64,
+    remote_free_try_enqueue_backpressure_capacity128_batch64,
+    remote_free_try_enqueue_backpressure_capacity256_batch64
 );
 criterion_main!(benches);
