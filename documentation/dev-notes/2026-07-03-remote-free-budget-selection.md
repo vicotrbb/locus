@@ -1499,6 +1499,10 @@ then reloaded them through the parser path.
 Experiment 0334 made that parser-only recheck explicit for the saved matched
 and stale aggregate rollup recheck cohort rollup recheck verdict rollup drift
 JSON verdict records.
+Experiment 0335 aggregated those saved matched and stale JSON verdict records
+into a compact dashboard rollup with one matched record, one drifted record,
+and one `records` drift bucket. It also recorded a malformed token extraction
+regex before rerunning with the corrected inspection pattern.
 
 ## Open Questions
 
