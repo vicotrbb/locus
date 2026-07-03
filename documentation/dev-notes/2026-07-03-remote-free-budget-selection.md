@@ -636,6 +636,13 @@ host-bearing artifact reports one bundle host, while the older no-host bundle
 artifact reports zero bundle hosts and one missing bundle host. Invalid host
 metadata is treated as no coverage, not a verdict failure.
 
+Experiment 0246 added status coverage fields to release-check output:
+`status_valid_bundles`, `status_drifted_summaries`,
+`status_missing_artifacts`, and `status_other_failures`. The two real rollup
+artifacts both report one valid bundle and zero failed status rows. A mixed
+valid-plus-drifted fixture still fails with the same failed-bundles verdict,
+while the error output reports one valid row and one drifted row.
+
 ## Measured Thresholds
 
 | Path | Shape inputs | Budget | Matched counters |
@@ -1016,6 +1023,7 @@ metadata is treated as no coverage, not a verdict failure.
 - `documentation/experiments/0243-remote-free-service-telemetry-summary-host-output.md`
 - `documentation/experiments/0244-remote-free-service-telemetry-rollup-bundle-host.md`
 - `documentation/experiments/0245-remote-free-service-telemetry-rollup-host-coverage.md`
+- `documentation/experiments/0246-remote-free-service-telemetry-rollup-status-coverage.md`
 
 ## Open Questions
 

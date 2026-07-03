@@ -96,6 +96,12 @@ pub struct RemoteFreeServiceTelemetryCollectionSummaryRollupCheck {
     pub summaries: u64,
     /// Number of valid bundle rows declared and observed.
     pub valid_bundles: u64,
+    /// Number of drifted saved validation summary rows observed.
+    pub drifted_summaries: u64,
+    /// Number of missing artifact rows observed.
+    pub missing_artifacts: u64,
+    /// Number of other failure rows observed.
+    pub other_failures: u64,
     /// Number of timing ranges declared and observed.
     pub timing_ranges: u64,
     /// Number of bundle rows in the artifact.
@@ -227,7 +233,7 @@ impl fmt::Display for RemoteFreeServiceTelemetryCollectionSummaryRollupCheck {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
-            "remote_free_service_telemetry_collection_summary_rollup_check=ok path={} summaries={} valid_bundles={} timing_ranges={} bundles={} rollup_host_present={} bundle_hosts={} bundle_hosts_missing={}",
+            "remote_free_service_telemetry_collection_summary_rollup_check=ok path={} summaries={} valid_bundles={} timing_ranges={} bundles={} rollup_host_present={} bundle_hosts={} bundle_hosts_missing={} status_valid_bundles={} status_drifted_summaries={} status_missing_artifacts={} status_other_failures={}",
             self.path.display(),
             self.summaries,
             self.valid_bundles,
@@ -235,7 +241,11 @@ impl fmt::Display for RemoteFreeServiceTelemetryCollectionSummaryRollupCheck {
             self.bundles,
             self.rollup_host_present,
             self.bundle_hosts,
-            self.bundle_hosts_missing
+            self.bundle_hosts_missing,
+            self.valid_bundles,
+            self.drifted_summaries,
+            self.missing_artifacts,
+            self.other_failures
         )
     }
 }
@@ -445,6 +455,8 @@ pub enum RemoteFreeServiceTelemetryCollectionSummaryRollupError {
     },
     /// The artifact contains failed bundle rows.
     FailedBundles {
+        /// Number of valid bundle rows.
+        valid_bundles: u64,
         /// Number of drifted summary rows.
         drifted_summaries: u64,
         /// Number of missing artifact rows.
@@ -504,12 +516,13 @@ impl fmt::Display for RemoteFreeServiceTelemetryCollectionSummaryRollupError {
                 "remote-free service telemetry collection summary rollup count drift: field={field} expected={expected} actual={actual}"
             ),
             Self::FailedBundles {
+                valid_bundles,
                 drifted_summaries,
                 missing_artifacts,
                 other_failures,
             } => write!(
                 f,
-                "remote-free service telemetry collection summary rollup contains failed bundles: drifted_summaries={drifted_summaries} missing_artifacts={missing_artifacts} other_failures={other_failures}"
+                "remote-free service telemetry collection summary rollup contains failed bundles: valid_bundles={valid_bundles} drifted_summaries={drifted_summaries} missing_artifacts={missing_artifacts} other_failures={other_failures}"
             ),
         }
     }
@@ -911,6 +924,7 @@ pub fn validate_remote_free_service_telemetry_collection_summary_rollup_artifact
     if drifted_summaries != 0 || missing_artifacts != 0 || other_failures != 0 {
         return Err(
             RemoteFreeServiceTelemetryCollectionSummaryRollupError::FailedBundles {
+                valid_bundles,
                 drifted_summaries,
                 missing_artifacts,
                 other_failures,
@@ -922,6 +936,9 @@ pub fn validate_remote_free_service_telemetry_collection_summary_rollup_artifact
         path: path.to_path_buf(),
         summaries,
         valid_bundles,
+        drifted_summaries,
+        missing_artifacts,
+        other_failures,
         timing_ranges,
         bundles: summaries,
         rollup_host_present,
@@ -1371,6 +1388,52 @@ mod tests {
         )
     }
 
+    fn rollup_json_with_valid_and_drifted_host_rows() -> String {
+        let artifact = json!({
+            "schema": "locus.remote_free_service.telemetry.collection_summary_rollup.v2",
+            "root": "evidence",
+            "host": {
+                "os": "linux",
+                "arch": "x86_64",
+                "hostname": "bench-host-01"
+            },
+            "summaries": 2,
+            "valid_bundles": 1,
+            "drifted_summaries": 1,
+            "missing_artifacts": 0,
+            "other_failures": 0,
+            "timing_ranges": 1,
+            "bundles": [
+                {
+                    "summary": "run-1/collection-summary.json",
+                    "run_id": "run-1",
+                    "host": {
+                        "os": "linux",
+                        "arch": "x86_64",
+                        "hostname": "bench-host-01"
+                    },
+                    "status": "valid",
+                    "timing_ranges": 1
+                },
+                {
+                    "summary": "run-2/collection-summary.json",
+                    "run_id": "run-2",
+                    "host": {
+                        "os": "linux",
+                        "arch": "x86_64",
+                        "hostname": "bench-host-01"
+                    },
+                    "status": "drifted_summary",
+                    "timing_ranges": 0
+                }
+            ]
+        });
+        format!(
+            "{}\n",
+            serde_json::to_string_pretty(&artifact).expect("json")
+        )
+    }
+
     fn temp_dir() -> Result<std::path::PathBuf, Box<dyn std::error::Error>> {
         let dir = env::temp_dir().join(format!(
             "locus-summary-validate-test-{}-{}-{}",
@@ -1692,6 +1755,9 @@ mod tests {
         assert_eq!(check.path, rollup_path);
         assert_eq!(check.summaries, 1);
         assert_eq!(check.valid_bundles, 1);
+        assert_eq!(check.drifted_summaries, 0);
+        assert_eq!(check.missing_artifacts, 0);
+        assert_eq!(check.other_failures, 0);
         assert_eq!(check.timing_ranges, 1);
         assert_eq!(check.bundles, 1);
         assert!(!check.rollup_host_present);
@@ -1700,7 +1766,7 @@ mod tests {
         assert_eq!(
             check.to_string(),
             format!(
-                "remote_free_service_telemetry_collection_summary_rollup_check=ok path={} summaries=1 valid_bundles=1 timing_ranges=1 bundles=1 rollup_host_present=false bundle_hosts=0 bundle_hosts_missing=1",
+                "remote_free_service_telemetry_collection_summary_rollup_check=ok path={} summaries=1 valid_bundles=1 timing_ranges=1 bundles=1 rollup_host_present=false bundle_hosts=0 bundle_hosts_missing=1 status_valid_bundles=1 status_drifted_summaries=0 status_missing_artifacts=0 status_other_failures=0",
                 check.path.display()
             )
         );
@@ -1722,6 +1788,9 @@ mod tests {
         assert_eq!(check.path, rollup_path);
         assert_eq!(check.summaries, 1);
         assert_eq!(check.valid_bundles, 1);
+        assert_eq!(check.drifted_summaries, 0);
+        assert_eq!(check.missing_artifacts, 0);
+        assert_eq!(check.other_failures, 0);
         assert_eq!(check.timing_ranges, 1);
         assert_eq!(check.bundles, 1);
         assert!(check.rollup_host_present);
@@ -1743,6 +1812,9 @@ mod tests {
         )?;
 
         assert_eq!(check.valid_bundles, 1);
+        assert_eq!(check.drifted_summaries, 0);
+        assert_eq!(check.missing_artifacts, 0);
+        assert_eq!(check.other_failures, 0);
         assert!(!check.rollup_host_present);
         assert_eq!(check.bundle_hosts, 0);
         assert_eq!(check.bundle_hosts_missing, 1);
@@ -1802,6 +1874,9 @@ mod tests {
         )?;
 
         assert_eq!(check.valid_bundles, 1);
+        assert_eq!(check.drifted_summaries, 0);
+        assert_eq!(check.missing_artifacts, 0);
+        assert_eq!(check.other_failures, 0);
         assert_eq!(check.timing_ranges, 1);
         assert!(check.rollup_host_present);
         assert_eq!(check.bundle_hosts, 1);
@@ -1814,7 +1889,7 @@ mod tests {
     fn rejects_failed_collection_summary_rollup_rows() -> Result<(), Box<dyn std::error::Error>> {
         let dir = temp_dir()?;
         let rollup_path = dir.join("collection-summary-rollup.json");
-        fs::write(&rollup_path, rollup_json_with_host("drifted_summary", 0, 1))?;
+        fs::write(&rollup_path, rollup_json_with_valid_and_drifted_host_rows())?;
 
         let error =
             validate_remote_free_service_telemetry_collection_summary_rollup_artifact(&rollup_path)
@@ -1823,11 +1898,15 @@ mod tests {
         assert!(matches!(
             error,
             RemoteFreeServiceTelemetryCollectionSummaryRollupError::FailedBundles {
+                valid_bundles: 1,
                 drifted_summaries: 1,
                 missing_artifacts: 0,
                 other_failures: 0,
             }
         ));
+        assert!(error
+            .to_string()
+            .contains("valid_bundles=1 drifted_summaries=1"));
         fs::remove_dir_all(dir)?;
         Ok(())
     }
