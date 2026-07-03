@@ -541,6 +541,12 @@ counts that matched filesystem metadata. The same manifest-backed validation
 reported `stable`, two accepted candidate runs, zero discarded runs, and one
 timing range from 53,611,000 ps to 56,031,000 ps, for a 2,420,000 ps spread.
 
+Experiment 0231 added `remote_free_service_telemetry_summary_validate` as a
+bundle-entry validation command for `collection-summary.json`. It verified the
+real Experiment 0230 bundle's five listed artifacts, 10,252 total bytes, and
+then reran the manifest-backed stability check, reproducing the same `stable`
+summary and 53,611,000 ps to 56,031,000 ps timing range.
+
 ## Measured Thresholds
 
 | Path | Shape inputs | Budget | Matched counters |

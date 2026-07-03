@@ -3,6 +3,7 @@
 mod mapped_scratch_thp_gate;
 mod pinned_scratch_gate;
 mod pinned_scratch_near_gpu_gate;
+mod remote_free_service_collection_summary;
 mod remote_free_service_sample_compare;
 mod remote_free_service_timing_stability;
 mod thp_benchmark_evidence_report;
@@ -31,6 +32,17 @@ pub use pinned_scratch_near_gpu_gate::{
     PinnedScratchNearGpuValidationGateLineParseError, PinnedScratchNearGpuValidationGateParseError,
     PinnedScratchNearGpuValidationGateReason, PinnedScratchNearGpuValidationGateStatus,
     PinnedScratchNearGpuValidationGateVerdict,
+};
+pub use remote_free_service_collection_summary::{
+    parse_remote_free_service_telemetry_collection_summary,
+    resolve_remote_free_service_telemetry_collection_summary_manifest_path,
+    verify_remote_free_service_telemetry_collection_summary_artifacts,
+    RemoteFreeServiceTelemetryCollectionSummary,
+    RemoteFreeServiceTelemetryCollectionSummaryArtifact,
+    RemoteFreeServiceTelemetryCollectionSummaryArtifactReport,
+    RemoteFreeServiceTelemetryCollectionSummaryError,
+    RemoteFreeServiceTelemetryCollectionSummarySource,
+    REMOTE_FREE_SERVICE_TELEMETRY_COLLECTION_SUMMARY_SCHEMA,
 };
 pub use remote_free_service_sample_compare::{
     compare_remote_free_service_telemetry_sample_outputs,
