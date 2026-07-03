@@ -1,4 +1,5 @@
 use std::fmt;
+use std::num::NonZeroU64;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::{sync_channel, Receiver, SyncSender, TryRecvError, TrySendError};
 use std::sync::Arc;
@@ -46,6 +47,45 @@ pub struct RemoteFreeDrainStats {
     pub drained: usize,
     /// Total items drained by the queue after this operation.
     pub total_drained: u64,
+}
+
+/// Owner-side signals used to decide whether remote frees should be drained.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RemoteFreeDrainObservation {
+    /// Submitted items that have not yet been drained by the owner.
+    pub pending_count: u64,
+    /// Estimated bytes retained by pending remote-free work.
+    pub queued_bytes: u64,
+    /// Age of the oldest pending item in scheduler-defined logical turns.
+    pub oldest_pending_age: u64,
+}
+
+/// Pure policy for deciding whether the owner should drain remote frees.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct RemoteFreeDrainPolicy {
+    pending_count_ceiling: Option<NonZeroU64>,
+    queued_byte_budget: Option<NonZeroU64>,
+    age_bound: Option<NonZeroU64>,
+}
+
+/// Result of applying a remote-free drain policy.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RemoteFreeDrainDecision {
+    /// The owner can defer draining for now.
+    Defer,
+    /// The owner should drain because a threshold was reached.
+    Drain(RemoteFreeDrainReason),
+}
+
+/// Threshold that caused a remote-free drain policy to request draining.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RemoteFreeDrainReason {
+    /// Pending queued bytes reached the configured maximum.
+    QueuedBytes,
+    /// Oldest pending item age reached the configured maximum.
+    PendingAge,
+    /// Pending item count reached the configured maximum.
+    PendingCount,
 }
 
 impl<T> RemoteFreeQueue<T> {
@@ -124,6 +164,96 @@ impl<T> RemoteFreeQueue<T> {
             disconnected_count: self.sink.disconnected_count(),
             drained_count: self.drained_count,
         }
+    }
+}
+
+impl RemoteFreeDrainObservation {
+    /// Creates a drain-policy observation.
+    #[must_use]
+    pub const fn new(pending_count: u64, queued_bytes: u64, oldest_pending_age: u64) -> Self {
+        Self {
+            pending_count,
+            queued_bytes,
+            oldest_pending_age,
+        }
+    }
+}
+
+impl RemoteFreeDrainPolicy {
+    /// Creates a policy with no thresholds.
+    #[must_use]
+    pub const fn new() -> Self {
+        Self {
+            pending_count_ceiling: None,
+            queued_byte_budget: None,
+            age_bound: None,
+        }
+    }
+
+    /// Sets the pending item threshold.
+    #[must_use]
+    pub const fn with_max_pending_count(mut self, max_pending_count: NonZeroU64) -> Self {
+        self.pending_count_ceiling = Some(max_pending_count);
+        self
+    }
+
+    /// Sets the retained byte threshold.
+    #[must_use]
+    pub const fn with_max_queued_bytes(mut self, max_queued_bytes: NonZeroU64) -> Self {
+        self.queued_byte_budget = Some(max_queued_bytes);
+        self
+    }
+
+    /// Sets the oldest pending item age threshold.
+    #[must_use]
+    pub const fn with_max_pending_age(mut self, max_pending_age: NonZeroU64) -> Self {
+        self.age_bound = Some(max_pending_age);
+        self
+    }
+
+    /// Returns the policy decision for an owner-side observation.
+    #[must_use]
+    pub fn decide(self, observation: RemoteFreeDrainObservation) -> RemoteFreeDrainDecision {
+        if observation.pending_count == 0 {
+            return RemoteFreeDrainDecision::Defer;
+        }
+
+        if self
+            .queued_byte_budget
+            .is_some_and(|threshold| observation.queued_bytes >= threshold.get())
+        {
+            return RemoteFreeDrainDecision::Drain(RemoteFreeDrainReason::QueuedBytes);
+        }
+
+        if self
+            .age_bound
+            .is_some_and(|threshold| observation.oldest_pending_age >= threshold.get())
+        {
+            return RemoteFreeDrainDecision::Drain(RemoteFreeDrainReason::PendingAge);
+        }
+
+        if self
+            .pending_count_ceiling
+            .is_some_and(|threshold| observation.pending_count >= threshold.get())
+        {
+            return RemoteFreeDrainDecision::Drain(RemoteFreeDrainReason::PendingCount);
+        }
+
+        RemoteFreeDrainDecision::Defer
+    }
+
+    /// Returns whether the owner should drain for an observation.
+    #[must_use]
+    pub fn should_drain(self, observation: RemoteFreeDrainObservation) -> bool {
+        self.decide(observation).should_drain()
+    }
+}
+
+impl RemoteFreeDrainDecision {
+    /// Returns true when the decision requests owner-side draining.
+    #[must_use]
+    pub const fn should_drain(self) -> bool {
+        matches!(self, Self::Drain(_))
     }
 }
 
@@ -323,7 +453,13 @@ impl<T> std::error::Error for RemoteFreeTryEnqueueError<T> {}
 
 #[cfg(test)]
 mod tests {
-    use super::{RemoteFreeQueue, RemoteFreeQueueError, RemoteFreeTryEnqueueErrorKind};
+    use std::num::NonZeroU64;
+
+    use super::{
+        RemoteFreeDrainDecision, RemoteFreeDrainObservation, RemoteFreeDrainPolicy,
+        RemoteFreeDrainReason, RemoteFreeQueue, RemoteFreeQueueError,
+        RemoteFreeTryEnqueueErrorKind,
+    };
 
     #[test]
     fn remote_free_queue_drains_in_batches() {
@@ -427,5 +563,64 @@ mod tests {
         assert_eq!(sink.submitted_count(), 0);
         assert_eq!(sink.full_count(), 0);
         assert_eq!(sink.disconnected_count(), 2);
+    }
+
+    #[test]
+    fn remote_free_drain_policy_defers_without_thresholds() {
+        let policy = RemoteFreeDrainPolicy::new();
+        let observation = RemoteFreeDrainObservation::new(256, 2_621_440, 8);
+
+        assert_eq!(policy.decide(observation), RemoteFreeDrainDecision::Defer);
+        assert!(!policy.should_drain(observation));
+    }
+
+    #[test]
+    fn remote_free_drain_policy_ignores_empty_observations() {
+        let policy = RemoteFreeDrainPolicy::new()
+            .with_max_pending_count(NonZeroU64::new(1).expect("non-zero"))
+            .with_max_queued_bytes(NonZeroU64::new(1).expect("non-zero"))
+            .with_max_pending_age(NonZeroU64::new(1).expect("non-zero"));
+        let observation = RemoteFreeDrainObservation::new(0, 1_048_576, 16);
+
+        assert_eq!(policy.decide(observation), RemoteFreeDrainDecision::Defer);
+    }
+
+    #[test]
+    fn remote_free_drain_policy_prefers_queued_bytes_reason() {
+        let policy = RemoteFreeDrainPolicy::new()
+            .with_max_pending_count(NonZeroU64::new(64).expect("non-zero"))
+            .with_max_queued_bytes(NonZeroU64::new(655_360).expect("non-zero"))
+            .with_max_pending_age(NonZeroU64::new(2).expect("non-zero"));
+        let observation = RemoteFreeDrainObservation::new(64, 655_360, 2);
+
+        assert_eq!(
+            policy.decide(observation),
+            RemoteFreeDrainDecision::Drain(RemoteFreeDrainReason::QueuedBytes)
+        );
+        assert!(policy.should_drain(observation));
+    }
+
+    #[test]
+    fn remote_free_drain_policy_triggers_by_pending_age() {
+        let policy = RemoteFreeDrainPolicy::new()
+            .with_max_pending_age(NonZeroU64::new(2).expect("non-zero"));
+        let observation = RemoteFreeDrainObservation::new(32, 327_680, 2);
+
+        assert_eq!(
+            policy.decide(observation),
+            RemoteFreeDrainDecision::Drain(RemoteFreeDrainReason::PendingAge)
+        );
+    }
+
+    #[test]
+    fn remote_free_drain_policy_triggers_by_pending_count() {
+        let policy = RemoteFreeDrainPolicy::new()
+            .with_max_pending_count(NonZeroU64::new(64).expect("non-zero"));
+        let observation = RemoteFreeDrainObservation::new(64, 327_680, 1);
+
+        assert_eq!(
+            policy.decide(observation),
+            RemoteFreeDrainDecision::Drain(RemoteFreeDrainReason::PendingCount)
+        );
     }
 }

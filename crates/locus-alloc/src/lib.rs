@@ -61,8 +61,10 @@ pub use pinned_scratch_pool_probe::{
 };
 
 pub use remote_free::{
-    RemoteFreeDrainStats, RemoteFreeEnqueueError, RemoteFreeQueue, RemoteFreeQueueError,
-    RemoteFreeQueueStats, RemoteFreeSink, RemoteFreeTryEnqueueError, RemoteFreeTryEnqueueErrorKind,
+    RemoteFreeDrainDecision, RemoteFreeDrainObservation, RemoteFreeDrainPolicy,
+    RemoteFreeDrainReason, RemoteFreeDrainStats, RemoteFreeEnqueueError, RemoteFreeQueue,
+    RemoteFreeQueueError, RemoteFreeQueueStats, RemoteFreeSink, RemoteFreeTryEnqueueError,
+    RemoteFreeTryEnqueueErrorKind,
 };
 
 pub use request_scratch::{
