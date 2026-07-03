@@ -205,6 +205,11 @@ fn run_rollup_check_json_summary_verdict_rollup_tail_mode(
                 program, args,
             )?;
         }
+        "--rollup-check-json-summary-verdict-rollup-verify-against-json-summary-verify-against-json-rollup-verify-against-json-rollup-verify-against-json-verify" => {
+            run_rollup_check_json_summary_verdict_rollup_verify_against_json_summary_verify_against_json_rollup_verify_against_json_rollup_verify_against_json_verify_mode(
+                program, args,
+            )?;
+        }
         _ => return Ok(false),
     }
     Ok(true)
@@ -685,6 +690,15 @@ fn run_rollup_check_json_summary_verdict_rollup_verify_against_json_summary_veri
     Ok(())
 }
 
+fn run_rollup_check_json_summary_verdict_rollup_verify_against_json_summary_verify_against_json_rollup_verify_against_json_rollup_verify_against_json_verify_mode(
+    program: &str,
+    args: &mut impl Iterator<Item = String>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    run_rollup_check_json_summary_verdict_rollup_verify_against_json_summary_verify_against_json_rollup_verify_against_json_verify_mode(
+        program, args,
+    )
+}
+
 fn one_arg(
     program: &str,
     args: &mut impl Iterator<Item = String>,
@@ -1129,6 +1143,9 @@ fn usage_error(program: &str) -> io::Error {
         ),
         format!(
             "       {program} --rollup-check-json-summary-verdict-rollup-verify-against-json-summary-verify-against-json-rollup-verify-against-json-rollup-verify-against-json <saved-verifier-summary-verification-rollup-verification-log.txt> <saved-verifier-summary-verification-rollup-log.txt>"
+        ),
+        format!(
+            "       {program} --rollup-check-json-summary-verdict-rollup-verify-against-json-summary-verify-against-json-rollup-verify-against-json-rollup-verify-against-json-verify <saved-verifier-summary-verification-rollup-verification-log.txt>"
         ),
     ]
     .join("\n");

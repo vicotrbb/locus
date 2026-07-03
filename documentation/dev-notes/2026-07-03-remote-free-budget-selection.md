@@ -827,6 +827,11 @@ checks. The real matched check emits `status=matched` with `drift=null`, while
 a controlled stale `records=1` repeated-check rollup emits `status=drifted`
 with `drift.field=records`, expected `2`, and actual `1`.
 
+Experiment 0276 added a repeated-check CLI parse alias and focused parser
+tests for repeated-check rollup drift verdict JSON. The real matched artifact
+reloads as `status=matched`, while the controlled stale `records=1` artifact
+reloads as `status=drifted` with `field=records`.
+
 ## Measured Thresholds
 
 | Path | Shape inputs | Budget | Matched counters |
@@ -1237,6 +1242,7 @@ with `drift.field=records`, expected `2`, and actual `1`.
 - `documentation/experiments/0273-remote-free-service-telemetry-rollup-check-log-summary-verdict-rollup-verification-summary-drift-json-rollup-drift-json-rollup-parser.md`
 - `documentation/experiments/0274-remote-free-service-telemetry-rollup-check-log-summary-verdict-rollup-verification-summary-drift-json-rollup-drift-json-rollup-drift.md`
 - `documentation/experiments/0275-remote-free-service-telemetry-rollup-check-log-summary-verdict-rollup-verification-summary-drift-json-rollup-drift-json-rollup-drift-json.md`
+- `documentation/experiments/0276-remote-free-service-telemetry-rollup-check-log-summary-verdict-rollup-verification-summary-drift-json-rollup-drift-json-rollup-drift-json-parser.md`
 
 ## Open Questions
 
