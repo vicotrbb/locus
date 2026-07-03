@@ -92,6 +92,13 @@ diagnostic response:
 The hint is still diagnostic. Benchmark the candidate change before changing
 production policy.
 
+Experiment 0181 tested `increase_queue_capacity` as a pure capacity action on
+the 256-block remote-free trace. Capacity 256 removed `full_count`, but also
+raised max pending items from 64 to 256, retained queued bytes from 262,144 to
+1,048,576, max wait from 2 to 8 bursts, and mean wait from 1.500 to 4.500
+bursts. Treat capacity increases as backpressure fixes that need separate
+latency and retained-byte validation.
+
 ## Measured Thresholds
 
 | Path | Shape inputs | Budget | Matched counters |
@@ -145,6 +152,7 @@ production policy.
 - `documentation/experiments/0178-remote-free-queued-byte-drift-report.md`
 - `documentation/experiments/0179-remote-free-positive-drift-matrix.md`
 - `documentation/experiments/0180-remote-free-drift-retune-hint.md`
+- `documentation/experiments/0181-remote-free-capacity-retune-action.md`
 
 ## Open Questions
 
