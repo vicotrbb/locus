@@ -3,7 +3,7 @@
 use std::thread;
 
 use locus_alloc::{
-    RemoteFreeDrainController, RemoteFreeQueue, RemoteFreeQueuedByteBudget,
+    RemoteFreeDrainController, RemoteFreeQueue, RemoteFreeQueuedByteDrainConfig,
     RemoteFreeTryEnqueueErrorKind,
 };
 
@@ -50,24 +50,28 @@ impl OwnerLoopStats {
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let queued_byte_budget = RemoteFreeQueuedByteBudget::from_grouped_item_shape(
+    let config = RemoteFreeQueuedByteDrainConfig::from_grouped_item_shape(
+        QUEUE_CAPACITY,
+        DRAIN_BATCH_LIMIT,
         REQUEST_CONCURRENCY,
         REMOTE_FREE_BLOCKS_PER_REQUEST,
         REPRESENTATIVE_BLOCK_BYTES,
     )?;
-    let policy = queued_byte_budget.into_policy();
+    let queued_byte_budget = config.queued_byte_budget();
+    let policy = config.drain_policy();
     let mut controller = RemoteFreeDrainController::new(policy);
-    let mut queue = RemoteFreeQueue::new(QUEUE_CAPACITY, DRAIN_BATCH_LIMIT)?;
+    let mut queue = config.queue::<RemoteFreeBlock>()?;
     let sink = queue.sink();
     let mut stats = OwnerLoopStats::default();
     let mut size_index = 0_usize;
 
     println!("remote_free_queued_byte_owner_loop=started");
-    println!("queue_capacity={QUEUE_CAPACITY}");
-    println!("drain_batch_limit={DRAIN_BATCH_LIMIT}");
+    println!("queue_capacity={}", config.queue_capacity());
+    println!("drain_batch_limit={}", config.drain_batch_limit());
     println!("request_concurrency={REQUEST_CONCURRENCY}");
     println!("remote_free_blocks_per_request={REMOTE_FREE_BLOCKS_PER_REQUEST}");
     println!("representative_block_bytes={REPRESENTATIVE_BLOCK_BYTES}");
+    println!("target_pending_items={}", config.target_pending_items());
     println!("queued_byte_budget={}", queued_byte_budget.bytes());
 
     for burst in 0..TRACE_BURSTS {

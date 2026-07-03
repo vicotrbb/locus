@@ -32,6 +32,27 @@ Use `budget.into_policy()` for a queued-byte-only policy. Use
 when composing the queued-byte guard with pending-age or pending-count
 thresholds.
 
+## Config Helper
+
+Use `RemoteFreeQueuedByteDrainConfig` when the runtime can express a target
+pending item window and wants queue capacity, drain batch size, and queued-byte
+budget validated together.
+
+The config currently supports grouped retained item shapes through
+`RemoteFreeQueuedByteDrainConfig::from_grouped_item_shape`. It rejects:
+
+- zero queue capacity;
+- zero drain batch limit;
+- zero target pending item windows;
+- queue capacity below the target pending item window;
+- drain batch limits below the target pending item window;
+- retained-byte budget derivation failures.
+
+The config exposes `drain_policy()` for `RemoteFreeDrainController` and
+`queue::<T>()` for building a `RemoteFreeQueue<T>` with the validated queue
+sizing. Allocator-specific release behavior remains outside the config in the
+owner's `drain_batch` closure.
+
 ## Measured Thresholds
 
 | Path | Shape inputs | Budget | Matched counters |
@@ -82,8 +103,9 @@ thresholds.
 
 ## Open Questions
 
-- Should a future runtime config type carry queue capacity, drain batch size,
-  and queued-byte budget together so invalid combinations are easier to catch?
+- Should `RemoteFreeQueuedByteDrainConfig` grow uniform and heterogeneous
+  constructors after those shapes need queue and batch validation at call
+  sites?
 - Which workload signal should set the retained item window in production:
   scheduler turn age, active request concurrency, KV cache pressure, or memory
   pressure from observability counters?
