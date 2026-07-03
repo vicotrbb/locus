@@ -1478,6 +1478,9 @@ and one `records` drift bucket.
 Experiment 0327 made that saved aggregate rollup recheck cohort rollup JSON
 artifact reloadable through the parser-only path and strict source recheck,
 preserving the same two-record cohort counters.
+Experiment 0328 preserved both the matched and stale aggregate rollup recheck
+cohort rollup recheck outcomes as compact JSON verdicts, then reloaded them
+through the parser path.
 
 ## Open Questions
 
