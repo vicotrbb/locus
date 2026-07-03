@@ -4,7 +4,8 @@ use std::thread;
 
 use locus_alloc::{
     RemoteFreeDrainController, RemoteFreeQueue, RemoteFreeQueuedByteDrainConfig,
-    RemoteFreeTryEnqueueErrorKind,
+    RemoteFreeQueuedByteDriftReport, RemoteFreeQueuedByteRetuneAction,
+    RemoteFreeQueuedByteRetuneHint, RemoteFreeTryEnqueueErrorKind,
 };
 
 const QUEUE_CAPACITY: usize = 256;
@@ -24,7 +25,7 @@ struct RemoteFreeBlock {
     allocation: Vec<u8>,
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug)]
 struct OwnerLoopStats {
     submitted_count: u64,
     drained_count: u64,
@@ -37,9 +38,49 @@ struct OwnerLoopStats {
     released_bytes: u64,
     max_wait_bursts: u64,
     total_wait_bursts: u64,
+    max_pending_over_target: u64,
+    max_queued_bytes_over_budget: u64,
+    queue_backpressure_observed: u64,
+    retune_hint: RemoteFreeQueuedByteRetuneHint,
+    retune_action: RemoteFreeQueuedByteRetuneAction,
 }
 
 impl OwnerLoopStats {
+    fn new() -> Self {
+        Self {
+            submitted_count: 0,
+            drained_count: 0,
+            full_count: 0,
+            forced_drains: 0,
+            policy_drains: 0,
+            drain_rounds: 0,
+            max_pending_count: 0,
+            max_queued_bytes: 0,
+            released_bytes: 0,
+            max_wait_bursts: 0,
+            total_wait_bursts: 0,
+            max_pending_over_target: 0,
+            max_queued_bytes_over_budget: 0,
+            queue_backpressure_observed: 0,
+            retune_hint: RemoteFreeQueuedByteRetuneHint::KeepConfig,
+            retune_action: RemoteFreeQueuedByteRetuneAction::KeepConfig,
+        }
+    }
+
+    fn observe_drift(&mut self, report: RemoteFreeQueuedByteDriftReport) {
+        self.max_pending_over_target = self
+            .max_pending_over_target
+            .max(report.pending_items_over_target());
+        self.max_queued_bytes_over_budget = self
+            .max_queued_bytes_over_budget
+            .max(report.queued_bytes_over_budget());
+        if report.has_queue_backpressure() {
+            self.queue_backpressure_observed = 1;
+        }
+        self.retune_hint = report.retune_hint();
+        self.retune_action = report.retune_action();
+    }
+
     fn mean_wait_milli(&self) -> u64 {
         if self.drained_count == 0 {
             return 0;
@@ -62,7 +103,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut controller = RemoteFreeDrainController::new(policy);
     let mut queue = config.queue::<RemoteFreeBlock>()?;
     let sink = queue.sink();
-    let mut stats = OwnerLoopStats::default();
+    let mut stats = OwnerLoopStats::new();
     let mut size_index = 0_usize;
 
     println!("remote_free_queued_byte_owner_loop=started");
@@ -110,7 +151,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
 
         let completed_bursts = burst.saturating_add(1);
-        if controller.should_drain_queue(&queue, completed_bursts)? {
+        let controller_status = controller.status_for_queue(&queue, completed_bursts)?;
+        stats.observe_drift(RemoteFreeQueuedByteDriftReport::from_status(
+            config,
+            controller_status,
+        ));
+        if controller_status.decision.should_drain() {
             let drained =
                 drain_owner_batch(&mut queue, completed_bursts, &mut controller, &mut stats);
             if drained > 0 {
@@ -127,7 +173,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let queue_stats = queue.stats();
     println!(
-        "remote_free_queued_byte_owner_loop=complete blocks={TRACE_BLOCKS} submitted_count={} drained_count={} pending_count={} full_count={} forced_drains={} policy_drains={} drain_rounds={} max_pending_count={} max_queued_bytes={} released_bytes={} max_wait_bursts={} mean_wait_bursts={}",
+        "remote_free_queued_byte_owner_loop=complete blocks={TRACE_BLOCKS} submitted_count={} drained_count={} pending_count={} full_count={} forced_drains={} policy_drains={} drain_rounds={} max_pending_count={} max_queued_bytes={} released_bytes={} max_wait_bursts={} mean_wait_bursts={} max_pending_over_target={} max_queued_bytes_over_budget={} queue_backpressure_observed={} retune_hint={} retune_action={}",
         stats.submitted_count,
         stats.drained_count,
         queue_stats.pending_count,
@@ -139,7 +185,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         stats.max_queued_bytes,
         stats.released_bytes,
         stats.max_wait_bursts,
-        format_milli(stats.mean_wait_milli())
+        format_milli(stats.mean_wait_milli()),
+        stats.max_pending_over_target,
+        stats.max_queued_bytes_over_budget,
+        stats.queue_backpressure_observed,
+        stats.retune_hint.as_str(),
+        stats.retune_action.as_str()
     );
 
     Ok(())

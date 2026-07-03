@@ -133,6 +133,11 @@ reported `increase_queue_capacity_and_drain_earlier`, capacity 256 without
 policy drains reported `drain_earlier`, and policy-drain cases reported
 `keep_config`.
 
+Experiment 0185 wired `retune_action` into the runtime-facing queued-byte
+owner-loop example. The example kept the same real allocation counters and
+printed `retune_action=keep_config` with zero pending drift, zero queued-byte
+drift, and zero queue backpressure.
+
 ## Measured Thresholds
 
 | Path | Shape inputs | Budget | Matched counters |
@@ -190,11 +195,12 @@ policy drains reported `drain_earlier`, and policy-drain cases reported
 - `documentation/experiments/0182-remote-free-earlier-drain-retune-action.md`
 - `documentation/experiments/0183-remote-free-mixed-size-retune-action.md`
 - `documentation/experiments/0184-remote-free-retune-action-helper.md`
+- `documentation/experiments/0185-remote-free-owner-loop-retune-action.md`
 
 ## Open Questions
 
-- Which production owner-loop surfaces should log `retune_action` first:
-  examples, KV block handles, request arenas, or service-level telemetry?
+- Which domain owner loop should log `retune_action` first: KV block handles,
+  request arenas, or service-level telemetry?
 - Which workload signal should set the retained item window in production:
   scheduler turn age, active request concurrency, KV cache pressure, or memory
   pressure from observability counters?
