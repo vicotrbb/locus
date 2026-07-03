@@ -36,5 +36,9 @@ harness = false
 name = "scratch_arena_system"
 harness = false
 
+[[bench]]
+name = "remote_free_backpressure"
+harness = false
+
 [lints]
 workspace = true
