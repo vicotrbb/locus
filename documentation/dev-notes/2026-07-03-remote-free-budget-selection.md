@@ -547,6 +547,12 @@ real Experiment 0230 bundle's five listed artifacts, 10,252 total bytes, and
 then reran the manifest-backed stability check, reproducing the same `stable`
 summary and 53,611,000 ps to 56,031,000 ps timing range.
 
+Experiment 0232 extended the same validator to compare the saved
+`validation-summary.txt` with a freshly computed manifest-backed report. The
+real Experiment 0230 bundle matched exactly at 330 bytes while preserving the
+same verified artifact total and stable 53,611,000 ps to 56,031,000 ps timing
+range. The focused command test rejects drifted saved summary text.
+
 ## Measured Thresholds
 
 | Path | Shape inputs | Budget | Matched counters |

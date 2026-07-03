@@ -11,6 +11,7 @@ use locus_validate::{
     parse_remote_free_service_telemetry_collection_summary,
     parse_remote_free_service_telemetry_timing_stability_manifest,
     resolve_remote_free_service_telemetry_collection_summary_manifest_path,
+    resolve_remote_free_service_telemetry_collection_summary_validation_summary_path,
     summarize_remote_free_service_telemetry_timing_stability,
     verify_remote_free_service_telemetry_collection_summary_artifacts,
     RemoteFreeServiceTelemetryTimingStabilityRun,
@@ -35,7 +36,18 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         &summary_path,
         &summary,
     )?;
+    let validation_summary_path =
+        resolve_remote_free_service_telemetry_collection_summary_validation_summary_path(
+            &summary_path,
+            &summary,
+        )?;
     let stability_output = stability_report_from_manifest(&manifest_path)?;
+    let saved_validation_summary = fs::read_to_string(&validation_summary_path)?;
+    let validation_summary_report = compare_validation_summary(
+        &validation_summary_path,
+        &saved_validation_summary,
+        &stability_output,
+    )?;
 
     println!(
         "remote_free_service_telemetry_collection_summary_validation=ok summary={} manifest={} collection_mode={} run_id={} output_count={}",
@@ -46,6 +58,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         summary.output_count
     );
     println!("{artifact_report}");
+    println!("{validation_summary_report}");
     print!("{stability_output}");
 
     Ok(())
@@ -100,6 +113,27 @@ fn stability_report_from_manifest(
     Ok(output)
 }
 
+fn compare_validation_summary(
+    path: &Path,
+    saved: &str,
+    computed: &str,
+) -> Result<String, io::Error> {
+    if saved == computed {
+        return Ok(format!(
+            "remote_free_service_telemetry_validation_summary=matched path={} bytes={}",
+            path.display(),
+            saved.len()
+        ));
+    }
+
+    Err(io::Error::other(format!(
+        "remote-free service telemetry validation summary drift: path={} saved_bytes={} computed_bytes={}",
+        path.display(),
+        saved.len(),
+        computed.len()
+    )))
+}
+
 fn resolve_manifest_path(manifest_path: &Path, entry_path: &str) -> PathBuf {
     let path = PathBuf::from(entry_path);
     if path.is_absolute() {
@@ -117,4 +151,36 @@ fn usage_error(program: &str) -> io::Error {
         io::ErrorKind::InvalidInput,
         format!("usage: {program} <collection-summary.json>"),
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::compare_validation_summary;
+    use std::path::Path;
+
+    #[test]
+    fn reports_matching_validation_summary() {
+        let report = compare_validation_summary(
+            Path::new("validation-summary.txt"),
+            "summary\n",
+            "summary\n",
+        )
+        .expect("matched");
+
+        assert_eq!(
+            report,
+            "remote_free_service_telemetry_validation_summary=matched path=validation-summary.txt bytes=8"
+        );
+    }
+
+    #[test]
+    fn rejects_drifted_validation_summary() {
+        let error =
+            compare_validation_summary(Path::new("validation-summary.txt"), "old\n", "new\n")
+                .expect_err("drift");
+
+        assert!(error
+            .to_string()
+            .contains("validation summary drift: path=validation-summary.txt"));
+    }
 }

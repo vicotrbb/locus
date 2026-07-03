@@ -36,6 +36,7 @@ pub use pinned_scratch_near_gpu_gate::{
 pub use remote_free_service_collection_summary::{
     parse_remote_free_service_telemetry_collection_summary,
     resolve_remote_free_service_telemetry_collection_summary_manifest_path,
+    resolve_remote_free_service_telemetry_collection_summary_validation_summary_path,
     verify_remote_free_service_telemetry_collection_summary_artifacts,
     RemoteFreeServiceTelemetryCollectionSummary,
     RemoteFreeServiceTelemetryCollectionSummaryArtifact,

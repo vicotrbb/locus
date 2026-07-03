@@ -91,6 +91,8 @@ pub enum RemoteFreeServiceTelemetryCollectionSummaryError {
     },
     /// Summary does not list a manifest artifact.
     MissingManifestArtifact,
+    /// Summary does not list a validation-summary artifact.
+    MissingValidationSummaryArtifact,
     /// Artifact path was absolute or escaped the summary directory.
     InvalidArtifactPath(String),
     /// Filesystem access failed while validating an artifact.
@@ -140,6 +142,9 @@ impl fmt::Display for RemoteFreeServiceTelemetryCollectionSummaryError {
             Self::MissingManifestArtifact => f.write_str(
                 "missing remote-free service telemetry collection summary manifest artifact",
             ),
+            Self::MissingValidationSummaryArtifact => f.write_str(
+                "missing remote-free service telemetry collection summary validation-summary artifact",
+            ),
             Self::InvalidArtifactPath(path) => write!(
                 f,
                 "invalid remote-free service telemetry collection summary artifact path: {path}"
@@ -170,6 +175,7 @@ impl std::error::Error for RemoteFreeServiceTelemetryCollectionSummaryError {
             | Self::UnexpectedSchema(_)
             | Self::OutputCountMismatch { .. }
             | Self::MissingManifestArtifact
+            | Self::MissingValidationSummaryArtifact
             | Self::InvalidArtifactPath(_)
             | Self::ByteCountMismatch { .. } => None,
         }
@@ -287,14 +293,46 @@ pub fn resolve_remote_free_service_telemetry_collection_summary_manifest_path(
     summary_path: &Path,
     summary: &RemoteFreeServiceTelemetryCollectionSummary,
 ) -> Result<PathBuf, RemoteFreeServiceTelemetryCollectionSummaryError> {
+    resolve_artifact_path_by_kind(
+        summary_path,
+        summary,
+        "manifest",
+        RemoteFreeServiceTelemetryCollectionSummaryError::MissingManifestArtifact,
+    )
+}
+
+/// Resolves the validation-summary artifact listed in a collection summary.
+///
+/// # Errors
+///
+/// Returns an error when no validation-summary artifact is present or when its
+/// path is unsafe.
+pub fn resolve_remote_free_service_telemetry_collection_summary_validation_summary_path(
+    summary_path: &Path,
+    summary: &RemoteFreeServiceTelemetryCollectionSummary,
+) -> Result<PathBuf, RemoteFreeServiceTelemetryCollectionSummaryError> {
+    resolve_artifact_path_by_kind(
+        summary_path,
+        summary,
+        "validation_summary",
+        RemoteFreeServiceTelemetryCollectionSummaryError::MissingValidationSummaryArtifact,
+    )
+}
+
+fn resolve_artifact_path_by_kind(
+    summary_path: &Path,
+    summary: &RemoteFreeServiceTelemetryCollectionSummary,
+    kind: &str,
+    missing_error: RemoteFreeServiceTelemetryCollectionSummaryError,
+) -> Result<PathBuf, RemoteFreeServiceTelemetryCollectionSummaryError> {
     let base_dir = summary_path.parent().unwrap_or_else(|| Path::new(""));
-    let manifest = summary
+    let artifact = summary
         .artifacts
         .iter()
-        .find(|artifact| artifact.kind == "manifest")
-        .ok_or(RemoteFreeServiceTelemetryCollectionSummaryError::MissingManifestArtifact)?;
+        .find(|artifact| artifact.kind == kind)
+        .ok_or(missing_error)?;
 
-    resolve_summary_artifact_path(base_dir, &manifest.path)
+    resolve_summary_artifact_path(base_dir, &artifact.path)
 }
 
 fn parse_source(
@@ -429,13 +467,17 @@ mod tests {
     use super::{
         parse_remote_free_service_telemetry_collection_summary,
         resolve_remote_free_service_telemetry_collection_summary_manifest_path,
+        resolve_remote_free_service_telemetry_collection_summary_validation_summary_path,
         verify_remote_free_service_telemetry_collection_summary_artifacts,
         RemoteFreeServiceTelemetryCollectionSummaryError,
     };
     use std::{
         env, fs,
+        sync::atomic::{AtomicU64, Ordering},
         time::{SystemTime, UNIX_EPOCH},
     };
+
+    static TEMP_DIR_COUNTER: AtomicU64 = AtomicU64::new(0);
 
     fn summary_json(output_byte_count: u64, manifest_path: &str) -> String {
         format!(
@@ -472,8 +514,10 @@ mod tests {
 
     fn temp_dir() -> Result<std::path::PathBuf, Box<dyn std::error::Error>> {
         let dir = env::temp_dir().join(format!(
-            "locus-summary-validate-test-{}",
-            SystemTime::now().duration_since(UNIX_EPOCH)?.as_nanos()
+            "locus-summary-validate-test-{}-{}-{}",
+            std::process::id(),
+            SystemTime::now().duration_since(UNIX_EPOCH)?.as_nanos(),
+            TEMP_DIR_COUNTER.fetch_add(1, Ordering::Relaxed)
         ));
         fs::create_dir(&dir)?;
         Ok(dir)
@@ -575,6 +619,26 @@ mod tests {
         assert!(matches!(
             error,
             RemoteFreeServiceTelemetryCollectionSummaryError::InvalidArtifactPath(_)
+        ));
+    }
+
+    #[test]
+    fn reports_missing_validation_summary_artifact() {
+        let summary = parse_remote_free_service_telemetry_collection_summary(&summary_json(
+            3,
+            "manifest.txt",
+        ))
+        .expect("summary");
+        let error =
+            resolve_remote_free_service_telemetry_collection_summary_validation_summary_path(
+                std::path::Path::new("/tmp/collection-summary.json"),
+                &summary,
+            )
+            .expect_err("missing validation summary");
+
+        assert!(matches!(
+            error,
+            RemoteFreeServiceTelemetryCollectionSummaryError::MissingValidationSummaryArtifact
         ));
     }
 }
