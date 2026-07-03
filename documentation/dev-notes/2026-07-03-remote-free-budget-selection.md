@@ -747,6 +747,12 @@ verification. The real mixed rollup emits `status=matched` with `drift=null`,
 while a controlled stale `records=1` archived rollup emits `status=drifted`
 with `drift.field=records`, expected `2`, and actual `1`.
 
+Experiment 0261 added parsers for saved verdict rollup verification JSON. The
+real matched verification archive reloads as `status=matched`, while the
+controlled stale `records=1` archive reloads as `status=drifted` with
+`field=records`, expected `2`, and actual `1`. The parser rejects status drift,
+drift payload drift, and nested grouped rollup drift.
+
 ## Measured Thresholds
 
 | Path | Shape inputs | Budget | Matched counters |
@@ -1142,6 +1148,7 @@ with `drift.field=records`, expected `2`, and actual `1`.
 - `documentation/experiments/0258-remote-free-service-telemetry-rollup-check-log-summary-verdict-rollup-parser.md`
 - `documentation/experiments/0259-remote-free-service-telemetry-rollup-check-log-summary-verdict-rollup-drift.md`
 - `documentation/experiments/0260-remote-free-service-telemetry-rollup-check-log-summary-verdict-rollup-drift-json.md`
+- `documentation/experiments/0261-remote-free-service-telemetry-rollup-check-log-summary-verdict-rollup-drift-json-parser.md`
 
 ## Open Questions
 
