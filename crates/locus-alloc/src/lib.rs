@@ -542,6 +542,15 @@ pub struct PinnedScratchNearGpuProbeOutput {
     pub after_release_stats: Option<PinnedScratchPoolProbeStatsLine>,
 }
 
+/// Transparent huge page advice for mapped scratch arenas.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MappedScratchHugePageAdvice {
+    /// Ask the kernel to consider the arena mapping for transparent huge pages.
+    HugePage,
+    /// Ask the kernel to avoid transparent huge pages for the arena mapping.
+    NoHugePage,
+}
+
 /// Pinned scratch pool accounting.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct PinnedScratchPoolStats {
@@ -1385,6 +1394,29 @@ impl MappedScratchArena {
             .map_err(MappedScratchAllocError::LinuxNumaPolicy)
     }
 
+    /// Applies Linux transparent huge page advice to the mapped arena region.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the Linux `madvise` call fails.
+    #[cfg(target_os = "linux")]
+    pub fn advise_transparent_huge_pages(
+        &self,
+        advice: MappedScratchHugePageAdvice,
+    ) -> Result<(), MappedScratchAllocError> {
+        let sys_advice = match advice {
+            MappedScratchHugePageAdvice::HugePage => {
+                locus_sys::linux::LinuxTransparentHugePageAdvice::HugePage
+            }
+            MappedScratchHugePageAdvice::NoHugePage => {
+                locus_sys::linux::LinuxTransparentHugePageAdvice::NoHugePage
+            }
+        };
+
+        locus_sys::linux::advise_region_transparent_huge_pages(&self.region, sys_advice)
+            .map_err(MappedScratchAllocError::LinuxTransparentHugePageAdvice)
+    }
+
     /// Returns current arena accounting.
     #[must_use]
     pub fn stats(&self) -> ScratchArenaStats {
@@ -1678,6 +1710,9 @@ pub enum MappedScratchAllocError {
     /// Linux NUMA policy application failed.
     #[cfg(target_os = "linux")]
     LinuxNumaPolicy(locus_sys::linux::LinuxNumaPolicyError),
+    /// Linux transparent huge page advice failed.
+    #[cfg(target_os = "linux")]
+    LinuxTransparentHugePageAdvice(locus_sys::linux::LinuxTransparentHugePageAdviceError),
 }
 
 /// Pinned scratch pool failures.
@@ -2011,6 +2046,13 @@ impl fmt::Display for MappedScratchAllocError {
             Self::LinuxNumaPolicy(source) => {
                 write!(f, "mapped scratch arena NUMA policy failed: {source}")
             }
+            #[cfg(target_os = "linux")]
+            Self::LinuxTransparentHugePageAdvice(source) => {
+                write!(
+                    f,
+                    "mapped scratch arena transparent huge page advice failed: {source}"
+                )
+            }
         }
     }
 }
@@ -2024,6 +2066,8 @@ impl std::error::Error for MappedScratchAllocError {
             Self::PageLock(source) => Some(source),
             #[cfg(target_os = "linux")]
             Self::LinuxNumaPolicy(source) => Some(source),
+            #[cfg(target_os = "linux")]
+            Self::LinuxTransparentHugePageAdvice(source) => Some(source),
             Self::UnsupportedAlignment { .. }
             | Self::CapacityOverflow
             | Self::OutOfMemory { .. } => None,
@@ -3224,6 +3268,8 @@ mod tests {
 
     use locus_core::{NodeId, PciDevice, RequestHome, RequestId, Topology};
 
+    #[cfg(target_os = "linux")]
+    use super::MappedScratchHugePageAdvice;
     use super::{
         parse_mapped_scratch_lock_probe_output, parse_page_lock_probe_status_line,
         parse_pinned_scratch_near_gpu_probe_output, parse_pinned_scratch_near_gpu_probe_pool_line,
@@ -3370,6 +3416,19 @@ mod tests {
                 ) => {}
             Err(error) => panic!("unexpected mapped scratch page lock error: {error}"),
         }
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn mapped_scratch_arena_applies_transparent_huge_page_advice() {
+        let arena = MappedScratchArena::new(NodeId(0), 4096).expect("arena");
+
+        arena
+            .advise_transparent_huge_pages(MappedScratchHugePageAdvice::HugePage)
+            .expect("huge page advice");
+        arena
+            .advise_transparent_huge_pages(MappedScratchHugePageAdvice::NoHugePage)
+            .expect("no huge page advice");
     }
 
     #[test]
