@@ -148,6 +148,11 @@ End-drain reported `drain_earlier` against the 8-request, 262,144-byte target,
 while both max-wait-2 and queued-byte request policies reported `keep_config`
 with real `RequestScratchPool::close_request` release.
 
+Experiment 0188 added a focused retune-action evidence matrix covering the
+validated uniform, mixed-size, owner-loop, KV, and request surfaces from
+Experiments 0184 through 0187. Treat it as a regression tripwire for diagnostic
+action semantics, not as a replacement for real allocation benchmarks.
+
 ## Measured Thresholds
 
 | Path | Shape inputs | Budget | Matched counters |
@@ -184,6 +189,8 @@ with real `RequestScratchPool::close_request` release.
   retained and released byte sizes for each remote-free item.
 - Do not infer a production default from the current thresholds. The current
   evidence is counter validation from microbenchmarks and examples.
+- Do not use the retune-action evidence matrix as proof that an adaptive policy
+  is safe. Adaptive changes still need workload-specific allocation benchmarks.
 - Recheck thresholds when KV block size, request arena capacity, burst size,
   request concurrency, or batch size changes.
 - For heterogeneous traces, derive the budget from actual retained item sizes
@@ -208,6 +215,7 @@ with real `RequestScratchPool::close_request` release.
 - `documentation/experiments/0185-remote-free-owner-loop-retune-action.md`
 - `documentation/experiments/0186-kv-remote-free-retune-action.md`
 - `documentation/experiments/0187-request-remote-free-retune-action.md`
+- `documentation/experiments/0188-remote-free-retune-action-evidence-matrix.md`
 
 ## Open Questions
 
