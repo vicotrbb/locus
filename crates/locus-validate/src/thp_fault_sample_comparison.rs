@@ -656,3 +656,203 @@ fn set_field<T>(
     }
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        parse_mapped_scratch_thp_fault_sample_comparison_line,
+        parse_mapped_scratch_thp_fault_sample_comparison_output,
+        MappedScratchThpFaultSampleComparisonLineParseError,
+        MappedScratchThpFaultSampleComparisonOutputParseError,
+        MappedScratchThpFaultSampleComparisonReason, MappedScratchThpFaultSampleComparisonStatus,
+    };
+
+    #[test]
+    fn parses_comparison_lines() {
+        let available = parse_mapped_scratch_thp_fault_sample_comparison_line(
+            "mapped_scratch_thp_fault_sample_comparison=available reason=ready default_minor_faults_delta=16400 hugepage_minor_faults_delta=8224 no_hugepage_minor_faults_delta=16400 hugepage_vs_default_minor_faults_delta=-8176 hugepage_vs_no_hugepage_minor_faults_delta=-8176 major_faults_observed=false",
+        )
+        .expect("available comparison");
+
+        assert_eq!(
+            available.status,
+            MappedScratchThpFaultSampleComparisonStatus::Available
+        );
+        assert_eq!(
+            available.reason,
+            MappedScratchThpFaultSampleComparisonReason::Ready
+        );
+        let comparison = available.comparison.expect("comparison");
+        assert_eq!(comparison.default_minor_faults_delta, 16400);
+        assert_eq!(comparison.hugepage_minor_faults_delta, 8224);
+        assert_eq!(comparison.no_hugepage_minor_faults_delta, 16400);
+        assert_eq!(comparison.hugepage_vs_default_minor_faults_delta, -8176);
+        assert_eq!(comparison.hugepage_vs_no_hugepage_minor_faults_delta, -8176);
+        assert!(!comparison.major_faults_observed);
+        assert_eq!(
+            available.to_string(),
+            "mapped_scratch_thp_fault_sample_comparison=available reason=ready default_minor_faults_delta=16400 hugepage_minor_faults_delta=8224 no_hugepage_minor_faults_delta=16400 hugepage_vs_default_minor_faults_delta=-8176 hugepage_vs_no_hugepage_minor_faults_delta=-8176 major_faults_observed=false"
+        );
+
+        let unavailable = parse_mapped_scratch_thp_fault_sample_comparison_line(
+            "mapped_scratch_thp_fault_sample_comparison=unavailable reason=fault_counters_unavailable",
+        )
+        .expect("unavailable comparison");
+
+        assert_eq!(
+            unavailable.status,
+            MappedScratchThpFaultSampleComparisonStatus::Unavailable
+        );
+        assert_eq!(
+            unavailable.reason,
+            MappedScratchThpFaultSampleComparisonReason::FaultCountersUnavailable
+        );
+        assert_eq!(unavailable.comparison, None);
+        assert_eq!(
+            unavailable.to_string(),
+            "mapped_scratch_thp_fault_sample_comparison=unavailable reason=fault_counters_unavailable"
+        );
+    }
+
+    #[test]
+    fn rejects_invalid_comparison_lines() {
+        assert_eq!(
+            parse_mapped_scratch_thp_fault_sample_comparison_line("reason=ready")
+                .expect_err("missing status"),
+            MappedScratchThpFaultSampleComparisonLineParseError::MissingStatus
+        );
+        assert_eq!(
+            parse_mapped_scratch_thp_fault_sample_comparison_line(
+                "mapped_scratch_thp_fault_sample_comparison=available"
+            )
+            .expect_err("missing reason"),
+            MappedScratchThpFaultSampleComparisonLineParseError::MissingReason
+        );
+        assert_eq!(
+            parse_mapped_scratch_thp_fault_sample_comparison_line(
+                "mapped_scratch_thp_fault_sample_comparison=maybe reason=ready"
+            )
+            .expect_err("unknown status"),
+            MappedScratchThpFaultSampleComparisonLineParseError::UnknownStatus("maybe".to_owned())
+        );
+        assert_eq!(
+            parse_mapped_scratch_thp_fault_sample_comparison_line(
+                "mapped_scratch_thp_fault_sample_comparison=available reason=maybe"
+            )
+            .expect_err("unknown reason"),
+            MappedScratchThpFaultSampleComparisonLineParseError::UnknownReason("maybe".to_owned())
+        );
+        assert_eq!(
+            parse_mapped_scratch_thp_fault_sample_comparison_line(
+                "mapped_scratch_thp_fault_sample_comparison=available reason=ready default_minor_faults_delta=abc"
+            )
+            .expect_err("bad number"),
+            MappedScratchThpFaultSampleComparisonLineParseError::InvalidNumber {
+                field: "default_minor_faults_delta",
+                value: "abc".to_owned(),
+            }
+        );
+        assert_eq!(
+            parse_mapped_scratch_thp_fault_sample_comparison_line(
+                "mapped_scratch_thp_fault_sample_comparison=available reason=ready default_minor_faults_delta=16400 hugepage_minor_faults_delta=8224 no_hugepage_minor_faults_delta=16400 hugepage_vs_default_minor_faults_delta=-8176 hugepage_vs_no_hugepage_minor_faults_delta=-8176 major_faults_observed=maybe"
+            )
+            .expect_err("bad bool"),
+            MappedScratchThpFaultSampleComparisonLineParseError::InvalidBool {
+                field: "major_faults_observed",
+                value: "maybe".to_owned(),
+            }
+        );
+        assert_eq!(
+            parse_mapped_scratch_thp_fault_sample_comparison_line(
+                "mapped_scratch_thp_fault_sample_comparison=available reason=ready default_minor_faults_delta=16400 hugepage_minor_faults_delta=8224 no_hugepage_minor_faults_delta=16400 hugepage_vs_default_minor_faults_delta=-8176 hugepage_vs_no_hugepage_minor_faults_delta=-8176"
+            )
+            .expect_err("missing major faults"),
+            MappedScratchThpFaultSampleComparisonLineParseError::MissingField(
+                "major_faults_observed"
+            )
+        );
+        assert_eq!(
+            parse_mapped_scratch_thp_fault_sample_comparison_line(
+                "mapped_scratch_thp_fault_sample_comparison=unavailable reason=fault_counters_unavailable default_minor_faults_delta=1"
+            )
+            .expect_err("unexpected unavailable field"),
+            MappedScratchThpFaultSampleComparisonLineParseError::UnexpectedField {
+                status: MappedScratchThpFaultSampleComparisonStatus::Unavailable,
+                field: "default_minor_faults_delta",
+            }
+        );
+        assert_eq!(
+            parse_mapped_scratch_thp_fault_sample_comparison_line(
+                "mapped_scratch_thp_fault_sample_comparison=unavailable reason=ready"
+            )
+            .expect_err("inconsistent unavailable"),
+            MappedScratchThpFaultSampleComparisonLineParseError::InconsistentComparison {
+                status: MappedScratchThpFaultSampleComparisonStatus::Unavailable,
+                reason: MappedScratchThpFaultSampleComparisonReason::Ready,
+                comparison_present: false,
+            }
+        );
+        assert_eq!(
+            parse_mapped_scratch_thp_fault_sample_comparison_line(
+                "mapped_scratch_thp_fault_sample_comparison=available reason=ready reason=ready"
+            )
+            .expect_err("duplicate reason"),
+            MappedScratchThpFaultSampleComparisonLineParseError::DuplicateField("reason")
+        );
+        assert_eq!(
+            parse_mapped_scratch_thp_fault_sample_comparison_line(
+                "mapped_scratch_thp_fault_sample_comparison=unavailable reason=fault_counters_unavailable extra=true"
+            )
+            .expect_err("unknown token"),
+            MappedScratchThpFaultSampleComparisonLineParseError::InvalidToken(
+                "extra=true".to_owned()
+            )
+        );
+    }
+
+    #[test]
+    fn parses_comparison_from_output() {
+        let output = "\
+mapped_scratch_thp_fault_sample_validation_gate=ready reason=ready
+mapped_scratch_thp_fault_sample_comparison=available reason=ready default_minor_faults_delta=16400 hugepage_minor_faults_delta=8224 no_hugepage_minor_faults_delta=16400 hugepage_vs_default_minor_faults_delta=-8176 hugepage_vs_no_hugepage_minor_faults_delta=-8176 major_faults_observed=false
+";
+
+        let comparison =
+            parse_mapped_scratch_thp_fault_sample_comparison_output(output).expect("comparison");
+
+        assert_eq!(
+            comparison.status,
+            MappedScratchThpFaultSampleComparisonStatus::Available
+        );
+        assert!(comparison.comparison.is_some());
+    }
+
+    #[test]
+    fn rejects_invalid_comparison_output() {
+        assert_eq!(
+            parse_mapped_scratch_thp_fault_sample_comparison_output(
+                "mapped_scratch_thp_fault_sample_validation_gate=ready reason=ready\n"
+            )
+            .expect_err("missing comparison"),
+            MappedScratchThpFaultSampleComparisonOutputParseError::MissingComparisonLine
+        );
+        assert_eq!(
+            parse_mapped_scratch_thp_fault_sample_comparison_output(
+                "mapped_scratch_thp_fault_sample_comparison=unavailable reason=fault_counters_unavailable\nmapped_scratch_thp_fault_sample_comparison=unavailable reason=comparison_unavailable\n"
+            )
+            .expect_err("duplicate comparison"),
+            MappedScratchThpFaultSampleComparisonOutputParseError::DuplicateComparisonLine
+        );
+        assert_eq!(
+            parse_mapped_scratch_thp_fault_sample_comparison_output(
+                "mapped_scratch_thp_fault_sample_comparison=maybe reason=ready\n"
+            )
+            .expect_err("bad comparison"),
+            MappedScratchThpFaultSampleComparisonOutputParseError::Line(
+                MappedScratchThpFaultSampleComparisonLineParseError::UnknownStatus(
+                    "maybe".to_owned()
+                )
+            )
+        );
+    }
+}
