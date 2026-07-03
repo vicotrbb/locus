@@ -5,7 +5,8 @@ use std::{num::NonZeroU64, thread};
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use locus_alloc::{
     RemoteFreeDrainController, RemoteFreeDrainPolicy, RemoteFreeQueue,
-    RemoteFreeQueuedByteDrainConfig, RemoteFreeTryEnqueueErrorKind,
+    RemoteFreeQueuedByteDrainConfig, RemoteFreeQueuedByteDriftReport,
+    RemoteFreeTryEnqueueErrorKind,
 };
 
 const TRACE_QUEUE_CAPACITY: usize = 256;
@@ -24,6 +25,7 @@ const TRACE_TARGET_QUEUED_BURSTS: u64 = 2;
 struct TracePolicy {
     label: &'static str,
     drain_policy: RemoteFreeDrainPolicy,
+    drift_config: Option<RemoteFreeQueuedByteDrainConfig>,
 }
 
 #[derive(Debug)]
@@ -49,6 +51,13 @@ struct TraceStats {
 }
 
 #[derive(Debug, Clone, Copy)]
+struct TraceDriftStats {
+    max_pending_items_over_target: u64,
+    max_queued_bytes_over_budget: u64,
+    queue_backpressure_observed: u64,
+}
+
+#[derive(Debug, Clone, Copy)]
 struct CounterSummary {
     min: u64,
     max: u64,
@@ -60,6 +69,7 @@ impl TracePolicy {
         Self {
             label: "end_drain",
             drain_policy: RemoteFreeDrainPolicy::new(),
+            drift_config: None,
         }
     }
 
@@ -68,6 +78,7 @@ impl TracePolicy {
             label: "max_wait2",
             drain_policy: RemoteFreeDrainPolicy::new()
                 .with_max_pending_age(NonZeroU64::new(2).expect("non-zero")),
+            drift_config: None,
         }
     }
 
@@ -76,6 +87,7 @@ impl TracePolicy {
         Self {
             label: "max_queued640kib",
             drain_policy: config.drain_policy(),
+            drift_config: Some(config),
         }
     }
 }
@@ -148,6 +160,28 @@ impl TraceStats {
     }
 }
 
+impl TraceDriftStats {
+    fn new() -> Self {
+        Self {
+            max_pending_items_over_target: 0,
+            max_queued_bytes_over_budget: 0,
+            queue_backpressure_observed: 0,
+        }
+    }
+
+    fn observe_drift(&mut self, report: RemoteFreeQueuedByteDriftReport) {
+        self.max_pending_items_over_target = self
+            .max_pending_items_over_target
+            .max(report.pending_items_over_target());
+        self.max_queued_bytes_over_budget = self
+            .max_queued_bytes_over_budget
+            .max(report.queued_bytes_over_budget());
+        if report.has_queue_backpressure() {
+            self.queue_backpressure_observed = 1;
+        }
+    }
+}
+
 fn remote_free_mixed_size_end_drain_capacity256_batch64(c: &mut Criterion) {
     let policy = TracePolicy::end_drain();
     print_trace_sample(policy, TRACE_QUEUE_CAPACITY, TRACE_DRAIN_BATCH_LIMIT);
@@ -204,10 +238,11 @@ fn remote_free_mixed_size_policy(
 }
 
 fn print_trace_sample(policy: TracePolicy, capacity: usize, batch_limit: usize) {
-    let stats = run_trace_sample(capacity, batch_limit, policy);
+    let (stats, drift) = run_trace_sample_with_drift(capacity, batch_limit, policy);
     let policy_label = policy.label;
+    let drift_configured = bool_as_u64(policy.drift_config.is_some());
     println!(
-        "remote_free_mixed_size_policy_sample={policy_label} blocks={TRACE_BLOCKS} bursts={TRACE_BURSTS} burst_blocks={TRACE_BURST_BLOCKS} capacity={capacity} batch_limit={batch_limit} submitted_count={} drained_count={} full_count={} forced_drains={} policy_drains={} drain_rounds={} max_pending_count={} max_queued_bytes={} released_bytes={} max_wait_bursts={} mean_wait_bursts={}",
+        "remote_free_mixed_size_policy_sample={policy_label} blocks={TRACE_BLOCKS} bursts={TRACE_BURSTS} burst_blocks={TRACE_BURST_BLOCKS} capacity={capacity} batch_limit={batch_limit} drift_configured={drift_configured} submitted_count={} drained_count={} full_count={} forced_drains={} policy_drains={} drain_rounds={} max_pending_count={} max_queued_bytes={} released_bytes={} max_wait_bursts={} mean_wait_bursts={} max_pending_over_target={} max_queued_bytes_over_budget={} queue_backpressure_observed={}",
         stats.submitted_count,
         stats.drained_count,
         stats.full_count,
@@ -218,9 +253,17 @@ fn print_trace_sample(policy: TracePolicy, capacity: usize, batch_limit: usize) 
         stats.max_queued_bytes,
         stats.released_bytes,
         stats.max_wait_bursts,
-        format_milli(stats.mean_wait_milli())
+        format_milli(stats.mean_wait_milli()),
+        drift.max_pending_items_over_target,
+        drift.max_queued_bytes_over_budget,
+        drift.queue_backpressure_observed
     );
     assert_eq!(stats.released_bytes, TRACE_TOTAL_BYTES);
+    if policy.drift_config.is_some() {
+        assert_eq!(drift.max_pending_items_over_target, 0);
+        assert_eq!(drift.max_queued_bytes_over_budget, 0);
+        assert_eq!(drift.queue_backpressure_observed, 0);
+    }
 
     print_trace_sample_summary(policy, capacity, batch_limit);
 }
@@ -236,9 +279,12 @@ fn print_trace_sample_summary(policy: TracePolicy, capacity: usize, batch_limit:
     let mut max_queued_bytes = CounterSummary::new();
     let mut max_wait = CounterSummary::new();
     let mut mean_wait = CounterSummary::new();
+    let mut max_pending_over_target = CounterSummary::new();
+    let mut max_queued_bytes_over_budget = CounterSummary::new();
+    let mut queue_backpressure_observed = CounterSummary::new();
 
     for _ in 0..SAMPLES {
-        let stats = run_trace_sample(capacity, batch_limit, policy);
+        let (stats, drift) = run_trace_sample_with_drift(capacity, batch_limit, policy);
         full.observe(stats.full_count);
         forced_drains.observe(stats.forced_drains);
         policy_drains.observe(stats.policy_drains);
@@ -247,15 +293,24 @@ fn print_trace_sample_summary(policy: TracePolicy, capacity: usize, batch_limit:
         max_queued_bytes.observe(stats.max_queued_bytes);
         max_wait.observe(stats.max_wait_bursts);
         mean_wait.observe(stats.mean_wait_milli());
+        max_pending_over_target.observe(drift.max_pending_items_over_target);
+        max_queued_bytes_over_budget.observe(drift.max_queued_bytes_over_budget);
+        queue_backpressure_observed.observe(drift.queue_backpressure_observed);
         assert_eq!(stats.submitted_count, TRACE_BLOCKS);
         assert_eq!(stats.drained_count, TRACE_BLOCKS);
         assert_eq!(stats.queued_bytes, 0);
         assert_eq!(stats.released_bytes, TRACE_TOTAL_BYTES);
+        if policy.drift_config.is_some() {
+            assert_eq!(drift.max_pending_items_over_target, 0);
+            assert_eq!(drift.max_queued_bytes_over_budget, 0);
+            assert_eq!(drift.queue_backpressure_observed, 0);
+        }
     }
 
     let policy_label = policy.label;
+    let drift_configured = bool_as_u64(policy.drift_config.is_some());
     println!(
-        "remote_free_mixed_size_policy_sample_summary={policy_label} blocks={TRACE_BLOCKS} bursts={TRACE_BURSTS} burst_blocks={TRACE_BURST_BLOCKS} capacity={capacity} batch_limit={batch_limit} samples={SAMPLES} full_min={} full_max={} full_mean={} forced_drains_min={} forced_drains_max={} forced_drains_mean={} policy_drains_min={} policy_drains_max={} policy_drains_mean={} drain_rounds_min={} drain_rounds_max={} drain_rounds_mean={} max_pending_min={} max_pending_max={} max_pending_mean={} max_queued_bytes_min={} max_queued_bytes_max={} max_queued_bytes_mean={} max_wait_min={} max_wait_max={} max_wait_mean={} mean_wait_min={} mean_wait_max={} mean_wait_mean={}",
+        "remote_free_mixed_size_policy_sample_summary={policy_label} blocks={TRACE_BLOCKS} bursts={TRACE_BURSTS} burst_blocks={TRACE_BURST_BLOCKS} capacity={capacity} batch_limit={batch_limit} drift_configured={drift_configured} samples={SAMPLES} full_min={} full_max={} full_mean={} forced_drains_min={} forced_drains_max={} forced_drains_mean={} policy_drains_min={} policy_drains_max={} policy_drains_mean={} drain_rounds_min={} drain_rounds_max={} drain_rounds_mean={} max_pending_min={} max_pending_max={} max_pending_mean={} max_queued_bytes_min={} max_queued_bytes_max={} max_queued_bytes_mean={} max_wait_min={} max_wait_max={} max_wait_mean={} mean_wait_min={} mean_wait_max={} mean_wait_mean={} max_pending_over_target_min={} max_pending_over_target_max={} max_pending_over_target_mean={} max_queued_bytes_over_budget_min={} max_queued_bytes_over_budget_max={} max_queued_bytes_over_budget_mean={} queue_backpressure_observed_min={} queue_backpressure_observed_max={} queue_backpressure_observed_mean={}",
         full.min,
         full.max,
         format_milli(full.mean_milli(SAMPLES)),
@@ -279,14 +334,41 @@ fn print_trace_sample_summary(policy: TracePolicy, capacity: usize, batch_limit:
         format_milli(max_wait.mean_milli(SAMPLES)),
         format_milli(mean_wait.min),
         format_milli(mean_wait.max),
-        format_milli(mean_wait.mean(SAMPLES))
+        format_milli(mean_wait.mean(SAMPLES)),
+        max_pending_over_target.min,
+        max_pending_over_target.max,
+        format_milli(max_pending_over_target.mean_milli(SAMPLES)),
+        max_queued_bytes_over_budget.min,
+        max_queued_bytes_over_budget.max,
+        max_queued_bytes_over_budget.mean(SAMPLES),
+        queue_backpressure_observed.min,
+        queue_backpressure_observed.max,
+        format_milli(queue_backpressure_observed.mean_milli(SAMPLES))
     );
 }
 
 fn run_trace_sample(capacity: usize, batch_limit: usize, policy: TracePolicy) -> TraceStats {
+    run_trace_sample_inner(capacity, batch_limit, policy, None).0
+}
+
+fn run_trace_sample_with_drift(
+    capacity: usize,
+    batch_limit: usize,
+    policy: TracePolicy,
+) -> (TraceStats, TraceDriftStats) {
+    run_trace_sample_inner(capacity, batch_limit, policy, policy.drift_config)
+}
+
+fn run_trace_sample_inner(
+    capacity: usize,
+    batch_limit: usize,
+    policy: TracePolicy,
+    drift_config: Option<RemoteFreeQueuedByteDrainConfig>,
+) -> (TraceStats, TraceDriftStats) {
     let mut queue = RemoteFreeQueue::new(capacity, batch_limit).expect("queue");
     let sink = queue.sink();
     let mut stats = TraceStats::new();
+    let mut drift = TraceDriftStats::new();
     let mut size_index = 0_usize;
     let mut controller = RemoteFreeDrainController::new(policy.drain_policy);
 
@@ -331,6 +413,12 @@ fn run_trace_sample(capacity: usize, batch_limit: usize, policy: TracePolicy) ->
             .status_for_queue(&queue, completed_bursts)
             .expect("controller status");
         assert_eq!(policy_report.observation.queued_bytes, stats.queued_bytes);
+        if let Some(config) = drift_config {
+            drift.observe_drift(RemoteFreeQueuedByteDriftReport::from_status(
+                config,
+                policy_report,
+            ));
+        }
         if policy_report.decision.should_drain()
             && drain_trace_batch(&mut queue, completed_bursts, &mut stats, &mut controller) > 0
         {
@@ -348,7 +436,7 @@ fn run_trace_sample(capacity: usize, batch_limit: usize, policy: TracePolicy) ->
     assert_eq!(queue_stats.pending_count, 0);
     assert_eq!(queue_stats.full_count, stats.full_count);
     assert!(controller.is_empty());
-    stats
+    (stats, drift)
 }
 
 fn drain_trace_batch(
@@ -383,6 +471,10 @@ fn drain_trace_batch(
 
 fn format_milli(value: u64) -> String {
     format!("{}.{:03}", value / 1000, value % 1000)
+}
+
+fn bool_as_u64(value: bool) -> u64 {
+    u64::from(value)
 }
 
 criterion_group!(

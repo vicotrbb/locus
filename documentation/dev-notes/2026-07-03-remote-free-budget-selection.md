@@ -61,6 +61,23 @@ The config exposes `drain_policy()` for `RemoteFreeDrainController` and
 sizing. Allocator-specific release behavior remains outside the config in the
 owner's `drain_batch` closure.
 
+## Drift Diagnostics
+
+Use `RemoteFreeQueuedByteDriftReport` when a runtime has a queued-byte drain
+config and wants to compare it with live owner-loop observations before
+retuning policy.
+
+The report compares:
+
+- target pending items against observed pending items;
+- queued-byte budget against observed queued bytes;
+- queue `full_count` against zero backpressure.
+
+The report is diagnostic only. It does not mutate the drain policy. Treat
+non-zero pending over-target, queued bytes over-budget, or queue backpressure
+as evidence that the config needs review, a larger queue, a different drain
+cadence, or more workload-specific measurement.
+
 ## Measured Thresholds
 
 | Path | Shape inputs | Budget | Matched counters |
@@ -84,6 +101,9 @@ owner's `drain_batch` closure.
 6. Verify with a benchmark or example that `full_count`, max pending count,
    peak queued bytes, drain rounds, max wait, and mean wait match the intended
    behavior.
+7. When a queued-byte config is available, record
+   `RemoteFreeQueuedByteDriftReport` output at owner control points so drift
+   from the configured window is visible before adding adaptive policy logic.
 
 ## Guardrails
 
@@ -108,12 +128,13 @@ owner's `drain_batch` closure.
 - `documentation/experiments/0171-remote-free-queued-byte-budget-helper.md`
 - `documentation/experiments/0172-remote-free-uniform-benchmark-budget-helper.md`
 - `documentation/experiments/0173-remote-free-heterogeneous-budget-helper.md`
+- `documentation/experiments/0178-remote-free-queued-byte-drift-report.md`
 
 ## Open Questions
 
-- Should the runtime add an adaptive layer above
-  `RemoteFreeQueuedByteDrainConfig` when `full_count` or retained bytes drift
-  from the configured target window?
+- Which adaptive action should follow a non-zero drift report: earlier drains,
+  larger queue capacity, larger drain batch size, or a different retained-byte
+  budget?
 - Which workload signal should set the retained item window in production:
   scheduler turn age, active request concurrency, KV cache pressure, or memory
   pressure from observability counters?

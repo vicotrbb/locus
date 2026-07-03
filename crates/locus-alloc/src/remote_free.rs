@@ -6,6 +6,7 @@ use std::sync::Arc;
 mod budget;
 mod config;
 mod controller;
+mod drift;
 
 pub use budget::{RemoteFreeQueuedByteBudget, RemoteFreeQueuedByteBudgetError};
 pub use config::{RemoteFreeQueuedByteDrainConfig, RemoteFreeQueuedByteDrainConfigError};
@@ -15,6 +16,7 @@ pub use controller::{
     RemoteFreeDrainReason, RemoteFreeDrainTracker, RemoteFreeDrainTrackerError,
     RemoteFreeTrackedDrain,
 };
+pub use drift::RemoteFreeQueuedByteDriftReport;
 
 /// Owner-drained queue for batching remote frees back to an owning worker.
 pub struct RemoteFreeQueue<T> {
