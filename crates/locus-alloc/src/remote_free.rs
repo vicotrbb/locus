@@ -69,6 +69,13 @@ pub struct RemoteFreeDrainPolicy {
     age_bound: Option<NonZeroU64>,
 }
 
+/// Owner-side controller for remote-free policy and drain accounting.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RemoteFreeDrainController {
+    policy: RemoteFreeDrainPolicy,
+    tracker: RemoteFreeDrainTracker,
+}
+
 /// Owner-side pending work tracker for remote-free drain policy observations.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct RemoteFreeDrainTracker {
@@ -104,6 +111,17 @@ pub enum RemoteFreeDrainReason {
     PendingCount,
 }
 
+/// Policy status for one owner-side remote-free control point.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RemoteFreeDrainControllerStatus {
+    /// Queue accounting observed at the control point.
+    pub queue_stats: RemoteFreeQueueStats,
+    /// Tracker observation used by the policy.
+    pub observation: RemoteFreeDrainObservation,
+    /// Policy decision for the observation.
+    pub decision: RemoteFreeDrainDecision,
+}
+
 /// Metadata for one tracked remote-free drain.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct RemoteFreeTrackedDrain {
@@ -132,6 +150,20 @@ pub enum RemoteFreeDrainTrackerError {
         /// Bytes expected for the final item in the oldest pending turn.
         expected_bytes: u64,
     },
+}
+
+/// Remote-free drain controller accounting failures.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum RemoteFreeDrainControllerError {
+    /// Queue pending count and tracker pending count diverged.
+    PendingCountMismatch {
+        /// Pending count reported by `RemoteFreeQueue`.
+        queue_pending_count: u64,
+        /// Pending count reported by `RemoteFreeDrainTracker`.
+        tracker_pending_count: u64,
+    },
+    /// Drain tracker accounting failed.
+    Tracker(RemoteFreeDrainTrackerError),
 }
 
 impl<T> RemoteFreeQueue<T> {
@@ -210,6 +242,103 @@ impl<T> RemoteFreeQueue<T> {
             disconnected_count: self.sink.disconnected_count(),
             drained_count: self.drained_count,
         }
+    }
+}
+
+impl RemoteFreeDrainController {
+    /// Creates a controller with the given drain policy and an empty tracker.
+    #[must_use]
+    pub fn new(policy: RemoteFreeDrainPolicy) -> Self {
+        Self {
+            policy,
+            tracker: RemoteFreeDrainTracker::new(),
+        }
+    }
+
+    /// Returns the configured drain policy.
+    #[must_use]
+    pub const fn policy(&self) -> RemoteFreeDrainPolicy {
+        self.policy
+    }
+
+    /// Returns the underlying drain tracker.
+    #[must_use]
+    pub const fn tracker(&self) -> &RemoteFreeDrainTracker {
+        &self.tracker
+    }
+
+    /// Records one successfully submitted remote-free work item.
+    pub fn record_submit(&mut self, submit_turn: u64, queued_bytes: u64) {
+        self.tracker.record_submit(submit_turn, queued_bytes);
+    }
+
+    /// Records one FIFO owner-side drain.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when tracker accounting is inconsistent.
+    pub fn record_drain(
+        &mut self,
+        released_bytes: u64,
+    ) -> Result<RemoteFreeTrackedDrain, RemoteFreeDrainControllerError> {
+        self.tracker
+            .record_drain(released_bytes)
+            .map_err(RemoteFreeDrainControllerError::Tracker)
+    }
+
+    /// Builds policy status for the current queue and logical turn.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when queue and tracker pending counts differ.
+    pub fn status_for_queue<T>(
+        &self,
+        queue: &RemoteFreeQueue<T>,
+        current_turn: u64,
+    ) -> Result<RemoteFreeDrainControllerStatus, RemoteFreeDrainControllerError> {
+        let queue_stats = queue.stats();
+        let observation = self.tracker.observation(current_turn);
+
+        if queue_stats.pending_count != observation.pending_count {
+            return Err(RemoteFreeDrainControllerError::PendingCountMismatch {
+                queue_pending_count: queue_stats.pending_count,
+                tracker_pending_count: observation.pending_count,
+            });
+        }
+
+        Ok(RemoteFreeDrainControllerStatus {
+            queue_stats,
+            observation,
+            decision: self.policy.decide(observation),
+        })
+    }
+
+    /// Returns the policy decision for the current queue and logical turn.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when queue and tracker pending counts differ.
+    pub fn decide_for_queue<T>(
+        &self,
+        queue: &RemoteFreeQueue<T>,
+        current_turn: u64,
+    ) -> Result<RemoteFreeDrainDecision, RemoteFreeDrainControllerError> {
+        self.status_for_queue(queue, current_turn)
+            .map(|status| status.decision)
+    }
+
+    /// Returns whether the owner should drain for the current queue and turn.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when queue and tracker pending counts differ.
+    pub fn should_drain_queue<T>(
+        &self,
+        queue: &RemoteFreeQueue<T>,
+        current_turn: u64,
+    ) -> Result<bool, RemoteFreeDrainControllerError> {
+        self.decide_for_queue(queue, current_turn)
+            .map(RemoteFreeDrainDecision::should_drain)
     }
 }
 
@@ -625,20 +754,38 @@ impl fmt::Display for RemoteFreeDrainTrackerError {
     }
 }
 
+impl fmt::Display for RemoteFreeDrainControllerError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::PendingCountMismatch {
+                queue_pending_count,
+                tracker_pending_count,
+            } => write!(
+                f,
+                "remote free queue has {queue_pending_count} pending items but tracker has {tracker_pending_count}"
+            ),
+            Self::Tracker(source) => write!(f, "{source}"),
+        }
+    }
+}
+
 impl<T> std::error::Error for RemoteFreeEnqueueError<T> {}
 
 impl<T> std::error::Error for RemoteFreeTryEnqueueError<T> {}
 
 impl std::error::Error for RemoteFreeDrainTrackerError {}
 
+impl std::error::Error for RemoteFreeDrainControllerError {}
+
 #[cfg(test)]
 mod tests {
     use std::num::NonZeroU64;
 
     use super::{
-        RemoteFreeDrainDecision, RemoteFreeDrainObservation, RemoteFreeDrainPolicy,
-        RemoteFreeDrainReason, RemoteFreeDrainTracker, RemoteFreeDrainTrackerError,
-        RemoteFreeQueue, RemoteFreeQueueError, RemoteFreeTryEnqueueErrorKind,
+        RemoteFreeDrainController, RemoteFreeDrainControllerError, RemoteFreeDrainDecision,
+        RemoteFreeDrainObservation, RemoteFreeDrainPolicy, RemoteFreeDrainReason,
+        RemoteFreeDrainTracker, RemoteFreeDrainTrackerError, RemoteFreeQueue, RemoteFreeQueueError,
+        RemoteFreeTryEnqueueErrorKind,
     };
 
     #[test]
@@ -801,6 +948,85 @@ mod tests {
         assert_eq!(
             policy.decide(observation),
             RemoteFreeDrainDecision::Drain(RemoteFreeDrainReason::PendingCount)
+        );
+    }
+
+    #[test]
+    fn remote_free_drain_controller_reports_queue_policy_status() {
+        let mut controller = RemoteFreeDrainController::new(
+            RemoteFreeDrainPolicy::new()
+                .with_max_pending_age(NonZeroU64::new(1).expect("non-zero")),
+        );
+        let queue = RemoteFreeQueue::new(4, 2).expect("queue");
+        let sink = queue.sink();
+
+        sink.enqueue(1).expect("enqueue first");
+        sink.enqueue(2).expect("enqueue second");
+        controller.record_submit(0, 4096);
+        controller.record_submit(0, 8192);
+
+        let status = controller
+            .status_for_queue(&queue, 1)
+            .expect("controller status");
+
+        assert_eq!(status.queue_stats.pending_count, 2);
+        assert_eq!(
+            status.observation,
+            RemoteFreeDrainObservation::new(2, 12_288, 1)
+        );
+        assert_eq!(
+            status.decision,
+            RemoteFreeDrainDecision::Drain(RemoteFreeDrainReason::PendingAge)
+        );
+        assert!(controller
+            .should_drain_queue(&queue, 1)
+            .expect("should drain"));
+    }
+
+    #[test]
+    fn remote_free_drain_controller_rejects_pending_count_drift() {
+        let controller = RemoteFreeDrainController::new(RemoteFreeDrainPolicy::new());
+        let queue = RemoteFreeQueue::new(4, 2).expect("queue");
+        let sink = queue.sink();
+
+        sink.enqueue(1).expect("enqueue first");
+
+        assert_eq!(
+            controller
+                .status_for_queue(&queue, 0)
+                .expect_err("pending counts should differ"),
+            RemoteFreeDrainControllerError::PendingCountMismatch {
+                queue_pending_count: 1,
+                tracker_pending_count: 0,
+            }
+        );
+    }
+
+    #[test]
+    fn remote_free_drain_controller_records_queue_drains() {
+        let mut controller = RemoteFreeDrainController::new(RemoteFreeDrainPolicy::new());
+        let mut queue = RemoteFreeQueue::new(4, 2).expect("queue");
+        let sink = queue.sink();
+
+        sink.enqueue(1).expect("enqueue first");
+        sink.enqueue(2).expect("enqueue second");
+        controller.record_submit(0, 4096);
+        controller.record_submit(0, 8192);
+
+        let mut released = Vec::new();
+        let drain_stats = queue.drain_batch(|item| {
+            let tracked = controller.record_drain(4096 * item).expect("tracked drain");
+            released.push((item, tracked.submit_turn, tracked.released_bytes));
+        });
+
+        assert_eq!(drain_stats.drained, 2);
+        assert_eq!(released, vec![(1, 0, 4096), (2, 0, 8192)]);
+        assert!(controller.tracker().is_empty());
+        assert_eq!(
+            controller
+                .decide_for_queue(&queue, 1)
+                .expect("empty decision"),
+            RemoteFreeDrainDecision::Defer
         );
     }
 

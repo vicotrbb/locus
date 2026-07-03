@@ -61,6 +61,7 @@ pub use pinned_scratch_pool_probe::{
 };
 
 pub use remote_free::{
+    RemoteFreeDrainController, RemoteFreeDrainControllerError, RemoteFreeDrainControllerStatus,
     RemoteFreeDrainDecision, RemoteFreeDrainObservation, RemoteFreeDrainPolicy,
     RemoteFreeDrainReason, RemoteFreeDrainStats, RemoteFreeDrainTracker,
     RemoteFreeDrainTrackerError, RemoteFreeEnqueueError, RemoteFreeQueue, RemoteFreeQueueError,

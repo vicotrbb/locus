@@ -4,8 +4,7 @@ use std::{alloc::Layout, num::NonZeroU64, sync::mpsc::sync_channel, thread};
 
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use locus_alloc::{
-    RemoteFreeDrainObservation, RemoteFreeDrainPolicy, RemoteFreeDrainTracker, RemoteFreeQueue,
-    RequestScratchPool,
+    RemoteFreeDrainController, RemoteFreeDrainPolicy, RemoteFreeQueue, RequestScratchPool,
 };
 use locus_core::{NodeId, RequestHome, RequestId};
 
@@ -62,10 +61,6 @@ impl RequestPolicyCase {
             drain_policy: RemoteFreeDrainPolicy::new()
                 .with_max_pending_age(NonZeroU64::new(2).expect("non-zero")),
         }
-    }
-
-    fn should_drain(self, observation: RemoteFreeDrainObservation) -> bool {
-        self.drain_policy.should_drain(observation)
     }
 }
 
@@ -255,7 +250,7 @@ fn run_request_policy_iteration(
     ack_receiver: &std::sync::mpsc::Receiver<usize>,
     case: RequestPolicyCase,
 ) -> RequestPolicyStats {
-    let mut tracker = RemoteFreeDrainTracker::new();
+    let mut controller = RemoteFreeDrainController::new(case.drain_policy);
     let mut stats = RequestPolicyStats::new();
 
     for burst in 0..BURSTS {
@@ -282,25 +277,35 @@ fn run_request_policy_iteration(
         assert_eq!(submitted, BURST_REQUESTS);
 
         for _ in 0..submitted {
-            tracker.record_submit(burst, ARENA_CAPACITY_U64);
+            controller.record_submit(burst, ARENA_CAPACITY_U64);
             stats.submitted_count = stats.submitted_count.saturating_add(1);
         }
-        stats.queued_bytes = tracker.queued_bytes();
+        stats.queued_bytes = controller.tracker().queued_bytes();
         stats.max_queued_bytes = stats.max_queued_bytes.max(stats.queued_bytes);
-        stats.max_pending_count = stats.max_pending_count.max(tracker.pending_count());
+        stats.max_pending_count = stats
+            .max_pending_count
+            .max(controller.tracker().pending_count());
 
         let completed_bursts = burst.saturating_add(1);
-        let observation = request_policy_observation(queue, &stats, &tracker, completed_bursts);
-        if case.should_drain(observation)
-            && drain_request_policy_batch(queue, pool, &mut tracker, completed_bursts, &mut stats)
-                > 0
+        let policy_report = controller
+            .status_for_queue(queue, completed_bursts)
+            .expect("controller status");
+        assert_eq!(policy_report.observation.queued_bytes, stats.queued_bytes);
+        if policy_report.decision.should_drain()
+            && drain_request_policy_batch(
+                queue,
+                pool,
+                &mut controller,
+                completed_bursts,
+                &mut stats,
+            ) > 0
         {
             stats.policy_drains = stats.policy_drains.saturating_add(1);
         }
     }
 
     while stats.drained_count < stats.submitted_count {
-        if drain_request_policy_batch(queue, pool, &mut tracker, BURSTS, &mut stats) == 0 {
+        if drain_request_policy_batch(queue, pool, &mut controller, BURSTS, &mut stats) == 0 {
             thread::yield_now();
         }
     }
@@ -308,40 +313,25 @@ fn run_request_policy_iteration(
     let queue_stats = queue.stats();
     assert_eq!(queue_stats.pending_count, 0);
     assert_eq!(queue_stats.disconnected_count, 0);
-    assert!(tracker.is_empty());
+    assert!(controller.tracker().is_empty());
     stats.full_count = queue_stats.full_count;
     stats
-}
-
-fn request_policy_observation(
-    queue: &RemoteFreeQueue<RequestId>,
-    stats: &RequestPolicyStats,
-    tracker: &RemoteFreeDrainTracker,
-    current_burst: u64,
-) -> RemoteFreeDrainObservation {
-    let queue_stats = queue.stats();
-    let observation = tracker.observation(current_burst);
-
-    assert_eq!(observation.pending_count, queue_stats.pending_count);
-    assert_eq!(observation.queued_bytes, stats.queued_bytes);
-
-    observation
 }
 
 fn drain_request_policy_batch(
     queue: &mut RemoteFreeQueue<RequestId>,
     pool: &mut RequestScratchPool,
-    tracker: &mut RemoteFreeDrainTracker,
+    controller: &mut RemoteFreeDrainController,
     current_burst: u64,
     stats: &mut RequestPolicyStats,
 ) -> usize {
     let drained = queue.drain_batch(|request_id| {
-        let drain_record = tracker
+        let drain_record = controller
             .record_drain(ARENA_CAPACITY_U64)
             .expect("tracked drain");
         black_box(pool.close_request(request_id).expect("close request"));
         let wait_bursts = current_burst.saturating_sub(drain_record.submit_turn);
-        stats.queued_bytes = tracker.queued_bytes();
+        stats.queued_bytes = controller.tracker().queued_bytes();
         stats.released_bytes = stats
             .released_bytes
             .saturating_add(drain_record.released_bytes);
