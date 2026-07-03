@@ -288,6 +288,14 @@ installs, one confirm, one rollback, one mutation-limit decision, four
 no-change outcomes, and one missing-owner check while reporting drift and
 decision counters through the returned window stats.
 
+Experiment 0207 added
+`RemoteFreeServiceRuntimeRetuneOwners::collect_service_window` as the first
+borrow-scoped collection helper over registered owner runtimes. A real
+allocation benchmark collected eight owner summaries through short mutable
+owner borrows, preserved the same 2048 submitted blocks, 2048 drained blocks,
+9,437,440 released bytes, two installs, one confirm, one rollback, one
+mutation-limit decision, four no-change outcomes, and one missing-owner check.
+
 ## Measured Thresholds
 
 | Path | Shape inputs | Budget | Matched counters |
@@ -364,6 +372,9 @@ decision counters through the returned window stats.
 24. Use `RemoteFreeServiceRuntimeWindowObservation` and
     `observe_service_window` when a service loop needs reusable drift,
     decision, and runtime-outcome counters for routed owner summaries.
+25. Use `collect_service_window` when the service loop owns registered owner
+    runtimes and needs to collect summaries through short mutable owner borrows
+    before routing them through the shared service-window runner.
 
 ## Guardrails
 
@@ -416,6 +427,9 @@ decision counters through the returned window stats.
 - Do not duplicate service-window drift and decision counter aggregation at
   each caller. Use the window runner stats once summaries are already routed by
   owner ID.
+- Do not hold mutable owner runtime borrows across service coordinator
+  application, confirmation, or rollback. Use the collection helper when
+  collection and routing happen in the same service loop.
 - Recheck thresholds when KV block size, request arena capacity, burst size,
   request concurrency, or batch size changes.
 - For heterogeneous traces, derive the budget from actual retained item sizes
@@ -459,12 +473,13 @@ decision counters through the returned window stats.
 - `documentation/experiments/0204-remote-free-runtime-retune-coordinator.md`
 - `documentation/experiments/0205-remote-free-runtime-retune-owner-registry.md`
 - `documentation/experiments/0206-remote-free-runtime-service-window-runner.md`
+- `documentation/experiments/0207-remote-free-runtime-window-collection.md`
 
 ## Open Questions
 
-- How should a live service event loop collect owner summaries and produce
-  `RemoteFreeServiceRuntimeWindowObservation` values without holding
-  unnecessary mutable owner borrows?
+- Should live service loops collect summaries from every registered owner each
+  window, or should collection be driven by a dirty-owner queue to avoid
+  scanning owners that have no new remote-free activity?
 - Which workload signal should set the retained item window in production:
   scheduler turn age, active request concurrency, KV cache pressure, or memory
   pressure from observability counters?

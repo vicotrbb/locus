@@ -1,7 +1,7 @@
 use std::fmt;
 
 use super::{
-    RemoteFreeServiceRetuneGuardDecision, RemoteFreeServiceRetuneSummary,
+    RemoteFreeOwnerRuntime, RemoteFreeServiceRetuneGuardDecision, RemoteFreeServiceRetuneSummary,
     RemoteFreeServiceRuntimeOwnerId, RemoteFreeServiceRuntimeRetuneOutcome,
     RemoteFreeServiceRuntimeRetuneOwnerError, RemoteFreeServiceRuntimeRetuneOwners,
 };
@@ -39,6 +39,25 @@ pub struct RemoteFreeServiceRuntimeWindowStats {
 pub struct RemoteFreeServiceRuntimeWindowError {
     owner_id: RemoteFreeServiceRuntimeOwnerId,
     source: RemoteFreeServiceRuntimeRetuneOwnerError,
+}
+
+/// Failure while collecting and routing service-window owner telemetry.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum RemoteFreeServiceRuntimeWindowCollectionError<E> {
+    /// No owner was registered for the requested ID.
+    MissingOwner {
+        /// Requested owner ID.
+        owner_id: RemoteFreeServiceRuntimeOwnerId,
+    },
+    /// The caller-provided telemetry collector failed for this owner.
+    Collect {
+        /// Owner ID being collected.
+        owner_id: RemoteFreeServiceRuntimeOwnerId,
+        /// Collector error.
+        source: E,
+    },
+    /// Routing the collected summary through the service window failed.
+    Window(RemoteFreeServiceRuntimeWindowError),
 }
 
 impl RemoteFreeServiceRuntimeWindowObservation {
@@ -301,6 +320,17 @@ impl RemoteFreeServiceRuntimeWindowError {
     }
 }
 
+impl<E> RemoteFreeServiceRuntimeWindowCollectionError<E> {
+    /// Returns the owner ID for the failed collection or routing step.
+    #[must_use]
+    pub const fn owner_id(&self) -> RemoteFreeServiceRuntimeOwnerId {
+        match self {
+            Self::MissingOwner { owner_id } | Self::Collect { owner_id, .. } => *owner_id,
+            Self::Window(source) => source.owner_id(),
+        }
+    }
+}
+
 impl<T> RemoteFreeServiceRuntimeRetuneOwners<T> {
     /// Processes routed owner observations for one service retune window.
     ///
@@ -329,6 +359,49 @@ impl<T> RemoteFreeServiceRuntimeRetuneOwners<T> {
 
         Ok(stats)
     }
+
+    /// Collects and processes owner summaries for one service retune window.
+    ///
+    /// Each owner is mutably borrowed only while `collect` creates its summary.
+    /// The borrow ends before the summary is routed through the service
+    /// coordinator, so apply, confirm, rollback, or no-change operations happen
+    /// through the registry after collection.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error with owner ID context if an owner is missing, summary
+    /// collection fails, or routing the collected summary fails.
+    pub fn collect_service_window<E>(
+        &mut self,
+        owner_ids: impl IntoIterator<Item = RemoteFreeServiceRuntimeOwnerId>,
+        mut collect: impl FnMut(
+            RemoteFreeServiceRuntimeOwnerId,
+            &mut RemoteFreeOwnerRuntime<T>,
+        ) -> Result<RemoteFreeServiceRetuneSummary, E>,
+    ) -> Result<RemoteFreeServiceRuntimeWindowStats, RemoteFreeServiceRuntimeWindowCollectionError<E>>
+    {
+        let mut stats = RemoteFreeServiceRuntimeWindowStats::new();
+
+        for owner_id in owner_ids {
+            let summary = {
+                let runtime = self.owner_mut(owner_id).ok_or(
+                    RemoteFreeServiceRuntimeWindowCollectionError::MissingOwner { owner_id },
+                )?;
+                collect(owner_id, runtime).map_err(|source| {
+                    RemoteFreeServiceRuntimeWindowCollectionError::Collect { owner_id, source }
+                })?
+            };
+
+            let window_stats = self
+                .observe_service_window([RemoteFreeServiceRuntimeWindowObservation::new(
+                    owner_id, summary,
+                )])
+                .map_err(RemoteFreeServiceRuntimeWindowCollectionError::Window)?;
+            stats.merge(window_stats);
+        }
+
+        Ok(stats)
+    }
 }
 
 impl fmt::Display for RemoteFreeServiceRuntimeWindowError {
@@ -348,11 +421,46 @@ impl std::error::Error for RemoteFreeServiceRuntimeWindowError {
     }
 }
 
+impl<E> fmt::Display for RemoteFreeServiceRuntimeWindowCollectionError<E>
+where
+    E: fmt::Display,
+{
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::MissingOwner { owner_id } => write!(
+                f,
+                "remote-free owner runtime {} is not registered",
+                owner_id.index()
+            ),
+            Self::Collect { owner_id, source } => write!(
+                f,
+                "remote-free service window collection failed for owner {}: {}",
+                owner_id.index(),
+                source
+            ),
+            Self::Window(source) => write!(f, "{source}"),
+        }
+    }
+}
+
+impl<E> std::error::Error for RemoteFreeServiceRuntimeWindowCollectionError<E>
+where
+    E: std::error::Error + 'static,
+{
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::MissingOwner { .. } => None,
+            Self::Collect { source, .. } => Some(source),
+            Self::Window(source) => Some(source),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
-        RemoteFreeServiceRuntimeWindowError, RemoteFreeServiceRuntimeWindowObservation,
-        RemoteFreeServiceRuntimeWindowStats,
+        RemoteFreeServiceRuntimeWindowCollectionError, RemoteFreeServiceRuntimeWindowError,
+        RemoteFreeServiceRuntimeWindowObservation, RemoteFreeServiceRuntimeWindowStats,
     };
     use crate::{
         RemoteFreeDrainObservation, RemoteFreeOwnerRuntime, RemoteFreeQueueStats,
@@ -479,6 +587,74 @@ mod tests {
                 source: RemoteFreeServiceRuntimeRetuneOwnerError::MissingOwner {
                     owner_id: missing,
                 },
+            })
+        );
+    }
+
+    #[test]
+    fn service_window_collector_routes_borrowed_owner_summaries() {
+        let mut owners = owners(2);
+        let owner_id = owners
+            .register_owner(RemoteFreeOwnerRuntime::<usize>::new(config(256)).expect("runtime"));
+
+        let first = owners
+            .collect_service_window([owner_id], |_, runtime| {
+                Ok::<_, &'static str>(summary(report(runtime.config(), 96, 524_288, 0)))
+            })
+            .expect("hold");
+        let second = owners
+            .collect_service_window([owner_id], |_, runtime| {
+                Ok::<_, &'static str>(summary(report(runtime.config(), 96, 524_288, 0)))
+            })
+            .expect("apply");
+        let third = owners
+            .collect_service_window([owner_id], |_, runtime| {
+                Ok::<_, &'static str>(summary(report(runtime.config(), 64, 262_144, 0)))
+            })
+            .expect("confirm");
+
+        let mut total = RemoteFreeServiceRuntimeWindowStats::new();
+        total.merge(first);
+        total.merge(second);
+        total.merge(third);
+
+        assert_eq!(total.owner_observations(), 3);
+        assert_eq!(total.reports_needing_retune(), 2);
+        assert_eq!(total.hold_decisions(), 1);
+        assert_eq!(total.apply_decisions(), 1);
+        assert_eq!(total.confirmed_decisions(), 1);
+        assert_eq!(
+            owners.owner(owner_id).expect("owner").previous_config(),
+            None
+        );
+    }
+
+    #[test]
+    fn service_window_collector_reports_missing_owner_context() {
+        let mut owners = owners(2);
+        let missing = RemoteFreeServiceRuntimeOwnerId::new(11);
+
+        assert_eq!(
+            owners.collect_service_window([missing], |_, runtime| {
+                Ok::<_, &'static str>(summary(report(runtime.config(), 96, 524_288, 0)))
+            }),
+            Err(RemoteFreeServiceRuntimeWindowCollectionError::MissingOwner { owner_id: missing })
+        );
+    }
+
+    #[test]
+    fn service_window_collector_reports_collection_error_context() {
+        let mut owners = owners(2);
+        let owner_id = owners
+            .register_owner(RemoteFreeOwnerRuntime::<usize>::new(config(256)).expect("runtime"));
+
+        assert_eq!(
+            owners.collect_service_window([owner_id], |_, _| {
+                Err::<RemoteFreeServiceRetuneSummary, _>("collection failed")
+            }),
+            Err(RemoteFreeServiceRuntimeWindowCollectionError::Collect {
+                owner_id,
+                source: "collection failed",
             })
         );
     }

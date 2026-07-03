@@ -1,12 +1,14 @@
 #![allow(missing_docs)]
 
+use std::convert::Infallible;
+
 use criterion::{black_box, Criterion};
 use locus_alloc::{
     RemoteFreeDrainPolicy, RemoteFreeOwnerRuntime, RemoteFreeServiceRetuneCandidate,
     RemoteFreeServiceRetuneGuard, RemoteFreeServiceRetunePolicyApplicator,
-    RemoteFreeServiceRuntimeOwnerId, RemoteFreeServiceRuntimeRetuneCoordinator,
-    RemoteFreeServiceRuntimeRetuneOwners, RemoteFreeServiceRuntimeWindowObservation,
-    RemoteFreeServiceRuntimeWindowStats,
+    RemoteFreeServiceRetuneSummary, RemoteFreeServiceRuntimeOwnerId,
+    RemoteFreeServiceRuntimeRetuneCoordinator, RemoteFreeServiceRuntimeRetuneOwners,
+    RemoteFreeServiceRuntimeWindowObservation, RemoteFreeServiceRuntimeWindowStats,
 };
 
 use crate::remote_free_service_application_harness::{
@@ -34,6 +36,12 @@ enum ServiceWindowDecisionKind {
     MutationLimitReached,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ServiceWindowRunnerMode {
+    RoutedObservation,
+    CollectedOwnerBorrow,
+}
+
 #[derive(Debug, Clone, Copy)]
 struct ServiceWindowSequenceStats {
     runtime: RuntimeApplicationStats,
@@ -47,14 +55,21 @@ struct ServiceWindowSequenceStats {
 }
 
 pub(crate) fn benchmark_runtime_service_window_sequence(c: &mut Criterion) {
-    print_service_window_sample();
-    print_service_window_sample_summary();
+    print_service_window_sample(
+        ServiceWindowRunnerMode::RoutedObservation,
+        "remote_free_service_runtime_service_window_sample",
+    );
+    print_service_window_sample_summary(
+        ServiceWindowRunnerMode::RoutedObservation,
+        "remote_free_service_runtime_service_window_sample_summary",
+    );
 
     c.bench_function(
         "remote_free_service_runtime_service_window_sequence",
         |bench| {
             bench.iter(|| {
-                let stats = run_runtime_service_window_sequence();
+                let stats =
+                    run_runtime_service_window_sequence(ServiceWindowRunnerMode::RoutedObservation);
                 assert_service_window_stats(&stats);
                 black_box(stats);
             });
@@ -62,12 +77,36 @@ pub(crate) fn benchmark_runtime_service_window_sequence(c: &mut Criterion) {
     );
 }
 
-fn print_service_window_sample() {
-    let stats = run_runtime_service_window_sequence();
+pub(crate) fn benchmark_runtime_window_collection_sequence(c: &mut Criterion) {
+    print_service_window_sample(
+        ServiceWindowRunnerMode::CollectedOwnerBorrow,
+        "remote_free_service_runtime_window_collection_sample",
+    );
+    print_service_window_sample_summary(
+        ServiceWindowRunnerMode::CollectedOwnerBorrow,
+        "remote_free_service_runtime_window_collection_sample_summary",
+    );
+
+    c.bench_function(
+        "remote_free_service_runtime_window_collection_sequence",
+        |bench| {
+            bench.iter(|| {
+                let stats = run_runtime_service_window_sequence(
+                    ServiceWindowRunnerMode::CollectedOwnerBorrow,
+                );
+                assert_service_window_stats(&stats);
+                black_box(stats);
+            });
+        },
+    );
+}
+
+fn print_service_window_sample(mode: ServiceWindowRunnerMode, sample_name: &str) {
+    let stats = run_runtime_service_window_sequence(mode);
     assert_service_window_stats(&stats);
 
     println!(
-        "remote_free_service_runtime_service_window_sample owners={SERVICE_WINDOW_OWNERS} windows={SERVICE_WINDOW_WINDOWS} stable_windows={SERVICE_WINDOW_STABLE_WINDOWS} max_mutations={SERVICE_WINDOW_MAX_MUTATIONS} rollback_validation_bytes={SERVICE_WINDOW_ROLLBACK_VALIDATION_BYTES} submitted_count={} drained_count={} released_bytes={} policy_drains={} drain_rounds={} registered_owners={} service_window_observations={} observed_reports={} reports_needing_retune={} max_pending_over_target={} max_queued_bytes_over_budget={} queue_backpressure_reports={} hold_decisions={} apply_decisions={} confirmed_decisions={} rollback_decisions={} mutation_limit_decisions={} runtime_install_count={} runtime_confirm_count={} runtime_rollback_count={} runtime_no_change_outcomes={} missing_owner_checks={} max_wait_bursts={} mean_wait_bursts={} final_queue_capacity={} final_previous_config_present={} final_guard_pending_candidate={} final_guard_applied_mutations={} final_guard_confirmed_mutations={} final_guard_rollbacks={}",
+        "{sample_name} owners={SERVICE_WINDOW_OWNERS} windows={SERVICE_WINDOW_WINDOWS} stable_windows={SERVICE_WINDOW_STABLE_WINDOWS} max_mutations={SERVICE_WINDOW_MAX_MUTATIONS} rollback_validation_bytes={SERVICE_WINDOW_ROLLBACK_VALIDATION_BYTES} submitted_count={} drained_count={} released_bytes={} policy_drains={} drain_rounds={} registered_owners={} service_window_observations={} observed_reports={} reports_needing_retune={} max_pending_over_target={} max_queued_bytes_over_budget={} queue_backpressure_reports={} hold_decisions={} apply_decisions={} confirmed_decisions={} rollback_decisions={} mutation_limit_decisions={} runtime_install_count={} runtime_confirm_count={} runtime_rollback_count={} runtime_no_change_outcomes={} missing_owner_checks={} max_wait_bursts={} mean_wait_bursts={} final_queue_capacity={} final_previous_config_present={} final_guard_pending_candidate={} final_guard_applied_mutations={} final_guard_confirmed_mutations={} final_guard_rollbacks={}",
         stats.runtime.submitted_count,
         stats.runtime.drained_count,
         stats.runtime.released_bytes,
@@ -101,7 +140,7 @@ fn print_service_window_sample() {
     );
 }
 
-fn print_service_window_sample_summary() {
+fn print_service_window_sample_summary(mode: ServiceWindowRunnerMode, sample_name: &str) {
     let mut policy_drains = CounterSummary::new();
     let mut drain_rounds = CounterSummary::new();
     let mut reports_needing_retune = CounterSummary::new();
@@ -113,7 +152,7 @@ fn print_service_window_sample_summary() {
     let mut mean_wait = CounterSummary::new();
 
     for _ in 0..SAMPLES {
-        let stats = run_runtime_service_window_sequence();
+        let stats = run_runtime_service_window_sequence(mode);
         assert_service_window_stats(&stats);
 
         policy_drains.observe(stats.runtime.policy_drains);
@@ -128,7 +167,7 @@ fn print_service_window_sample_summary() {
     }
 
     println!(
-        "remote_free_service_runtime_service_window_sample_summary owners={SERVICE_WINDOW_OWNERS} windows={SERVICE_WINDOW_WINDOWS} samples={SAMPLES} policy_drains_min={} policy_drains_max={} policy_drains_mean={} drain_rounds_min={} drain_rounds_max={} drain_rounds_mean={} reports_needing_retune_min={} reports_needing_retune_max={} reports_needing_retune_mean={} apply_decisions_min={} apply_decisions_max={} apply_decisions_mean={} confirmed_decisions_min={} confirmed_decisions_max={} confirmed_decisions_mean={} rollback_decisions_min={} rollback_decisions_max={} rollback_decisions_mean={} mutation_limit_decisions_min={} mutation_limit_decisions_max={} mutation_limit_decisions_mean={} max_wait_min={} max_wait_max={} max_wait_mean={} mean_wait_min={} mean_wait_max={} mean_wait_mean={}",
+        "{sample_name} owners={SERVICE_WINDOW_OWNERS} windows={SERVICE_WINDOW_WINDOWS} samples={SAMPLES} policy_drains_min={} policy_drains_max={} policy_drains_mean={} drain_rounds_min={} drain_rounds_max={} drain_rounds_mean={} reports_needing_retune_min={} reports_needing_retune_max={} reports_needing_retune_mean={} apply_decisions_min={} apply_decisions_max={} apply_decisions_mean={} confirmed_decisions_min={} confirmed_decisions_max={} confirmed_decisions_mean={} rollback_decisions_min={} rollback_decisions_max={} rollback_decisions_mean={} mutation_limit_decisions_min={} mutation_limit_decisions_max={} mutation_limit_decisions_mean={} max_wait_min={} max_wait_max={} max_wait_mean={} mean_wait_min={} mean_wait_max={} mean_wait_mean={}",
         policy_drains.min,
         policy_drains.max,
         format_milli(policy_drains.mean_milli(SAMPLES)),
@@ -159,7 +198,9 @@ fn print_service_window_sample_summary() {
     );
 }
 
-fn run_runtime_service_window_sequence() -> ServiceWindowSequenceStats {
+fn run_runtime_service_window_sequence(
+    mode: ServiceWindowRunnerMode,
+) -> ServiceWindowSequenceStats {
     let mut owners =
         RemoteFreeServiceRuntimeRetuneOwners::new(RemoteFreeServiceRuntimeRetuneCoordinator::new(
             RemoteFreeServiceRetuneGuard::try_new(
@@ -180,18 +221,12 @@ fn run_runtime_service_window_sequence() -> ServiceWindowSequenceStats {
     let mut stats = ServiceWindowSequenceStats::new();
     stats.registered_owners = owners.len();
 
-    run_confirmed_owner(&mut owners, confirmed, &mut stats);
-    run_rolled_back_owner(&mut owners, rolled_back, &mut stats);
-    run_mutation_limited_owner(&mut owners, mutation_limited, &mut stats);
+    run_confirmed_owner(&mut owners, confirmed, &mut stats, mode);
+    run_rolled_back_owner(&mut owners, rolled_back, &mut stats, mode);
+    run_mutation_limited_owner(&mut owners, mutation_limited, &mut stats, mode);
 
     let missing = RemoteFreeServiceRuntimeOwnerId::new(usize::MAX);
-    let missing_error = owners
-        .observe_service_window([RemoteFreeServiceRuntimeWindowObservation::new(
-            missing,
-            locus_alloc::RemoteFreeServiceRetuneSummary::new(),
-        )])
-        .expect_err("missing owner");
-    assert_eq!(missing_error.owner_id(), missing);
+    assert_missing_owner(&mut owners, missing, mode);
     stats.missing_owner_checks = stats.missing_owner_checks.saturating_add(1);
 
     stats.runtime.install_count = stats.window.applied_outcomes();
@@ -210,6 +245,7 @@ fn run_confirmed_owner(
     owners: &mut RemoteFreeServiceRuntimeRetuneOwners<RuntimeTraceBlock>,
     owner_id: RemoteFreeServiceRuntimeOwnerId,
     stats: &mut ServiceWindowSequenceStats,
+    mode: ServiceWindowRunnerMode,
 ) {
     observe_window(
         owners,
@@ -217,6 +253,7 @@ fn run_confirmed_owner(
         stats,
         ServiceWindowDecisionKind::Hold,
         BYTES_PER_BLOCK,
+        mode,
     );
     observe_window(
         owners,
@@ -224,6 +261,7 @@ fn run_confirmed_owner(
         stats,
         ServiceWindowDecisionKind::Apply,
         BYTES_PER_BLOCK,
+        mode,
     );
     observe_window(
         owners,
@@ -231,6 +269,7 @@ fn run_confirmed_owner(
         stats,
         ServiceWindowDecisionKind::Confirmed,
         BYTES_PER_BLOCK,
+        mode,
     );
 
     let runtime = owners.owner(owner_id).expect("confirmed owner");
@@ -242,6 +281,7 @@ fn run_rolled_back_owner(
     owners: &mut RemoteFreeServiceRuntimeRetuneOwners<RuntimeTraceBlock>,
     owner_id: RemoteFreeServiceRuntimeOwnerId,
     stats: &mut ServiceWindowSequenceStats,
+    mode: ServiceWindowRunnerMode,
 ) {
     observe_window(
         owners,
@@ -249,6 +289,7 @@ fn run_rolled_back_owner(
         stats,
         ServiceWindowDecisionKind::Hold,
         BYTES_PER_BLOCK,
+        mode,
     );
     observe_window(
         owners,
@@ -256,6 +297,7 @@ fn run_rolled_back_owner(
         stats,
         ServiceWindowDecisionKind::Apply,
         BYTES_PER_BLOCK,
+        mode,
     );
     observe_window(
         owners,
@@ -263,6 +305,7 @@ fn run_rolled_back_owner(
         stats,
         ServiceWindowDecisionKind::Rollback,
         SERVICE_WINDOW_ROLLBACK_VALIDATION_BYTES,
+        mode,
     );
 
     let runtime = owners.owner(owner_id).expect("rolled-back owner");
@@ -277,6 +320,7 @@ fn run_mutation_limited_owner(
     owners: &mut RemoteFreeServiceRuntimeRetuneOwners<RuntimeTraceBlock>,
     owner_id: RemoteFreeServiceRuntimeOwnerId,
     stats: &mut ServiceWindowSequenceStats,
+    mode: ServiceWindowRunnerMode,
 ) {
     observe_window(
         owners,
@@ -284,6 +328,7 @@ fn run_mutation_limited_owner(
         stats,
         ServiceWindowDecisionKind::Hold,
         BYTES_PER_BLOCK,
+        mode,
     );
     observe_window(
         owners,
@@ -291,6 +336,7 @@ fn run_mutation_limited_owner(
         stats,
         ServiceWindowDecisionKind::MutationLimitReached,
         BYTES_PER_BLOCK,
+        mode,
     );
 
     let runtime = owners.owner(owner_id).expect("mutation-limited owner");
@@ -314,27 +360,72 @@ fn observe_window(
     stats: &mut ServiceWindowSequenceStats,
     expected_decision: ServiceWindowDecisionKind,
     block_bytes: u64,
+    mode: ServiceWindowRunnerMode,
 ) {
-    let summary = {
-        let runtime = owners.owner_mut(owner_id).expect("owner for window");
-        if block_bytes == BYTES_PER_BLOCK {
-            run_runtime_owner_window_with_summary(runtime, &mut stats.runtime)
-        } else {
-            run_runtime_owner_window_with_summary_and_block_bytes(
-                runtime,
-                &mut stats.runtime,
-                block_bytes,
-            )
+    let window_stats = match mode {
+        ServiceWindowRunnerMode::RoutedObservation => {
+            let summary = {
+                let runtime = owners.owner_mut(owner_id).expect("owner for window");
+                collect_runtime_summary(runtime, &mut stats.runtime, block_bytes)
+            };
+
+            owners
+                .observe_service_window([RemoteFreeServiceRuntimeWindowObservation::new(
+                    owner_id, summary,
+                )])
+                .expect("service window stats")
         }
+        ServiceWindowRunnerMode::CollectedOwnerBorrow => owners
+            .collect_service_window([owner_id], |_, runtime| {
+                Ok::<_, Infallible>(collect_runtime_summary(
+                    runtime,
+                    &mut stats.runtime,
+                    block_bytes,
+                ))
+            })
+            .expect("collected service window stats"),
     };
 
-    let window_stats = owners
-        .observe_service_window([RemoteFreeServiceRuntimeWindowObservation::new(
-            owner_id, summary,
-        )])
-        .expect("service window stats");
     assert_one_window_decision(window_stats, expected_decision);
     stats.window.merge(window_stats);
+}
+
+fn collect_runtime_summary(
+    runtime: &mut RemoteFreeOwnerRuntime<RuntimeTraceBlock>,
+    stats: &mut RuntimeApplicationStats,
+    block_bytes: u64,
+) -> RemoteFreeServiceRetuneSummary {
+    if block_bytes == BYTES_PER_BLOCK {
+        run_runtime_owner_window_with_summary(runtime, stats)
+    } else {
+        run_runtime_owner_window_with_summary_and_block_bytes(runtime, stats, block_bytes)
+    }
+}
+
+fn assert_missing_owner(
+    owners: &mut RemoteFreeServiceRuntimeRetuneOwners<RuntimeTraceBlock>,
+    missing: RemoteFreeServiceRuntimeOwnerId,
+    mode: ServiceWindowRunnerMode,
+) {
+    match mode {
+        ServiceWindowRunnerMode::RoutedObservation => {
+            let error = owners
+                .observe_service_window([RemoteFreeServiceRuntimeWindowObservation::new(
+                    missing,
+                    RemoteFreeServiceRetuneSummary::new(),
+                )])
+                .expect_err("missing owner");
+            assert_eq!(error.owner_id(), missing);
+        }
+        ServiceWindowRunnerMode::CollectedOwnerBorrow => {
+            let error = owners
+                .collect_service_window([missing], |_, _| {
+                    Ok::<_, Infallible>(RemoteFreeServiceRetuneSummary::new())
+                })
+                .expect_err("missing owner");
+            assert_eq!(error.owner_id(), missing);
+        }
+    }
 }
 
 fn assert_one_window_decision(

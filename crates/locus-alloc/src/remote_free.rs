@@ -50,8 +50,8 @@ pub use runtime::{
     RemoteFreeOwnerRuntimeRollbackOutcome,
 };
 pub use service_window::{
-    RemoteFreeServiceRuntimeWindowError, RemoteFreeServiceRuntimeWindowObservation,
-    RemoteFreeServiceRuntimeWindowStats,
+    RemoteFreeServiceRuntimeWindowCollectionError, RemoteFreeServiceRuntimeWindowError,
+    RemoteFreeServiceRuntimeWindowObservation, RemoteFreeServiceRuntimeWindowStats,
 };
 pub use telemetry::{RemoteFreeRetuneActionCounts, RemoteFreeServiceRetuneSummary};
 
