@@ -37,12 +37,16 @@ pub use remote_free_service_collection_summary::{
     parse_remote_free_service_telemetry_collection_summary,
     resolve_remote_free_service_telemetry_collection_summary_manifest_path,
     resolve_remote_free_service_telemetry_collection_summary_validation_summary_path,
+    validate_remote_free_service_telemetry_collection_summary_rollup_artifact,
     verify_remote_free_service_telemetry_collection_summary_artifacts,
     RemoteFreeServiceTelemetryCollectionSummary,
     RemoteFreeServiceTelemetryCollectionSummaryArtifact,
     RemoteFreeServiceTelemetryCollectionSummaryArtifactReport,
     RemoteFreeServiceTelemetryCollectionSummaryError,
+    RemoteFreeServiceTelemetryCollectionSummaryRollupCheck,
+    RemoteFreeServiceTelemetryCollectionSummaryRollupError,
     RemoteFreeServiceTelemetryCollectionSummarySource,
+    REMOTE_FREE_SERVICE_TELEMETRY_COLLECTION_SUMMARY_ROLLUP_SCHEMA,
     REMOTE_FREE_SERVICE_TELEMETRY_COLLECTION_SUMMARY_SCHEMA,
 };
 pub use remote_free_service_sample_compare::{

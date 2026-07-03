@@ -574,6 +574,14 @@ Experiment 0236 added artifact-only rollup validation for release checks. The
 real 511-byte artifact passed without rescanning the evidence tree and reported
 one summary, one valid bundle, one timing range, and one bundle row.
 
+Experiment 0237 moved the artifact-only rollup release check into
+`locus-validate` as
+`validate_remote_free_service_telemetry_collection_summary_rollup_artifact`.
+Focused library tests now reject failed rows and count drift directly through
+the public API, while the example command still accepts the real 511-byte
+artifact with one summary, one valid bundle, one timing range, and one bundle
+row.
+
 ## Measured Thresholds
 
 | Path | Shape inputs | Budget | Matched counters |
