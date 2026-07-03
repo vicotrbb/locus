@@ -729,6 +729,14 @@ mixed log with one matched verdict and one controlled `records=1` drifted
 verdict reports two records, one matched, one drifted, and one `records` drift
 bucket.
 
+Experiment 0258 added a parser for saved verdict rollup JSON records. The
+parser reconstructs typed
+`RemoteFreeServiceTelemetryCollectionSummaryRollupCheckLogSummaryVerificationRollup`
+values and rejects schema drift, missing grouped fields, grouped status
+coverage drift, and grouped drift-field coverage drift. The real mixed rollup
+reconstructs two records, one matched verdict, one drifted verdict, and one
+`records` drift bucket.
+
 ## Measured Thresholds
 
 | Path | Shape inputs | Budget | Matched counters |
@@ -1121,6 +1129,7 @@ bucket.
 - `documentation/experiments/0255-remote-free-service-telemetry-rollup-check-log-summary-json-drift.md`
 - `documentation/experiments/0256-remote-free-service-telemetry-rollup-check-log-summary-json-verdict.md`
 - `documentation/experiments/0257-remote-free-service-telemetry-rollup-check-log-summary-verdict-rollup.md`
+- `documentation/experiments/0258-remote-free-service-telemetry-rollup-check-log-summary-verdict-rollup-parser.md`
 
 ## Open Questions
 

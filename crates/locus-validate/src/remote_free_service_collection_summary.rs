@@ -1513,6 +1513,15 @@ pub fn format_remote_free_service_telemetry_collection_summary_rollup_check_log_
         "records": rollup.records,
         "matched": rollup.matched,
         "drifted": rollup.drifted,
+        "drift_records": rollup.drift_records,
+        "drift_rollup_hosts_present": rollup.drift_rollup_hosts_present,
+        "drift_rollup_hosts_missing": rollup.drift_rollup_hosts_missing,
+        "drift_bundle_hosts": rollup.drift_bundle_hosts,
+        "drift_bundle_hosts_missing": rollup.drift_bundle_hosts_missing,
+        "drift_status_valid_bundles": rollup.drift_status_valid_bundles,
+        "drift_status_drifted_summaries": rollup.drift_status_drifted_summaries,
+        "drift_status_missing_artifacts": rollup.drift_status_missing_artifacts,
+        "drift_status_other_failures": rollup.drift_status_other_failures,
         "status_coverage": {
             "matched": rollup.matched,
             "drifted": rollup.drifted,
@@ -1533,6 +1542,26 @@ pub fn format_remote_free_service_telemetry_collection_summary_rollup_check_log_
         .map_err(RemoteFreeServiceTelemetryCollectionSummaryRollupError::Serialize)
 }
 
+/// Parses a compact JSON line emitted for a saved-log summary verification rollup.
+///
+/// # Errors
+///
+/// Returns an error when the line is malformed, has an unexpected schema, or
+/// has inconsistent flat and grouped fields.
+pub fn parse_remote_free_service_telemetry_collection_summary_rollup_check_log_summary_verification_rollup_json_line(
+    input: &str,
+) -> Result<
+    RemoteFreeServiceTelemetryCollectionSummaryRollupCheckLogSummaryVerificationRollup,
+    RemoteFreeServiceTelemetryCollectionSummaryRollupError,
+> {
+    let value = serde_json::from_str::<Value>(input)
+        .map_err(RemoteFreeServiceTelemetryCollectionSummaryRollupError::Json)?;
+    require_rollup_check_log_summary_verification_rollup_json_schema(&value)?;
+    let rollup = parse_rollup_check_log_summary_verification_rollup_json_flat_fields(&value)?;
+    require_rollup_check_log_summary_verification_rollup_json_groups(&value, &rollup)?;
+    Ok(rollup)
+}
+
 fn require_rollup_check_log_summary_json_schema(
     value: &Value,
 ) -> Result<(), RemoteFreeServiceTelemetryCollectionSummaryRollupError> {
@@ -1544,6 +1573,116 @@ fn require_rollup_check_log_summary_json_schema(
             ),
         );
     }
+    Ok(())
+}
+
+fn require_rollup_check_log_summary_verification_rollup_json_schema(
+    value: &Value,
+) -> Result<(), RemoteFreeServiceTelemetryCollectionSummaryRollupError> {
+    let schema = rollup_required_str(value, "schema")?;
+    if schema
+        != REMOTE_FREE_SERVICE_TELEMETRY_COLLECTION_SUMMARY_ROLLUP_CHECK_LOG_SUMMARY_VERIFICATION_ROLLUP_SCHEMA
+    {
+        return Err(
+            RemoteFreeServiceTelemetryCollectionSummaryRollupError::UnexpectedSchema(
+                schema.to_owned(),
+            ),
+        );
+    }
+    Ok(())
+}
+
+fn parse_rollup_check_log_summary_verification_rollup_json_flat_fields(
+    value: &Value,
+) -> Result<
+    RemoteFreeServiceTelemetryCollectionSummaryRollupCheckLogSummaryVerificationRollup,
+    RemoteFreeServiceTelemetryCollectionSummaryRollupError,
+> {
+    Ok(
+        RemoteFreeServiceTelemetryCollectionSummaryRollupCheckLogSummaryVerificationRollup {
+            records: rollup_required_u64(value, "records")?,
+            matched: rollup_required_u64(value, "matched")?,
+            drifted: rollup_required_u64(value, "drifted")?,
+            drift_records: rollup_required_u64(value, "drift_records")?,
+            drift_rollup_hosts_present: rollup_required_u64(value, "drift_rollup_hosts_present")?,
+            drift_rollup_hosts_missing: rollup_required_u64(value, "drift_rollup_hosts_missing")?,
+            drift_bundle_hosts: rollup_required_u64(value, "drift_bundle_hosts")?,
+            drift_bundle_hosts_missing: rollup_required_u64(value, "drift_bundle_hosts_missing")?,
+            drift_status_valid_bundles: rollup_required_u64(value, "drift_status_valid_bundles")?,
+            drift_status_drifted_summaries: rollup_required_u64(
+                value,
+                "drift_status_drifted_summaries",
+            )?,
+            drift_status_missing_artifacts: rollup_required_u64(
+                value,
+                "drift_status_missing_artifacts",
+            )?,
+            drift_status_other_failures: rollup_required_u64(value, "drift_status_other_failures")?,
+        },
+    )
+}
+
+fn require_rollup_check_log_summary_verification_rollup_json_groups(
+    value: &Value,
+    rollup: &RemoteFreeServiceTelemetryCollectionSummaryRollupCheckLogSummaryVerificationRollup,
+) -> Result<(), RemoteFreeServiceTelemetryCollectionSummaryRollupError> {
+    let status_coverage = rollup_required_object(value, "status_coverage")?;
+    require_rollup_count(
+        "status_coverage.matched",
+        rollup.matched,
+        rollup_required_u64(status_coverage, "matched")?,
+    )?;
+    require_rollup_count(
+        "status_coverage.drifted",
+        rollup.drifted,
+        rollup_required_u64(status_coverage, "drifted")?,
+    )?;
+    let drift_fields = rollup_required_object(value, "drift_fields")?;
+    require_rollup_count(
+        "drift_fields.records",
+        rollup.drift_records,
+        rollup_required_u64(drift_fields, "records")?,
+    )?;
+    require_rollup_count(
+        "drift_fields.rollup_hosts_present",
+        rollup.drift_rollup_hosts_present,
+        rollup_required_u64(drift_fields, "rollup_hosts_present")?,
+    )?;
+    require_rollup_count(
+        "drift_fields.rollup_hosts_missing",
+        rollup.drift_rollup_hosts_missing,
+        rollup_required_u64(drift_fields, "rollup_hosts_missing")?,
+    )?;
+    require_rollup_count(
+        "drift_fields.bundle_hosts",
+        rollup.drift_bundle_hosts,
+        rollup_required_u64(drift_fields, "bundle_hosts")?,
+    )?;
+    require_rollup_count(
+        "drift_fields.bundle_hosts_missing",
+        rollup.drift_bundle_hosts_missing,
+        rollup_required_u64(drift_fields, "bundle_hosts_missing")?,
+    )?;
+    require_rollup_count(
+        "drift_fields.status_valid_bundles",
+        rollup.drift_status_valid_bundles,
+        rollup_required_u64(drift_fields, "status_valid_bundles")?,
+    )?;
+    require_rollup_count(
+        "drift_fields.status_drifted_summaries",
+        rollup.drift_status_drifted_summaries,
+        rollup_required_u64(drift_fields, "status_drifted_summaries")?,
+    )?;
+    require_rollup_count(
+        "drift_fields.status_missing_artifacts",
+        rollup.drift_status_missing_artifacts,
+        rollup_required_u64(drift_fields, "status_missing_artifacts")?,
+    )?;
+    require_rollup_count(
+        "drift_fields.status_other_failures",
+        rollup.drift_status_other_failures,
+        rollup_required_u64(drift_fields, "status_other_failures")?,
+    )?;
     Ok(())
 }
 
@@ -2579,6 +2718,7 @@ mod tests {
         parse_remote_free_service_telemetry_collection_summary_rollup_check_log_summary_json_line,
         parse_remote_free_service_telemetry_collection_summary_rollup_check_log_summary_json_log,
         parse_remote_free_service_telemetry_collection_summary_rollup_check_log_summary_verification_json_line,
+        parse_remote_free_service_telemetry_collection_summary_rollup_check_log_summary_verification_rollup_json_line,
         resolve_remote_free_service_telemetry_collection_summary_manifest_path,
         resolve_remote_free_service_telemetry_collection_summary_validation_summary_path,
         rollup_artifact_fingerprint,
@@ -2596,6 +2736,7 @@ mod tests {
         RemoteFreeServiceTelemetryCollectionSummaryRollupBundleStatus,
         RemoteFreeServiceTelemetryCollectionSummaryRollupCheck,
         RemoteFreeServiceTelemetryCollectionSummaryRollupCheckLogSummary,
+        RemoteFreeServiceTelemetryCollectionSummaryRollupCheckLogSummaryVerificationRollup,
         RemoteFreeServiceTelemetryCollectionSummaryRollupError,
         RemoteFreeServiceTelemetryCollectionSummaryRollupHost,
         REMOTE_FREE_SERVICE_TELEMETRY_COLLECTION_SUMMARY_ROLLUP_CHECK_LOG_SCHEMA,
@@ -3722,6 +3863,172 @@ mod tests {
         assert_eq!(value["status_coverage"]["matched"], 1);
         assert_eq!(value["status_coverage"]["drifted"], 1);
         assert_eq!(value["drift_fields"]["records"], 1);
+        Ok(())
+    }
+
+    #[test]
+    fn parses_rollup_check_log_summary_json_verification_rollup(
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let source_log = sample_rollup_check_json_source_log()?;
+        let (summary, json_line) = sample_rollup_check_log_summary_json(&source_log)?;
+        let summary_log = format!("{summary}\n{json_line}\n");
+        let report =
+            check_remote_free_service_telemetry_collection_summary_rollup_check_log_summary_json_log(
+                &source_log,
+                &summary_log,
+            )?;
+        let verdict_line =
+            format_remote_free_service_telemetry_collection_summary_rollup_check_log_summary_verification_json_line(
+                &report,
+            )?;
+        let rollup =
+            summarize_remote_free_service_telemetry_collection_summary_rollup_check_log_summary_verification_json_log(
+                &verdict_line,
+            )?;
+        let json_line =
+            format_remote_free_service_telemetry_collection_summary_rollup_check_log_summary_verification_rollup_json_line(
+                &rollup,
+            )?;
+
+        let parsed =
+            parse_remote_free_service_telemetry_collection_summary_rollup_check_log_summary_verification_rollup_json_line(
+                &json_line,
+            )?;
+
+        assert_eq!(parsed, rollup);
+        Ok(())
+    }
+
+    #[test]
+    fn rejects_rollup_check_log_summary_json_verification_rollup_schema_drift(
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let rollup =
+            RemoteFreeServiceTelemetryCollectionSummaryRollupCheckLogSummaryVerificationRollup {
+                records: 1,
+                matched: 1,
+                ..Default::default()
+            };
+        let json_line =
+            format_remote_free_service_telemetry_collection_summary_rollup_check_log_summary_verification_rollup_json_line(
+                &rollup,
+            )?;
+        let mut value = serde_json::from_str::<serde_json::Value>(&json_line)?;
+        value["schema"] =
+            json!("locus.remote_free_service.telemetry.collection_summary_rollup_check_log_summary_verification_rollup.v0");
+        let value = serde_json::to_string(&value)?;
+
+        let error =
+            parse_remote_free_service_telemetry_collection_summary_rollup_check_log_summary_verification_rollup_json_line(
+                &value,
+            )
+            .expect_err("schema drift");
+
+        assert!(matches!(
+            error,
+            RemoteFreeServiceTelemetryCollectionSummaryRollupError::UnexpectedSchema(_)
+        ));
+        Ok(())
+    }
+
+    #[test]
+    fn rejects_rollup_check_log_summary_json_verification_rollup_missing_group(
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let rollup =
+            RemoteFreeServiceTelemetryCollectionSummaryRollupCheckLogSummaryVerificationRollup {
+                records: 1,
+                matched: 1,
+                ..Default::default()
+            };
+        let json_line =
+            format_remote_free_service_telemetry_collection_summary_rollup_check_log_summary_verification_rollup_json_line(
+                &rollup,
+            )?;
+        let mut value = serde_json::from_str::<serde_json::Value>(&json_line)?;
+        value
+            .as_object_mut()
+            .expect("json object")
+            .remove("drift_fields");
+        let value = serde_json::to_string(&value)?;
+
+        let error =
+            parse_remote_free_service_telemetry_collection_summary_rollup_check_log_summary_verification_rollup_json_line(
+                &value,
+            )
+            .expect_err("missing group");
+
+        assert!(matches!(
+            error,
+            RemoteFreeServiceTelemetryCollectionSummaryRollupError::MissingField("drift_fields")
+        ));
+        Ok(())
+    }
+
+    #[test]
+    fn rejects_rollup_check_log_summary_json_verification_rollup_status_drift(
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let rollup =
+            RemoteFreeServiceTelemetryCollectionSummaryRollupCheckLogSummaryVerificationRollup {
+                records: 1,
+                matched: 1,
+                ..Default::default()
+            };
+        let json_line =
+            format_remote_free_service_telemetry_collection_summary_rollup_check_log_summary_verification_rollup_json_line(
+                &rollup,
+            )?;
+        let mut value = serde_json::from_str::<serde_json::Value>(&json_line)?;
+        value["status_coverage"]["matched"] = json!(0);
+        let value = serde_json::to_string(&value)?;
+
+        let error =
+            parse_remote_free_service_telemetry_collection_summary_rollup_check_log_summary_verification_rollup_json_line(
+                &value,
+            )
+            .expect_err("status drift");
+
+        assert!(matches!(
+            error,
+            RemoteFreeServiceTelemetryCollectionSummaryRollupError::CountDrift {
+                field: "status_coverage.matched",
+                expected: 1,
+                actual: 0
+            }
+        ));
+        Ok(())
+    }
+
+    #[test]
+    fn rejects_rollup_check_log_summary_json_verification_rollup_drift_field_drift(
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let rollup =
+            RemoteFreeServiceTelemetryCollectionSummaryRollupCheckLogSummaryVerificationRollup {
+                records: 1,
+                drifted: 1,
+                drift_records: 1,
+                ..Default::default()
+            };
+        let json_line =
+            format_remote_free_service_telemetry_collection_summary_rollup_check_log_summary_verification_rollup_json_line(
+                &rollup,
+            )?;
+        let mut value = serde_json::from_str::<serde_json::Value>(&json_line)?;
+        value["drift_fields"]["records"] = json!(0);
+        let value = serde_json::to_string(&value)?;
+
+        let error =
+            parse_remote_free_service_telemetry_collection_summary_rollup_check_log_summary_verification_rollup_json_line(
+                &value,
+            )
+            .expect_err("drift field drift");
+
+        assert!(matches!(
+            error,
+            RemoteFreeServiceTelemetryCollectionSummaryRollupError::CountDrift {
+                field: "drift_fields.records",
+                expected: 1,
+                actual: 0
+            }
+        ));
         Ok(())
     }
 
