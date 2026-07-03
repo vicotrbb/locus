@@ -722,6 +722,13 @@ prints compact verdict JSON with `expected`, `actual`, and `drift` fields. The
 real combined archive reports `status=matched`; a controlled `records=1` edit
 reports `status=drifted` with `drift.field=records`.
 
+Experiment 0257 added a dashboard rollup for saved verdict JSON records. The
+rollup parser validates each verdict JSON record, then aggregates total
+records, matched verdicts, drifted verdicts, and drift-field buckets. A real
+mixed log with one matched verdict and one controlled `records=1` drifted
+verdict reports two records, one matched, one drifted, and one `records` drift
+bucket.
+
 ## Measured Thresholds
 
 | Path | Shape inputs | Budget | Matched counters |
@@ -1113,6 +1120,7 @@ reports `status=drifted` with `drift.field=records`.
 - `documentation/experiments/0254-remote-free-service-telemetry-rollup-check-log-summary-json-parser.md`
 - `documentation/experiments/0255-remote-free-service-telemetry-rollup-check-log-summary-json-drift.md`
 - `documentation/experiments/0256-remote-free-service-telemetry-rollup-check-log-summary-json-verdict.md`
+- `documentation/experiments/0257-remote-free-service-telemetry-rollup-check-log-summary-verdict-rollup.md`
 
 ## Open Questions
 
