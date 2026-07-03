@@ -12,6 +12,7 @@ use locus_validate::{
     build_remote_free_service_telemetry_collection_summary_directory_rollup,
     format_remote_free_service_telemetry_collection_summary_rollup_check_json_line,
     parse_remote_free_service_telemetry_collection_summary,
+    parse_remote_free_service_telemetry_collection_summary_rollup_check_json_line,
     parse_remote_free_service_telemetry_timing_stability_manifest,
     resolve_remote_free_service_telemetry_collection_summary_manifest_path,
     resolve_remote_free_service_telemetry_collection_summary_validation_summary_path,
@@ -70,6 +71,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             "{}",
             format_remote_free_service_telemetry_collection_summary_rollup_check_json_line(&check)?
         );
+        return Ok(());
+    }
+    if summary_path == "--rollup-check-json" {
+        let log_path = args.next().ok_or_else(|| usage_error(&program))?;
+        if args.next().is_some() {
+            return Err(Box::new(usage_error(&program)));
+        }
+        let log_text = fs::read_to_string(&log_path)?;
+        let check = parse_rollup_check_json_text(&log_text)?;
+        println!("{check}");
         return Ok(());
     }
 
@@ -180,6 +191,25 @@ fn output_token(value: &str) -> String {
     } else {
         token
     }
+}
+
+fn parse_rollup_check_json_text(
+    input: &str,
+) -> Result<locus_validate::RemoteFreeServiceTelemetryCollectionSummaryRollupCheck, Box<dyn Error>>
+{
+    for line in input.lines().map(str::trim).filter(|line| !line.is_empty()) {
+        if line.starts_with('{') {
+            return Ok(
+                parse_remote_free_service_telemetry_collection_summary_rollup_check_json_line(
+                    line,
+                )?,
+            );
+        }
+    }
+    Err(Box::new(io::Error::new(
+        io::ErrorKind::InvalidData,
+        "missing remote-free service telemetry rollup check JSON line",
+    )))
 }
 
 fn validate_summary_directory(
@@ -355,7 +385,7 @@ fn usage_error(program: &str) -> io::Error {
     io::Error::new(
         io::ErrorKind::InvalidInput,
         format!(
-            "usage: {program} <collection-summary.json>\n       {program} --dir <evidence-root> [--write-rollup]\n       {program} --rollup <collection-summary-rollup.json>"
+            "usage: {program} <collection-summary.json>\n       {program} --dir <evidence-root> [--write-rollup]\n       {program} --rollup <collection-summary-rollup.json>\n       {program} --rollup-check-json <saved-log.txt>"
         ),
     )
 }
@@ -363,8 +393,9 @@ fn usage_error(program: &str) -> io::Error {
 #[cfg(test)]
 mod tests {
     use super::{
-        collection_summary_validation_line, compare_validation_summary, summary_host_fields,
-        validate_summary_directory, write_directory_rollup_artifact, BundleValidationReport,
+        collection_summary_validation_line, compare_validation_summary,
+        parse_rollup_check_json_text, summary_host_fields, validate_summary_directory,
+        write_directory_rollup_artifact, BundleValidationReport,
     };
     use locus_validate::{
         format_remote_free_service_telemetry_collection_summary_rollup_check_json_line,
@@ -686,10 +717,12 @@ mod tests {
         assert!(check.rollup_host_present);
         assert_eq!(check.bundle_hosts, 1);
         assert_eq!(check.bundle_hosts_missing, 0);
-        let json_line =
+        let json_line_text =
             format_remote_free_service_telemetry_collection_summary_rollup_check_json_line(&check)?;
-        assert!(!json_line.contains('\n'));
-        let json_line = serde_json::from_str::<serde_json::Value>(&json_line)?;
+        assert!(!json_line_text.contains('\n'));
+        let parsed_log = parse_rollup_check_json_text(&format!("{check}\n{json_line_text}\n"))?;
+        assert_eq!(parsed_log, check);
+        let json_line = serde_json::from_str::<serde_json::Value>(&json_line_text)?;
         assert_eq!(
             json_line["schema"],
             REMOTE_FREE_SERVICE_TELEMETRY_COLLECTION_SUMMARY_ROLLUP_CHECK_SCHEMA

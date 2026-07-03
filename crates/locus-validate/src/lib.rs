@@ -38,6 +38,7 @@ pub use remote_free_service_collection_summary::{
     collect_remote_free_service_telemetry_collection_summary_paths,
     format_remote_free_service_telemetry_collection_summary_rollup_check_json_line,
     parse_remote_free_service_telemetry_collection_summary,
+    parse_remote_free_service_telemetry_collection_summary_rollup_check_json_line,
     resolve_remote_free_service_telemetry_collection_summary_manifest_path,
     resolve_remote_free_service_telemetry_collection_summary_validation_summary_path,
     validate_remote_free_service_telemetry_collection_summary_rollup_artifact,

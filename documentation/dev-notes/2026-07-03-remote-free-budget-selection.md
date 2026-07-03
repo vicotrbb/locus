@@ -673,6 +673,14 @@ no-host-bundle rollups preserve the same human line and flat JSON counters
 while making artifact identity, host coverage, and status coverage explicit for
 typed consumers.
 
+Experiment 0251 added a typed parser for release-check JSON lines and exposed
+it through the validation example as `--rollup-check-json <saved-log.txt>`.
+The parser reconstructs `RemoteFreeServiceTelemetryCollectionSummaryRollupCheck`
+from flat fields, verifies grouped fields against the same report, and rejects
+schema drift, missing groups, grouped count drift, and grouped string drift.
+Saved logs from the host-bearing and older no-host-bundle rollups both
+reconstruct the expected check line without rereading the rollup artifact.
+
 ## Measured Thresholds
 
 | Path | Shape inputs | Budget | Matched counters |
@@ -1058,6 +1066,7 @@ typed consumers.
 - `documentation/experiments/0248-remote-free-service-telemetry-rollup-fingerprint.md`
 - `documentation/experiments/0249-remote-free-service-telemetry-rollup-check-json.md`
 - `documentation/experiments/0250-remote-free-service-telemetry-rollup-check-json-groups.md`
+- `documentation/experiments/0251-remote-free-service-telemetry-rollup-check-json-parser.md`
 
 ## Open Questions
 
