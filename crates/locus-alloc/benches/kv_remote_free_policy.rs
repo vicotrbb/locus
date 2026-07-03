@@ -4,12 +4,12 @@ use std::{num::NonZeroU64, sync::mpsc::sync_channel, thread};
 
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use locus_alloc::{
-    KvBlockHandle, KvBlockPool, RemoteFreeDrainObservation, RemoteFreeDrainPolicy,
-    RemoteFreeDrainTracker, RemoteFreeQueue,
+    KvBlockHandle, KvBlockPool, RemoteFreeDrainController, RemoteFreeDrainPolicy, RemoteFreeQueue,
 };
 use locus_core::NodeId;
 
 const BLOCK_SIZE: usize = 4096;
+const BLOCK_SIZE_U64: u64 = 4096;
 const BLOCKS: usize = 256;
 const BURSTS: u64 = 8;
 const BURST_BLOCKS: usize = 32;
@@ -17,7 +17,7 @@ const QUEUE_CAPACITY: usize = 256;
 const BATCH_LIMIT: usize = 64;
 const BLOCKS_U64: u64 = 256;
 const BURST_BLOCKS_U64: u64 = 32;
-const TOTAL_BYTES: u64 = BLOCKS_U64 * BLOCK_SIZE as u64;
+const TOTAL_BYTES: u64 = BLOCKS_U64 * BLOCK_SIZE_U64;
 
 enum RemoteCompletionCommand {
     Run(Vec<KvBlockHandle>),
@@ -59,10 +59,6 @@ impl KvPolicyCase {
             drain_policy: RemoteFreeDrainPolicy::new()
                 .with_max_pending_age(NonZeroU64::new(2).expect("non-zero")),
         }
-    }
-
-    fn should_drain(self, observation: RemoteFreeDrainObservation) -> bool {
-        self.drain_policy.should_drain(observation)
     }
 }
 
@@ -211,7 +207,7 @@ fn run_kv_policy_iteration(
     ack_receiver: &std::sync::mpsc::Receiver<usize>,
     case: KvPolicyCase,
 ) -> KvPolicyStats {
-    let mut tracker = RemoteFreeDrainTracker::new();
+    let mut controller = RemoteFreeDrainController::new(case.drain_policy);
     let mut stats = KvPolicyStats::new();
 
     for burst in 0..BURSTS {
@@ -229,24 +225,29 @@ fn run_kv_policy_iteration(
         assert_eq!(submitted, BURST_BLOCKS);
 
         for _ in 0..submitted {
-            tracker.record_submit(burst, BLOCK_SIZE as u64);
+            controller.record_submit(burst, BLOCK_SIZE_U64);
             stats.submitted_count = stats.submitted_count.saturating_add(1);
         }
-        stats.queued_bytes = tracker.queued_bytes();
+        stats.queued_bytes = controller.tracker().queued_bytes();
         stats.max_queued_bytes = stats.max_queued_bytes.max(stats.queued_bytes);
-        stats.max_pending_count = stats.max_pending_count.max(tracker.pending_count());
+        stats.max_pending_count = stats
+            .max_pending_count
+            .max(controller.tracker().pending_count());
 
         let completed_bursts = burst.saturating_add(1);
-        let observation = kv_policy_observation(queue, &stats, &tracker, completed_bursts);
-        if case.should_drain(observation)
-            && drain_kv_policy_batch(queue, pool, &mut tracker, completed_bursts, &mut stats) > 0
+        let policy_report = controller
+            .status_for_queue(queue, completed_bursts)
+            .expect("controller status");
+        assert_eq!(policy_report.observation.queued_bytes, stats.queued_bytes);
+        if policy_report.decision.should_drain()
+            && drain_kv_policy_batch(queue, pool, &mut controller, completed_bursts, &mut stats) > 0
         {
             stats.policy_drains = stats.policy_drains.saturating_add(1);
         }
     }
 
     while stats.drained_count < stats.submitted_count {
-        if drain_kv_policy_batch(queue, pool, &mut tracker, BURSTS, &mut stats) == 0 {
+        if drain_kv_policy_batch(queue, pool, &mut controller, BURSTS, &mut stats) == 0 {
             thread::yield_now();
         }
     }
@@ -254,40 +255,25 @@ fn run_kv_policy_iteration(
     let queue_stats = queue.stats();
     assert_eq!(queue_stats.pending_count, 0);
     assert_eq!(queue_stats.disconnected_count, 0);
-    assert!(tracker.is_empty());
+    assert!(controller.tracker().is_empty());
     stats.full_count = queue_stats.full_count;
     stats
-}
-
-fn kv_policy_observation(
-    queue: &RemoteFreeQueue<KvBlockHandle>,
-    stats: &KvPolicyStats,
-    tracker: &RemoteFreeDrainTracker,
-    current_burst: u64,
-) -> RemoteFreeDrainObservation {
-    let queue_stats = queue.stats();
-    let observation = tracker.observation(current_burst);
-
-    assert_eq!(observation.pending_count, queue_stats.pending_count);
-    assert_eq!(observation.queued_bytes, stats.queued_bytes);
-
-    observation
 }
 
 fn drain_kv_policy_batch(
     queue: &mut RemoteFreeQueue<KvBlockHandle>,
     pool: &mut KvBlockPool,
-    tracker: &mut RemoteFreeDrainTracker,
+    controller: &mut RemoteFreeDrainController,
     current_burst: u64,
     stats: &mut KvPolicyStats,
 ) -> usize {
     let drained = queue.drain_batch(|handle| {
-        let drain_record = tracker
-            .record_drain(BLOCK_SIZE as u64)
+        let drain_record = controller
+            .record_drain(BLOCK_SIZE_U64)
             .expect("tracked drain");
         pool.free(handle).expect("free block");
         let wait_bursts = current_burst.saturating_sub(drain_record.submit_turn);
-        stats.queued_bytes = tracker.queued_bytes();
+        stats.queued_bytes = controller.tracker().queued_bytes();
         stats.released_bytes = stats
             .released_bytes
             .saturating_add(drain_record.released_bytes);
