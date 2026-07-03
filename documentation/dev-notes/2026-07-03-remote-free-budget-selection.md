@@ -1509,6 +1509,9 @@ path, preserving the same two-record cohort counters.
 Experiment 0337 then verified that archived aggregate rollup recheck cohort
 rollup recheck verdict rollup drift JSON against saved source verdict records
 and rejected a controlled stale `records=1` archive with `CountDrift`.
+Experiment 0338 preserved both the matched and stale aggregate rollup recheck
+cohort rollup recheck verdict rollup drift recheck outcomes as compact JSON
+verdicts, then reloaded them through the parser path.
 
 ## Open Questions
 
