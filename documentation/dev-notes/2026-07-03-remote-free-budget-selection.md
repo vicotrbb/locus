@@ -643,6 +643,14 @@ artifacts both report one valid bundle and zero failed status rows. A mixed
 valid-plus-drifted fixture still fails with the same failed-bundles verdict,
 while the error output reports one valid row and one drifted row.
 
+Experiment 0247 added artifact context to release-check output: the accepted
+schema string and the exact artifact byte count read by the checker. The
+host-bearing rollup reports schema
+`locus.remote_free_service.telemetry.collection_summary_rollup.v2` and 694
+bytes; the older no-host-bundle rollup reports the same schema and 591 bytes.
+The byte counts match `wc -c`, and unsupported schemas still fail before an ok
+report is produced.
+
 ## Measured Thresholds
 
 | Path | Shape inputs | Budget | Matched counters |
@@ -1024,6 +1032,7 @@ while the error output reports one valid row and one drifted row.
 - `documentation/experiments/0244-remote-free-service-telemetry-rollup-bundle-host.md`
 - `documentation/experiments/0245-remote-free-service-telemetry-rollup-host-coverage.md`
 - `documentation/experiments/0246-remote-free-service-telemetry-rollup-status-coverage.md`
+- `documentation/experiments/0247-remote-free-service-telemetry-rollup-artifact-context.md`
 
 ## Open Questions
 

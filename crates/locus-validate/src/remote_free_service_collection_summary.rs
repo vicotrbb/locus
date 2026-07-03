@@ -92,6 +92,10 @@ pub struct RemoteFreeServiceTelemetryCollectionSummaryScanError {
 pub struct RemoteFreeServiceTelemetryCollectionSummaryRollupCheck {
     /// Rollup artifact path.
     pub path: PathBuf,
+    /// Accepted schema string from the artifact.
+    pub schema: String,
+    /// Exact byte count of the artifact text read for validation.
+    pub artifact_bytes: u64,
     /// Number of bundle summaries declared and observed.
     pub summaries: u64,
     /// Number of valid bundle rows declared and observed.
@@ -233,8 +237,10 @@ impl fmt::Display for RemoteFreeServiceTelemetryCollectionSummaryRollupCheck {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
-            "remote_free_service_telemetry_collection_summary_rollup_check=ok path={} summaries={} valid_bundles={} timing_ranges={} bundles={} rollup_host_present={} bundle_hosts={} bundle_hosts_missing={} status_valid_bundles={} status_drifted_summaries={} status_missing_artifacts={} status_other_failures={}",
+            "remote_free_service_telemetry_collection_summary_rollup_check=ok path={} schema={} artifact_bytes={} summaries={} valid_bundles={} timing_ranges={} bundles={} rollup_host_present={} bundle_hosts={} bundle_hosts_missing={} status_valid_bundles={} status_drifted_summaries={} status_missing_artifacts={} status_other_failures={}",
             self.path.display(),
+            self.schema,
+            self.artifact_bytes,
             self.summaries,
             self.valid_bundles,
             self.timing_ranges,
@@ -853,6 +859,9 @@ pub fn validate_remote_free_service_telemetry_collection_summary_rollup_artifact
             source,
         }
     })?;
+    let artifact_bytes = artifact_text.len().try_into().map_err(|_| {
+        RemoteFreeServiceTelemetryCollectionSummaryRollupError::InvalidFieldType("artifact_bytes")
+    })?;
     let artifact = serde_json::from_str::<Value>(&artifact_text)
         .map_err(RemoteFreeServiceTelemetryCollectionSummaryRollupError::Json)?;
     let schema = rollup_required_str(&artifact, "schema")?;
@@ -934,6 +943,8 @@ pub fn validate_remote_free_service_telemetry_collection_summary_rollup_artifact
 
     Ok(RemoteFreeServiceTelemetryCollectionSummaryRollupCheck {
         path: path.to_path_buf(),
+        schema: schema.to_owned(),
+        artifact_bytes,
         summaries,
         valid_bundles,
         drifted_summaries,
@@ -1388,6 +1399,17 @@ mod tests {
         )
     }
 
+    fn rollup_json_with_unexpected_schema() -> String {
+        let mut artifact = serde_json::from_str::<serde_json::Value>(&rollup_json("valid", 1, 0))
+            .expect("rollup json");
+        artifact["schema"] =
+            json!("locus.remote_free_service.telemetry.collection_summary_rollup.v1");
+        format!(
+            "{}\n",
+            serde_json::to_string_pretty(&artifact).expect("json")
+        )
+    }
+
     fn rollup_json_with_valid_and_drifted_host_rows() -> String {
         let artifact = json!({
             "schema": "locus.remote_free_service.telemetry.collection_summary_rollup.v2",
@@ -1746,13 +1768,22 @@ mod tests {
     fn validates_collection_summary_rollup_artifact() -> Result<(), Box<dyn std::error::Error>> {
         let dir = temp_dir()?;
         let rollup_path = dir.join("collection-summary-rollup.json");
-        fs::write(&rollup_path, rollup_json("valid", 1, 0))?;
+        let artifact_text = rollup_json("valid", 1, 0);
+        fs::write(&rollup_path, &artifact_text)?;
 
         let check = validate_remote_free_service_telemetry_collection_summary_rollup_artifact(
             &rollup_path,
         )?;
 
         assert_eq!(check.path, rollup_path);
+        assert_eq!(
+            check.schema,
+            "locus.remote_free_service.telemetry.collection_summary_rollup.v2"
+        );
+        assert_eq!(
+            check.artifact_bytes,
+            u64::try_from(artifact_text.len()).expect("artifact bytes")
+        );
         assert_eq!(check.summaries, 1);
         assert_eq!(check.valid_bundles, 1);
         assert_eq!(check.drifted_summaries, 0);
@@ -1766,8 +1797,9 @@ mod tests {
         assert_eq!(
             check.to_string(),
             format!(
-                "remote_free_service_telemetry_collection_summary_rollup_check=ok path={} summaries=1 valid_bundles=1 timing_ranges=1 bundles=1 rollup_host_present=false bundle_hosts=0 bundle_hosts_missing=1 status_valid_bundles=1 status_drifted_summaries=0 status_missing_artifacts=0 status_other_failures=0",
-                check.path.display()
+                "remote_free_service_telemetry_collection_summary_rollup_check=ok path={} schema=locus.remote_free_service.telemetry.collection_summary_rollup.v2 artifact_bytes={} summaries=1 valid_bundles=1 timing_ranges=1 bundles=1 rollup_host_present=false bundle_hosts=0 bundle_hosts_missing=1 status_valid_bundles=1 status_drifted_summaries=0 status_missing_artifacts=0 status_other_failures=0",
+                check.path.display(),
+                artifact_text.len()
             )
         );
         fs::remove_dir_all(dir)?;
@@ -1779,13 +1811,22 @@ mod tests {
     ) -> Result<(), Box<dyn std::error::Error>> {
         let dir = temp_dir()?;
         let rollup_path = dir.join("collection-summary-rollup.json");
-        fs::write(&rollup_path, rollup_json_with_host("valid", 1, 0))?;
+        let artifact_text = rollup_json_with_host("valid", 1, 0);
+        fs::write(&rollup_path, &artifact_text)?;
 
         let check = validate_remote_free_service_telemetry_collection_summary_rollup_artifact(
             &rollup_path,
         )?;
 
         assert_eq!(check.path, rollup_path);
+        assert_eq!(
+            check.schema,
+            "locus.remote_free_service.telemetry.collection_summary_rollup.v2"
+        );
+        assert_eq!(
+            check.artifact_bytes,
+            u64::try_from(artifact_text.len()).expect("artifact bytes")
+        );
         assert_eq!(check.summaries, 1);
         assert_eq!(check.valid_bundles, 1);
         assert_eq!(check.drifted_summaries, 0);
@@ -1805,12 +1846,21 @@ mod tests {
     ) -> Result<(), Box<dyn std::error::Error>> {
         let dir = temp_dir()?;
         let rollup_path = dir.join("collection-summary-rollup.json");
-        fs::write(&rollup_path, rollup_json_with_invalid_host_metadata())?;
+        let artifact_text = rollup_json_with_invalid_host_metadata();
+        fs::write(&rollup_path, &artifact_text)?;
 
         let check = validate_remote_free_service_telemetry_collection_summary_rollup_artifact(
             &rollup_path,
         )?;
 
+        assert_eq!(
+            check.schema,
+            "locus.remote_free_service.telemetry.collection_summary_rollup.v2"
+        );
+        assert_eq!(
+            check.artifact_bytes,
+            u64::try_from(artifact_text.len()).expect("artifact bytes")
+        );
         assert_eq!(check.valid_bundles, 1);
         assert_eq!(check.drifted_summaries, 0);
         assert_eq!(check.missing_artifacts, 0);
@@ -1818,6 +1868,26 @@ mod tests {
         assert!(!check.rollup_host_present);
         assert_eq!(check.bundle_hosts, 0);
         assert_eq!(check.bundle_hosts_missing, 1);
+        fs::remove_dir_all(dir)?;
+        Ok(())
+    }
+
+    #[test]
+    fn rejects_unexpected_collection_summary_rollup_schema(
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let dir = temp_dir()?;
+        let rollup_path = dir.join("collection-summary-rollup.json");
+        fs::write(&rollup_path, rollup_json_with_unexpected_schema())?;
+
+        let error =
+            validate_remote_free_service_telemetry_collection_summary_rollup_artifact(&rollup_path)
+                .expect_err("unexpected schema");
+
+        assert!(matches!(
+            error,
+            RemoteFreeServiceTelemetryCollectionSummaryRollupError::UnexpectedSchema(schema)
+                if schema == "locus.remote_free_service.telemetry.collection_summary_rollup.v1"
+        ));
         fs::remove_dir_all(dir)?;
         Ok(())
     }
@@ -1854,8 +1924,8 @@ mod tests {
 
         let rollup_path =
             write_remote_free_service_telemetry_collection_summary_rollup_artifact(&dir, &rollup)?;
-        let artifact = fs::read_to_string(&rollup_path)?;
-        let artifact = serde_json::from_str::<serde_json::Value>(&artifact)?;
+        let artifact_text = fs::read_to_string(&rollup_path)?;
+        let artifact = serde_json::from_str::<serde_json::Value>(&artifact_text)?;
 
         assert_eq!(
             artifact["schema"],
@@ -1874,6 +1944,14 @@ mod tests {
         )?;
 
         assert_eq!(check.valid_bundles, 1);
+        assert_eq!(
+            check.schema,
+            "locus.remote_free_service.telemetry.collection_summary_rollup.v2"
+        );
+        assert_eq!(
+            check.artifact_bytes,
+            u64::try_from(artifact_text.len()).expect("artifact bytes")
+        );
         assert_eq!(check.drifted_summaries, 0);
         assert_eq!(check.missing_artifacts, 0);
         assert_eq!(check.other_failures, 0);

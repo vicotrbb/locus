@@ -665,6 +665,11 @@ mod tests {
             validate_remote_free_service_telemetry_collection_summary_rollup_artifact(&path)?;
 
         assert_eq!(check.path, path);
+        assert_eq!(
+            check.schema,
+            "locus.remote_free_service.telemetry.collection_summary_rollup.v2"
+        );
+        assert_eq!(check.artifact_bytes, fs::metadata(&path)?.len());
         assert_eq!(check.summaries, 1);
         assert_eq!(check.valid_bundles, 1);
         assert_eq!(check.timing_ranges, 1);
