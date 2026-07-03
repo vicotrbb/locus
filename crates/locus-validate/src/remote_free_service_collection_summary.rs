@@ -94,6 +94,8 @@ pub struct RemoteFreeServiceTelemetryCollectionSummaryRollupCheck {
 pub struct RemoteFreeServiceTelemetryCollectionSummaryRollup {
     /// Evidence root associated with the rollup.
     pub root: PathBuf,
+    /// Optional host metadata for the process that refreshed this rollup.
+    pub host: Option<RemoteFreeServiceTelemetryCollectionSummaryRollupHost>,
     /// Number of discovered collection summaries.
     pub summaries: u64,
     /// Number of valid bundle rows.
@@ -108,6 +110,17 @@ pub struct RemoteFreeServiceTelemetryCollectionSummaryRollup {
     pub timing_ranges: u64,
     /// Per-bundle rollup rows.
     pub bundles: Vec<RemoteFreeServiceTelemetryCollectionSummaryRollupBundle>,
+}
+
+/// Host metadata associated with a collection summary rollup refresh.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RemoteFreeServiceTelemetryCollectionSummaryRollupHost {
+    /// Operating system reported by the Rust target.
+    pub os: String,
+    /// CPU architecture reported by the Rust target.
+    pub arch: String,
+    /// Hostname visible to the refresh process, when available.
+    pub hostname: Option<String>,
 }
 
 /// Caller-provided result for one collection summary path during rollup build.
@@ -662,6 +675,7 @@ pub fn build_remote_free_service_telemetry_collection_summary_directory_rollup(
 
     let mut rollup = RemoteFreeServiceTelemetryCollectionSummaryRollup {
         root: root.to_path_buf(),
+        host: None,
         summaries: usize_to_u64(summary_paths.len(), "summaries")?,
         valid_bundles: 0,
         drifted_summaries: 0,
@@ -734,7 +748,7 @@ pub fn write_remote_free_service_telemetry_collection_summary_rollup_artifact(
             })
         })
         .collect::<Vec<_>>();
-    let artifact = json!({
+    let mut artifact = json!({
         "schema": REMOTE_FREE_SERVICE_TELEMETRY_COLLECTION_SUMMARY_ROLLUP_SCHEMA,
         "root": rollup.root.display().to_string(),
         "summaries": rollup.summaries,
@@ -745,6 +759,18 @@ pub fn write_remote_free_service_telemetry_collection_summary_rollup_artifact(
         "timing_ranges": rollup.timing_ranges,
         "bundles": bundles,
     });
+    if let Some(host) = &rollup.host {
+        if let Some(object) = artifact.as_object_mut() {
+            object.insert(
+                "host".to_owned(),
+                json!({
+                    "os": host.os.as_str(),
+                    "arch": host.arch.as_str(),
+                    "hostname": host.hostname.as_deref(),
+                }),
+            );
+        }
+    }
     let path = root.join("collection-summary-rollup.json");
     let text = format!(
         "{}\n",
@@ -1123,6 +1149,7 @@ mod tests {
         RemoteFreeServiceTelemetryCollectionSummaryRollupBundle,
         RemoteFreeServiceTelemetryCollectionSummaryRollupBundleStatus,
         RemoteFreeServiceTelemetryCollectionSummaryRollupError,
+        RemoteFreeServiceTelemetryCollectionSummaryRollupHost,
     };
     use serde_json::json;
     use std::{
@@ -1185,6 +1212,27 @@ mod tests {
                 }
             ]
         });
+        format!(
+            "{}\n",
+            serde_json::to_string_pretty(&artifact).expect("json")
+        )
+    }
+
+    fn rollup_json_with_host(status: &str, valid_bundles: u64, drifted_summaries: u64) -> String {
+        let mut artifact = serde_json::from_str::<serde_json::Value>(&rollup_json(
+            status,
+            valid_bundles,
+            drifted_summaries,
+        ))
+        .expect("rollup json");
+        artifact.as_object_mut().expect("rollup object").insert(
+            "host".to_owned(),
+            json!({
+                "os": "linux",
+                "arch": "x86_64",
+                "hostname": "bench-host-01"
+            }),
+        );
         format!(
             "{}\n",
             serde_json::to_string_pretty(&artifact).expect("json")
@@ -1475,11 +1523,36 @@ mod tests {
     }
 
     #[test]
+    fn validates_collection_summary_rollup_artifact_with_host_metadata(
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let dir = temp_dir()?;
+        let rollup_path = dir.join("collection-summary-rollup.json");
+        fs::write(&rollup_path, rollup_json_with_host("valid", 1, 0))?;
+
+        let check = validate_remote_free_service_telemetry_collection_summary_rollup_artifact(
+            &rollup_path,
+        )?;
+
+        assert_eq!(check.path, rollup_path);
+        assert_eq!(check.summaries, 1);
+        assert_eq!(check.valid_bundles, 1);
+        assert_eq!(check.timing_ranges, 1);
+        assert_eq!(check.bundles, 1);
+        fs::remove_dir_all(dir)?;
+        Ok(())
+    }
+
+    #[test]
     fn writes_collection_summary_rollup_artifact_for_release_check(
     ) -> Result<(), Box<dyn std::error::Error>> {
         let dir = temp_dir()?;
         let rollup = RemoteFreeServiceTelemetryCollectionSummaryRollup {
             root: dir.clone(),
+            host: Some(RemoteFreeServiceTelemetryCollectionSummaryRollupHost {
+                os: "linux".to_owned(),
+                arch: "x86_64".to_owned(),
+                hostname: Some("bench-host-01".to_owned()),
+            }),
             summaries: 1,
             valid_bundles: 1,
             drifted_summaries: 0,
@@ -1504,6 +1577,9 @@ mod tests {
             "locus.remote_free_service.telemetry.collection_summary_rollup.v2"
         );
         assert_eq!(artifact["bundles"][0]["status"], "valid");
+        assert_eq!(artifact["host"]["os"], "linux");
+        assert_eq!(artifact["host"]["arch"], "x86_64");
+        assert_eq!(artifact["host"]["hostname"], "bench-host-01");
 
         let check = validate_remote_free_service_telemetry_collection_summary_rollup_artifact(
             &rollup_path,

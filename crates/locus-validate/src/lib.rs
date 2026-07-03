@@ -53,6 +53,7 @@ pub use remote_free_service_collection_summary::{
     RemoteFreeServiceTelemetryCollectionSummaryRollupBundleStatus,
     RemoteFreeServiceTelemetryCollectionSummaryRollupCheck,
     RemoteFreeServiceTelemetryCollectionSummaryRollupError,
+    RemoteFreeServiceTelemetryCollectionSummaryRollupHost,
     RemoteFreeServiceTelemetryCollectionSummaryScanError,
     RemoteFreeServiceTelemetryCollectionSummarySource,
     REMOTE_FREE_SERVICE_TELEMETRY_COLLECTION_SUMMARY_ROLLUP_SCHEMA,

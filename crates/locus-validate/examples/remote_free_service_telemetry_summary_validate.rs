@@ -21,6 +21,7 @@ use locus_validate::{
     RemoteFreeServiceTelemetryCollectionSummaryBundleValidation,
     RemoteFreeServiceTelemetryCollectionSummaryRollup,
     RemoteFreeServiceTelemetryCollectionSummaryRollupBundleStatus,
+    RemoteFreeServiceTelemetryCollectionSummaryRollupHost,
     RemoteFreeServiceTelemetryTimingStabilityRun,
 };
 
@@ -139,26 +140,37 @@ fn validate_summary_path(summary_path: &Path) -> Result<BundleValidationReport, 
 fn validate_summary_directory(
     root: &Path,
 ) -> Result<RemoteFreeServiceTelemetryCollectionSummaryRollup, Box<dyn Error>> {
-    Ok(
-        build_remote_free_service_telemetry_collection_summary_directory_rollup(
-            root,
-            |summary_path| match validate_summary_path(summary_path) {
-                Ok(report) => RemoteFreeServiceTelemetryCollectionSummaryBundleValidation {
-                    run_id: Some(report.run_id),
-                    status: RemoteFreeServiceTelemetryCollectionSummaryRollupBundleStatus::Valid,
-                    timing_ranges: report.timing_ranges,
-                },
-                Err(error) => {
-                    let message = error.to_string();
-                    RemoteFreeServiceTelemetryCollectionSummaryBundleValidation {
-                        run_id: read_summary_run_id(summary_path).ok(),
-                        status: classify_validation_error(&message),
-                        timing_ranges: 0,
-                    }
-                }
+    let mut rollup = build_remote_free_service_telemetry_collection_summary_directory_rollup(
+        root,
+        |summary_path| match validate_summary_path(summary_path) {
+            Ok(report) => RemoteFreeServiceTelemetryCollectionSummaryBundleValidation {
+                run_id: Some(report.run_id),
+                status: RemoteFreeServiceTelemetryCollectionSummaryRollupBundleStatus::Valid,
+                timing_ranges: report.timing_ranges,
             },
-        )?,
-    )
+            Err(error) => {
+                let message = error.to_string();
+                RemoteFreeServiceTelemetryCollectionSummaryBundleValidation {
+                    run_id: read_summary_run_id(summary_path).ok(),
+                    status: classify_validation_error(&message),
+                    timing_ranges: 0,
+                }
+            }
+        },
+    )?;
+    rollup.host = Some(current_rollup_host_metadata());
+    Ok(rollup)
+}
+
+fn current_rollup_host_metadata() -> RemoteFreeServiceTelemetryCollectionSummaryRollupHost {
+    RemoteFreeServiceTelemetryCollectionSummaryRollupHost {
+        os: env::consts::OS.to_owned(),
+        arch: env::consts::ARCH.to_owned(),
+        hostname: env::var("HOSTNAME")
+            .or_else(|_| env::var("COMPUTERNAME"))
+            .ok()
+            .filter(|hostname| !hostname.is_empty()),
+    }
 }
 
 fn classify_validation_error(
@@ -443,6 +455,9 @@ mod tests {
         assert_eq!(rollup.missing_artifacts, 1);
         assert_eq!(rollup.other_failures, 0);
         assert_eq!(rollup.timing_ranges, 1);
+        let host = rollup.host.as_ref().expect("host metadata");
+        assert_eq!(host.os, std::env::consts::OS);
+        assert_eq!(host.arch, std::env::consts::ARCH);
         let bundle_rows = rollup
             .bundles
             .iter()
@@ -487,6 +502,8 @@ mod tests {
         assert_eq!(artifact["missing_artifacts"], 0);
         assert_eq!(artifact["other_failures"], 0);
         assert_eq!(artifact["timing_ranges"], 1);
+        assert_eq!(artifact["host"]["os"], std::env::consts::OS);
+        assert_eq!(artifact["host"]["arch"], std::env::consts::ARCH);
         assert_eq!(
             artifact["bundles"].as_array().expect("bundle rows").len(),
             1
