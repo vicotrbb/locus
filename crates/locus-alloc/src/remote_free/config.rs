@@ -126,6 +126,30 @@ impl RemoteFreeQueuedByteDrainConfig {
         })
     }
 
+    /// Creates a config from uniform retained item shape inputs.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when queue sizing is invalid or when budget derivation
+    /// fails.
+    pub fn from_item_shape(
+        queue_capacity: usize,
+        drain_batch_limit: usize,
+        target_pending_items: u64,
+        bytes_per_item: u64,
+    ) -> Result<Self, RemoteFreeQueuedByteDrainConfigError> {
+        let queued_byte_budget =
+            RemoteFreeQueuedByteBudget::from_item_shape(target_pending_items, bytes_per_item)
+                .map_err(RemoteFreeQueuedByteDrainConfigError::Budget)?;
+
+        Self::new(
+            queue_capacity,
+            drain_batch_limit,
+            target_pending_items,
+            queued_byte_budget,
+        )
+    }
+
     /// Creates a config from grouped retained item shape inputs.
     ///
     /// # Errors
@@ -305,6 +329,23 @@ mod tests {
     }
 
     #[test]
+    fn remote_free_queued_byte_drain_config_derives_uniform_item_shape() {
+        let config = RemoteFreeQueuedByteDrainConfig::from_item_shape(256, 64, 64, 4096)
+            .expect("drain config");
+
+        assert_eq!(config.queue_capacity(), 256);
+        assert_eq!(config.drain_batch_limit(), 64);
+        assert_eq!(config.target_pending_items(), 64);
+        assert_eq!(config.queued_byte_budget().bytes(), 262_144);
+        assert_eq!(
+            config
+                .drain_policy()
+                .decide(RemoteFreeDrainObservation::new(64, 262_144, 1)),
+            RemoteFreeDrainDecision::Drain(RemoteFreeDrainReason::QueuedBytes)
+        );
+    }
+
+    #[test]
     fn remote_free_queued_byte_drain_config_builds_queue() {
         let config = RemoteFreeQueuedByteDrainConfig::from_grouped_item_shape(256, 64, 4, 16, 4096)
             .expect("drain config");
@@ -402,6 +443,31 @@ mod tests {
             RemoteFreeQueuedByteDrainConfig::from_grouped_item_shape(256, 64, 4, 16, 0),
             Err(RemoteFreeQueuedByteDrainConfigError::Budget(
                 RemoteFreeQueuedByteBudgetError::ZeroBytesPerItem,
+            ))
+        );
+    }
+
+    #[test]
+    fn remote_free_queued_byte_drain_config_propagates_uniform_budget_errors() {
+        assert_eq!(
+            RemoteFreeQueuedByteDrainConfig::from_item_shape(256, 64, 0, 4096),
+            Err(RemoteFreeQueuedByteDrainConfigError::Budget(
+                RemoteFreeQueuedByteBudgetError::ZeroPendingItems,
+            ))
+        );
+        assert_eq!(
+            RemoteFreeQueuedByteDrainConfig::from_item_shape(256, 64, 64, 0),
+            Err(RemoteFreeQueuedByteDrainConfigError::Budget(
+                RemoteFreeQueuedByteBudgetError::ZeroBytesPerItem,
+            ))
+        );
+        assert_eq!(
+            RemoteFreeQueuedByteDrainConfig::from_item_shape(256, 64, u64::MAX, 2),
+            Err(RemoteFreeQueuedByteDrainConfigError::Budget(
+                RemoteFreeQueuedByteBudgetError::RetainedBytesOverflow {
+                    pending_items: u64::MAX,
+                    bytes_per_item: 2,
+                },
             ))
         );
     }

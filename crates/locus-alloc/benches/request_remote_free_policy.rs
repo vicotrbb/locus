@@ -4,8 +4,8 @@ use std::{alloc::Layout, num::NonZeroU64, sync::mpsc::sync_channel, thread};
 
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use locus_alloc::{
-    RemoteFreeDrainController, RemoteFreeDrainPolicy, RemoteFreeQueue, RemoteFreeQueuedByteBudget,
-    RequestScratchPool,
+    RemoteFreeDrainController, RemoteFreeDrainPolicy, RemoteFreeQueue,
+    RemoteFreeQueuedByteDrainConfig, RequestScratchPool,
 };
 use locus_core::{NodeId, RequestHome, RequestId};
 
@@ -75,12 +75,14 @@ impl RequestPolicyCase {
     fn max_queued256kib() -> Self {
         Self {
             label: "max_queued256kib",
-            drain_policy: RemoteFreeQueuedByteBudget::from_item_shape(
+            drain_policy: RemoteFreeQueuedByteDrainConfig::from_item_shape(
+                QUEUE_CAPACITY,
+                BATCH_LIMIT,
                 TARGET_PENDING_REQUESTS,
                 ARENA_CAPACITY_U64,
             )
-            .expect("queued-byte budget")
-            .into_policy(),
+            .expect("drain config")
+            .drain_policy(),
         }
     }
 }

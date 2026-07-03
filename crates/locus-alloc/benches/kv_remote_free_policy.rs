@@ -5,7 +5,7 @@ use std::{num::NonZeroU64, sync::mpsc::sync_channel, thread};
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use locus_alloc::{
     KvBlockHandle, KvBlockPool, RemoteFreeDrainController, RemoteFreeDrainPolicy, RemoteFreeQueue,
-    RemoteFreeQueuedByteBudget,
+    RemoteFreeQueuedByteDrainConfig,
 };
 use locus_core::NodeId;
 
@@ -73,12 +73,14 @@ impl KvPolicyCase {
     fn max_queued256kib() -> Self {
         Self {
             label: "max_queued256kib",
-            drain_policy: RemoteFreeQueuedByteBudget::from_item_shape(
+            drain_policy: RemoteFreeQueuedByteDrainConfig::from_item_shape(
+                QUEUE_CAPACITY,
+                BATCH_LIMIT,
                 TARGET_PENDING_BLOCKS,
                 BLOCK_SIZE_U64,
             )
-            .expect("queued-byte budget")
-            .into_policy(),
+            .expect("drain config")
+            .drain_policy(),
         }
     }
 }

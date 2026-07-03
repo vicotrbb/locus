@@ -38,8 +38,14 @@ Use `RemoteFreeQueuedByteDrainConfig` when the runtime can express a target
 pending item window and wants queue capacity, drain batch size, and queued-byte
 budget validated together.
 
-The config currently supports grouped retained item shapes through
-`RemoteFreeQueuedByteDrainConfig::from_grouped_item_shape`. It rejects:
+The config currently supports:
+
+- grouped retained item shapes through
+  `RemoteFreeQueuedByteDrainConfig::from_grouped_item_shape`;
+- uniform retained item shapes through
+  `RemoteFreeQueuedByteDrainConfig::from_item_shape`.
+
+It rejects:
 
 - zero queue capacity;
 - zero drain batch limit;
@@ -103,9 +109,8 @@ owner's `drain_batch` closure.
 
 ## Open Questions
 
-- Should `RemoteFreeQueuedByteDrainConfig` grow uniform and heterogeneous
-  constructors after those shapes need queue and batch validation at call
-  sites?
+- Should `RemoteFreeQueuedByteDrainConfig` grow a heterogeneous constructor
+  after that shape needs queue and batch validation at a call site?
 - Which workload signal should set the retained item window in production:
   scheduler turn age, active request concurrency, KV cache pressure, or memory
   pressure from observability counters?
