@@ -10,6 +10,7 @@ use std::{
 
 use locus_validate::{
     build_remote_free_service_telemetry_collection_summary_directory_rollup,
+    format_remote_free_service_telemetry_collection_summary_rollup_check_json_line,
     parse_remote_free_service_telemetry_collection_summary,
     parse_remote_free_service_telemetry_timing_stability_manifest,
     resolve_remote_free_service_telemetry_collection_summary_manifest_path,
@@ -65,6 +66,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             Path::new(&rollup_path),
         )?;
         println!("{check}");
+        println!(
+            "{}",
+            format_remote_free_service_telemetry_collection_summary_rollup_check_json_line(&check)?
+        );
         return Ok(());
     }
 
@@ -362,8 +367,10 @@ mod tests {
         validate_summary_directory, write_directory_rollup_artifact, BundleValidationReport,
     };
     use locus_validate::{
+        format_remote_free_service_telemetry_collection_summary_rollup_check_json_line,
         validate_remote_free_service_telemetry_collection_summary_rollup_artifact,
         RemoteFreeServiceTelemetryCollectionSummaryHost,
+        REMOTE_FREE_SERVICE_TELEMETRY_COLLECTION_SUMMARY_ROLLUP_CHECK_SCHEMA,
     };
     use serde_json::json;
     use std::{
@@ -679,6 +686,19 @@ mod tests {
         assert!(check.rollup_host_present);
         assert_eq!(check.bundle_hosts, 1);
         assert_eq!(check.bundle_hosts_missing, 0);
+        let json_line =
+            format_remote_free_service_telemetry_collection_summary_rollup_check_json_line(&check)?;
+        assert!(!json_line.contains('\n'));
+        let json_line = serde_json::from_str::<serde_json::Value>(&json_line)?;
+        assert_eq!(
+            json_line["schema"],
+            REMOTE_FREE_SERVICE_TELEMETRY_COLLECTION_SUMMARY_ROLLUP_CHECK_SCHEMA
+        );
+        assert_eq!(json_line["path"], path.display().to_string());
+        assert_eq!(
+            json_line["artifact_fingerprint"],
+            check.artifact_fingerprint
+        );
 
         fs::remove_dir_all(root)?;
         Ok(())

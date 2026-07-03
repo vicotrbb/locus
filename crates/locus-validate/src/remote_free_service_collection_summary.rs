@@ -13,6 +13,10 @@ pub const REMOTE_FREE_SERVICE_TELEMETRY_COLLECTION_SUMMARY_SCHEMA: &str =
 pub const REMOTE_FREE_SERVICE_TELEMETRY_COLLECTION_SUMMARY_ROLLUP_SCHEMA: &str =
     "locus.remote_free_service.telemetry.collection_summary_rollup.v2";
 
+/// Expected schema for remote-free service telemetry collection summary rollup check lines.
+pub const REMOTE_FREE_SERVICE_TELEMETRY_COLLECTION_SUMMARY_ROLLUP_CHECK_SCHEMA: &str =
+    "locus.remote_free_service.telemetry.collection_summary_rollup_check.v1";
+
 /// Parsed remote-free service telemetry collection summary.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RemoteFreeServiceTelemetryCollectionSummary {
@@ -963,6 +967,39 @@ pub fn validate_remote_free_service_telemetry_collection_summary_rollup_artifact
     })
 }
 
+/// Formats a compact JSON line for a successful collection summary rollup check.
+///
+/// # Errors
+///
+/// Returns an error when the report cannot be serialized as JSON.
+pub fn format_remote_free_service_telemetry_collection_summary_rollup_check_json_line(
+    check: &RemoteFreeServiceTelemetryCollectionSummaryRollupCheck,
+) -> Result<String, RemoteFreeServiceTelemetryCollectionSummaryRollupError> {
+    let line = json!({
+        "schema": REMOTE_FREE_SERVICE_TELEMETRY_COLLECTION_SUMMARY_ROLLUP_CHECK_SCHEMA,
+        "path": check.path.display().to_string(),
+        "rollup_schema": check.schema.as_str(),
+        "artifact_bytes": check.artifact_bytes,
+        "artifact_fingerprint": check.artifact_fingerprint.as_str(),
+        "summaries": check.summaries,
+        "valid_bundles": check.valid_bundles,
+        "drifted_summaries": check.drifted_summaries,
+        "missing_artifacts": check.missing_artifacts,
+        "other_failures": check.other_failures,
+        "timing_ranges": check.timing_ranges,
+        "bundles": check.bundles,
+        "rollup_host_present": check.rollup_host_present,
+        "bundle_hosts": check.bundle_hosts,
+        "bundle_hosts_missing": check.bundle_hosts_missing,
+        "status_valid_bundles": check.valid_bundles,
+        "status_drifted_summaries": check.drifted_summaries,
+        "status_missing_artifacts": check.missing_artifacts,
+        "status_other_failures": check.other_failures,
+    });
+    serde_json::to_string(&line)
+        .map_err(RemoteFreeServiceTelemetryCollectionSummaryRollupError::Serialize)
+}
+
 fn resolve_artifact_path_by_kind(
     summary_path: &Path,
     summary: &RemoteFreeServiceTelemetryCollectionSummary,
@@ -1269,6 +1306,7 @@ mod tests {
     use super::{
         build_remote_free_service_telemetry_collection_summary_directory_rollup,
         collect_remote_free_service_telemetry_collection_summary_paths,
+        format_remote_free_service_telemetry_collection_summary_rollup_check_json_line,
         parse_remote_free_service_telemetry_collection_summary,
         resolve_remote_free_service_telemetry_collection_summary_manifest_path,
         resolve_remote_free_service_telemetry_collection_summary_validation_summary_path,
@@ -1284,6 +1322,7 @@ mod tests {
         RemoteFreeServiceTelemetryCollectionSummaryRollupBundleStatus,
         RemoteFreeServiceTelemetryCollectionSummaryRollupError,
         RemoteFreeServiceTelemetryCollectionSummaryRollupHost,
+        REMOTE_FREE_SERVICE_TELEMETRY_COLLECTION_SUMMARY_ROLLUP_CHECK_SCHEMA,
     };
     use serde_json::json;
     use std::{
@@ -1841,6 +1880,26 @@ mod tests {
                 rollup_artifact_fingerprint(&artifact_text)
             )
         );
+        let json_line =
+            format_remote_free_service_telemetry_collection_summary_rollup_check_json_line(&check)?;
+        assert!(!json_line.contains('\n'));
+        let json_line = serde_json::from_str::<serde_json::Value>(&json_line)?;
+        assert_eq!(
+            json_line["schema"],
+            REMOTE_FREE_SERVICE_TELEMETRY_COLLECTION_SUMMARY_ROLLUP_CHECK_SCHEMA
+        );
+        assert_eq!(
+            json_line["rollup_schema"],
+            "locus.remote_free_service.telemetry.collection_summary_rollup.v2"
+        );
+        assert_eq!(json_line["path"], check.path.display().to_string());
+        assert_eq!(json_line["artifact_bytes"], check.artifact_bytes);
+        assert_eq!(
+            json_line["artifact_fingerprint"],
+            check.artifact_fingerprint
+        );
+        assert_eq!(json_line["status_valid_bundles"], 1);
+        assert_eq!(json_line["status_drifted_summaries"], 0);
         fs::remove_dir_all(dir)?;
         Ok(())
     }

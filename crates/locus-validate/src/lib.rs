@@ -36,6 +36,7 @@ pub use pinned_scratch_near_gpu_gate::{
 pub use remote_free_service_collection_summary::{
     build_remote_free_service_telemetry_collection_summary_directory_rollup,
     collect_remote_free_service_telemetry_collection_summary_paths,
+    format_remote_free_service_telemetry_collection_summary_rollup_check_json_line,
     parse_remote_free_service_telemetry_collection_summary,
     resolve_remote_free_service_telemetry_collection_summary_manifest_path,
     resolve_remote_free_service_telemetry_collection_summary_validation_summary_path,
@@ -57,6 +58,7 @@ pub use remote_free_service_collection_summary::{
     RemoteFreeServiceTelemetryCollectionSummaryRollupHost,
     RemoteFreeServiceTelemetryCollectionSummaryScanError,
     RemoteFreeServiceTelemetryCollectionSummarySource,
+    REMOTE_FREE_SERVICE_TELEMETRY_COLLECTION_SUMMARY_ROLLUP_CHECK_SCHEMA,
     REMOTE_FREE_SERVICE_TELEMETRY_COLLECTION_SUMMARY_ROLLUP_SCHEMA,
     REMOTE_FREE_SERVICE_TELEMETRY_COLLECTION_SUMMARY_SCHEMA,
 };

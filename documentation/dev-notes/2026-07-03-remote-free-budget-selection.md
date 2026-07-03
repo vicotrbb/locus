@@ -658,6 +658,14 @@ reports `fnv1a64:82185294cde2c506`; the older no-host-bundle rollup reports
 `fnv1a64:f788b8ab364b6e1b`. Treat these as evidence identity tokens for triage,
 not cryptographic integrity claims.
 
+Experiment 0249 added a compact JSON line after the existing human-readable
+release-check line. The JSON line uses schema
+`locus.remote_free_service.telemetry.collection_summary_rollup_check.v1` and
+mirrors validated artifact context, aggregate counts, host coverage, and status
+coverage. The host-bearing and older no-host-bundle rollups preserved the same
+first-line values while exposing machine-readable records for CI and release
+dashboards.
+
 ## Measured Thresholds
 
 | Path | Shape inputs | Budget | Matched counters |
@@ -1041,6 +1049,7 @@ not cryptographic integrity claims.
 - `documentation/experiments/0246-remote-free-service-telemetry-rollup-status-coverage.md`
 - `documentation/experiments/0247-remote-free-service-telemetry-rollup-artifact-context.md`
 - `documentation/experiments/0248-remote-free-service-telemetry-rollup-fingerprint.md`
+- `documentation/experiments/0249-remote-free-service-telemetry-rollup-check-json.md`
 
 ## Open Questions
 
