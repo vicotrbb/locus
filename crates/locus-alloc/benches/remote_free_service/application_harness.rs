@@ -16,30 +16,31 @@ use crate::remote_free_service_harness::{
     BYTES_PER_BLOCK, QUEUE_CAPACITY, SAMPLES, TARGET_PENDING_BLOCKS,
 };
 
-const QUEUE_CAPACITY_GROWTH_FACTOR: usize = 2;
+pub(crate) const QUEUE_CAPACITY_GROWTH_FACTOR: usize = 2;
 const RUNTIME_WINDOWS: u64 = 3;
-const RUNTIME_INITIAL_QUEUE_CAPACITY: usize = QUEUE_CAPACITY / QUEUE_CAPACITY_GROWTH_FACTOR;
+pub(crate) const RUNTIME_INITIAL_QUEUE_CAPACITY: usize =
+    QUEUE_CAPACITY / QUEUE_CAPACITY_GROWTH_FACTOR;
 
 #[derive(Debug)]
-struct RuntimeTraceBlock {
+pub(crate) struct RuntimeTraceBlock {
     submit_burst: u64,
     allocation: Vec<u8>,
 }
 
 #[derive(Debug, Clone, Copy)]
-struct RuntimeApplicationStats {
-    submitted_count: u64,
-    drained_count: u64,
-    released_bytes: u64,
-    policy_drains: u64,
-    drain_rounds: u64,
-    max_wait_bursts: u64,
-    total_wait_bursts: u64,
-    install_count: u64,
-    confirm_count: u64,
-    rollback_count: u64,
-    final_queue_capacity: usize,
-    final_previous_config_present: bool,
+pub(crate) struct RuntimeApplicationStats {
+    pub(crate) submitted_count: u64,
+    pub(crate) drained_count: u64,
+    pub(crate) released_bytes: u64,
+    pub(crate) policy_drains: u64,
+    pub(crate) drain_rounds: u64,
+    pub(crate) max_wait_bursts: u64,
+    pub(crate) total_wait_bursts: u64,
+    pub(crate) install_count: u64,
+    pub(crate) confirm_count: u64,
+    pub(crate) rollback_count: u64,
+    pub(crate) final_queue_capacity: usize,
+    pub(crate) final_previous_config_present: bool,
 }
 
 pub(crate) fn benchmark_runtime_application(c: &mut Criterion) {
@@ -95,7 +96,7 @@ fn current_config_for_candidate(
     }
 }
 
-fn service_config(queue_capacity: usize) -> RemoteFreeQueuedByteDrainConfig {
+pub(crate) fn service_config(queue_capacity: usize) -> RemoteFreeQueuedByteDrainConfig {
     RemoteFreeQueuedByteDrainConfig::from_item_shape(
         queue_capacity,
         BATCH_LIMIT,
@@ -144,7 +145,7 @@ fn assert_service_config(config: RemoteFreeQueuedByteDrainConfig, queue_capacity
 }
 
 impl RuntimeApplicationStats {
-    fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self {
             submitted_count: 0,
             drained_count: 0,
@@ -161,7 +162,7 @@ impl RuntimeApplicationStats {
         }
     }
 
-    fn mean_wait_milli(self) -> u64 {
+    pub(crate) fn mean_wait_milli(self) -> u64 {
         if self.drained_count == 0 {
             return 0;
         }
@@ -367,7 +368,7 @@ fn run_runtime_confirm_sequence() -> RuntimeApplicationStats {
     stats
 }
 
-fn run_runtime_owner_window(
+pub(crate) fn run_runtime_owner_window(
     runtime: &mut RemoteFreeOwnerRuntime<RuntimeTraceBlock>,
     stats: &mut RuntimeApplicationStats,
 ) {

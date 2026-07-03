@@ -230,6 +230,13 @@ submitted blocks, 768 drained blocks, 3,145,728 released bytes, 12 policy
 drains, one install, one confirm, zero rollbacks, final capacity 256, and no
 remaining rollback config.
 
+Experiment 0200 connected guarded service decisions to
+`RemoteFreeOwnerRuntime` operations in one measured sequence. Across nine real
+owner-runtime allocation windows, controlled service summaries produced two
+runtime installs, one confirm, one rollback, one mutation-limit decision, five
+runtime no-change outcomes, 2304 submitted blocks, 2304 drained blocks,
+9,437,184 released bytes, final queue capacity 128, and no rollback config.
+
 ## Measured Thresholds
 
 | Path | Shape inputs | Budget | Matched counters |
@@ -284,6 +291,9 @@ remaining rollback config.
     reconstruction without a separate measured design.
 17. Confirm successfully validated runtime configs at an empty owner boundary
     so stale rollback configs cannot be applied after acceptance.
+18. Use the guarded runtime sequence to verify that guard decisions translate
+    into runtime install, confirm, rollback, and no-change outcomes before
+    attempting live orchestration.
 
 ## Guardrails
 
@@ -317,6 +327,8 @@ remaining rollback config.
   non-empty. Runtime install and rollback are empty-boundary operations.
 - Do not keep rollback state after a validation window has confirmed the active
   runtime config.
+- Do not treat the controlled-summary guarded runtime benchmark as a full live
+  retune proof. Runtime-collected telemetry still needs separate measurement.
 - Recheck thresholds when KV block size, request arena capacity, burst size,
   request concurrency, or batch size changes.
 - For heterogeneous traces, derive the budget from actual retained item sizes
@@ -353,12 +365,14 @@ remaining rollback config.
 - `documentation/experiments/0197-remote-free-guarded-policy-application.md`
 - `documentation/experiments/0198-remote-free-owner-runtime-rollback.md`
 - `documentation/experiments/0199-remote-free-owner-runtime-confirm.md`
+- `documentation/experiments/0200-remote-free-guarded-runtime-sequence.md`
 
 ## Open Questions
 
-- How should the guarded service sequence connect to `RemoteFreeOwnerRuntime`
-  so apply, confirm, rollback, and mutation-limit decisions are measured
-  through one runtime-owned path?
+- How should runtime-collected telemetry replace controlled service-summary
+  shapes in the guarded runtime sequence?
+- How should the guarded runtime sequence lift to multi-owner runtime
+  orchestration?
 - Which workload signal should set the retained item window in production:
   scheduler turn age, active request concurrency, KV cache pressure, or memory
   pressure from observability counters?
