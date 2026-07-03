@@ -518,6 +518,14 @@ created one run directory with three copied outputs, `manifest.txt`, and
 `mixed` report, one accepted run, one discarded run, and 272,000 ps timing
 spread.
 
+Experiment 0228 extended the collector with opt-in direct Criterion benchmark
+capture. Two direct captures of
+`remote_free_service_runtime_apply_confirm`, using JSON telemetry and short
+Criterion timing parameters, created one run directory with two captured
+outputs, `manifest.txt`, and `validation-summary.txt`. The summary reported
+`stable`, one accepted run, zero discarded runs, and one timing range from
+56,591,000 ps to 56,765,000 ps, for a 174,000 ps spread.
+
 ## Measured Thresholds
 
 | Path | Shape inputs | Budget | Matched counters |
@@ -674,6 +682,11 @@ spread.
     saved-output evidence bundle. It copies labeled outputs, writes
     `manifest.txt`, and writes `validation-summary.txt` in the same run
     directory.
+46. Use `remote_free_service_telemetry_collect --bench` when the benchmark
+    outputs have not been captured yet. It runs the selected
+    `remote_free_service_telemetry` Criterion filters with JSON telemetry
+    enabled, persists the captured output files, and then writes the same
+    manifest-backed validation summary.
 
 ## Guardrails
 
@@ -799,6 +812,9 @@ spread.
 - Do not archive remote-free service telemetry output copies without the
   matching manifest and validation summary. Use the collector so copied
   outputs and the counter-gated summary stay together.
+- Do not treat direct benchmark capture as a separate validation path. The
+  collector must still persist captured outputs, write `manifest.txt`, and
+  validate through `validation-summary.txt`.
 - Recheck thresholds when KV block size, request arena capacity, burst size,
   request concurrency, or batch size changes.
 - For heterogeneous traces, derive the budget from actual retained item sizes
@@ -863,12 +879,13 @@ spread.
 - `documentation/experiments/0225-remote-free-service-telemetry-timing-stability.md`
 - `documentation/experiments/0226-remote-free-service-telemetry-stability-manifest.md`
 - `documentation/experiments/0227-remote-free-service-telemetry-evidence-collection.md`
+- `documentation/experiments/0228-remote-free-service-telemetry-direct-capture.md`
 
 ## Open Questions
 
-- Can the collector run selected remote-free service telemetry Criterion
-  benchmarks directly, capture their output into the evidence directory, and
-  then run the same manifest-backed validation?
+- Can the direct collector run a small repeated-capture cohort for one
+  benchmark label and automatically name each repeated run while preserving the
+  same manifest-backed validation?
 - Which workload signal should set the retained item window in production:
   scheduler turn age, active request concurrency, KV cache pressure, or memory
   pressure from observability counters?
