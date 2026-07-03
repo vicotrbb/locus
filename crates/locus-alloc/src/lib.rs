@@ -8,7 +8,10 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::{sync_channel, Receiver, SyncSender, TryRecvError};
 use std::sync::Arc;
 
-use locus_core::{NodeId, RequestHome, RequestId};
+use locus_core::{
+    choose_initial_policy, resolve_topology_policy, LifetimeHint, MemoryClass, NodeId,
+    PlacementPolicy, PlacementRequest, RequestHome, RequestId, Topology,
+};
 use locus_sys::{
     page_size, MappedRegion, MappedRegionError, PageLockError, PageSizeError, TouchPagesError,
 };
@@ -1374,6 +1377,56 @@ impl PinnedScratchPool {
         })
     }
 
+    /// Creates a pool whose home node is resolved from GPU PCI locality.
+    ///
+    /// This resolves the GPU BDF through discovered topology and creates the
+    /// pool on the reported NUMA node. It does not select a CUDA device or
+    /// register host memory with a GPU runtime.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when topology cannot resolve the GPU to a concrete
+    /// NUMA node, or when ordinary pool construction fails.
+    pub fn new_near_gpu(
+        gpu_bdf: impl Into<String>,
+        topology: &Topology,
+        arena_capacity: usize,
+        max_locked_bytes: usize,
+    ) -> Result<Self, PinnedScratchPoolError> {
+        let gpu_bdf = gpu_bdf.into();
+        let request = PlacementRequest {
+            memory_class: MemoryClass::PinnedHost,
+            lifetime: LifetimeHint::Process,
+            preferred_node: None,
+            preferred_gpu: Some(gpu_bdf.clone()),
+        };
+        let decision = choose_initial_policy(&request);
+        let resolved = resolve_topology_policy(&decision, topology);
+
+        let PlacementPolicy::Bind(nodes) = resolved.policy else {
+            return Err(PinnedScratchPoolError::GpuLocalityUnavailable {
+                gpu: gpu_bdf,
+                reason: resolved.reason,
+            });
+        };
+
+        let mut nodes = nodes.iter();
+        let Some(node) = nodes.next() else {
+            return Err(PinnedScratchPoolError::GpuLocalityUnavailable {
+                gpu: gpu_bdf,
+                reason: "GPU locality resolved to an empty node set",
+            });
+        };
+        if nodes.next().is_some() {
+            return Err(PinnedScratchPoolError::GpuLocalityUnavailable {
+                gpu: gpu_bdf,
+                reason: "GPU locality resolved to multiple NUMA nodes",
+            });
+        }
+
+        Self::new(node, arena_capacity, max_locked_bytes)
+    }
+
     /// Checks out a page-locked arena handle.
     ///
     /// # Errors
@@ -1567,6 +1620,13 @@ pub enum PinnedScratchPoolError {
         locked_bytes: usize,
         /// Configured maximum locked bytes.
         max_locked_bytes: usize,
+    },
+    /// GPU locality could not be resolved to one concrete NUMA node.
+    GpuLocalityUnavailable {
+        /// GPU PCI bus-device-function identifier.
+        gpu: String,
+        /// Reason locality could not be resolved.
+        reason: &'static str,
     },
     /// The checkout handle is not live in this pool.
     InvalidHandle,
@@ -1855,6 +1915,10 @@ impl fmt::Display for PinnedScratchPoolError {
                 f,
                 "pinned scratch pool locked-byte budget exceeded: required {required}, locked {locked_bytes}, max {max_locked_bytes}"
             ),
+            Self::GpuLocalityUnavailable { gpu, reason } => write!(
+                f,
+                "pinned scratch pool GPU locality unavailable for {gpu}: {reason}"
+            ),
             Self::InvalidHandle => f.write_str("pinned scratch pool handle is not live"),
         }
     }
@@ -1867,6 +1931,7 @@ impl std::error::Error for PinnedScratchPoolError {
             Self::InvalidArenaCapacity
             | Self::InsufficientLockedByteBudget { .. }
             | Self::LockedByteBudgetExceeded { .. }
+            | Self::GpuLocalityUnavailable { .. }
             | Self::InvalidHandle => None,
         }
     }
@@ -2550,7 +2615,7 @@ fn blocks_for_tokens(token_count: u64, tokens_per_block: u16) -> usize {
 mod tests {
     use std::alloc::Layout;
 
-    use locus_core::{NodeId, RequestHome, RequestId};
+    use locus_core::{NodeId, PciDevice, RequestHome, RequestId, Topology};
 
     use super::{
         parse_mapped_scratch_lock_probe_output, parse_page_lock_probe_status_line,
@@ -2826,6 +2891,73 @@ mod tests {
         assert!(matches!(
             pool.release(invalid),
             Err(PinnedScratchPoolError::InvalidHandle)
+        ));
+    }
+
+    #[test]
+    fn pinned_scratch_pool_resolves_home_node_from_gpu_topology() {
+        let arena_capacity = 4096;
+        let arena_mapping_len = arena_capacity + MAX_SUPPORTED_ALIGN - 1;
+        let topology = Topology {
+            pci_devices: vec![PciDevice {
+                bdf: "0000:81:00.0".to_owned(),
+                numa_node: Some(NodeId(2)),
+                local_cpus: None,
+            }],
+            ..Topology::default()
+        };
+
+        let pool = PinnedScratchPool::new_near_gpu(
+            "0000:81:00.0",
+            &topology,
+            arena_capacity,
+            arena_mapping_len,
+        )
+        .expect("near GPU pool");
+
+        let stats = pool.stats();
+        assert_eq!(stats.home_node, NodeId(2));
+        assert_eq!(stats.locked_bytes, 0);
+    }
+
+    #[test]
+    fn pinned_scratch_pool_rejects_missing_gpu_topology() {
+        let error =
+            PinnedScratchPool::new_near_gpu("0000:81:00.0", &Topology::default(), 4096, 8191)
+                .expect_err("missing GPU should fail");
+
+        assert!(matches!(
+            error,
+            PinnedScratchPoolError::GpuLocalityUnavailable {
+                gpu,
+                reason,
+            } if gpu == "0000:81:00.0"
+                && reason == "GPU PCI device was not discovered, using local first-touch behavior"
+        ));
+    }
+
+    #[test]
+    fn pinned_scratch_pool_rejects_gpu_without_numa_node() {
+        let topology = Topology {
+            pci_devices: vec![PciDevice {
+                bdf: "0000:81:00.0".to_owned(),
+                numa_node: None,
+                local_cpus: None,
+            }],
+            ..Topology::default()
+        };
+
+        let error = PinnedScratchPool::new_near_gpu("0000:81:00.0", &topology, 4096, 8191)
+            .expect_err("unknown GPU node should fail");
+
+        assert!(matches!(
+            error,
+            PinnedScratchPoolError::GpuLocalityUnavailable {
+                gpu,
+                reason,
+            } if gpu == "0000:81:00.0"
+                && reason
+                    == "GPU PCI device has no reported NUMA node, using local first-touch behavior"
         ));
     }
 
