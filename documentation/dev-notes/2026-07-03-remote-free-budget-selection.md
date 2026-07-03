@@ -822,6 +822,11 @@ mixed rollup matches the source log, while a controlled stale `records=1`
 rollup reports `field=records`, expected `2`, actual `1`, and strict
 verification rejects it with `CountDrift`.
 
+Experiment 0275 added compact verdict JSON for repeated-check rollup drift
+checks. The real matched check emits `status=matched` with `drift=null`, while
+a controlled stale `records=1` repeated-check rollup emits `status=drifted`
+with `drift.field=records`, expected `2`, and actual `1`.
+
 ## Measured Thresholds
 
 | Path | Shape inputs | Budget | Matched counters |
@@ -1231,6 +1236,7 @@ verification rejects it with `CountDrift`.
 - `documentation/experiments/0272-remote-free-service-telemetry-rollup-check-log-summary-verdict-rollup-verification-summary-drift-json-rollup-drift-json-rollup.md`
 - `documentation/experiments/0273-remote-free-service-telemetry-rollup-check-log-summary-verdict-rollup-verification-summary-drift-json-rollup-drift-json-rollup-parser.md`
 - `documentation/experiments/0274-remote-free-service-telemetry-rollup-check-log-summary-verdict-rollup-verification-summary-drift-json-rollup-drift-json-rollup-drift.md`
+- `documentation/experiments/0275-remote-free-service-telemetry-rollup-check-log-summary-verdict-rollup-verification-summary-drift-json-rollup-drift-json-rollup-drift-json.md`
 
 ## Open Questions
 
