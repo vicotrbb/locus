@@ -444,6 +444,23 @@ local group sample pairs, and a no-filter `--list` check printed 24
 service-window sample lines. Treat the helper as service-window scoped until
 the other telemetry harnesses share the same filter logic.
 
+Experiment 0221 moved remote-free service telemetry sample filtering into the
+shared `remote_free_service/sample_filter.rs` helper and migrated every target
+sample printer to call it. The helper parses Criterion filter tokens once per
+benchmark process with `OnceLock`. A no-filter `--list` check printed all 60
+target sample lines. The exact validated local dirty-buffer group filter
+printed only the validated sample and summary, preserved 2048 submitted
+blocks, 2048 drained blocks, 9,437,440 released bytes, 12 policy drains, 36
+drain rounds, 46 reports needing retune, two apply decisions, one confirm,
+one rollback, one mutation-limit decision, max wait 8 bursts, and mean wait
+3.312 bursts, then measured 197.39 to 197.77 us. The exact runtime
+apply-confirm filter printed only the apply-confirm sample and summary,
+preserved 768 submitted blocks, 768 drained blocks, 3,145,728 released bytes,
+12 policy drains, 12 drain rounds, one install, one confirm, zero rollbacks,
+max wait 2 bursts, and mean wait 1.500 bursts, then measured 56.476 to
+56.660 us. Treat `should_print_sample` as the target-wide sample filtering
+surface for this benchmark.
+
 ## Measured Thresholds
 
 | Path | Shape inputs | Budget | Matched counters |
@@ -574,6 +591,9 @@ the other telemetry harnesses share the same filter logic.
     stay in one descriptor.
 38. Keep service-window sample printing tied to Criterion filter tokens so
     exact focused runs do not print unrelated service-window sample labels.
+39. Put future `remote_free_service_telemetry` sample printers behind
+    `remote_free_service_sample_filter::should_print_sample`, passing both the
+    sample label and the Criterion benchmark label.
 
 ## Guardrails
 
@@ -678,9 +698,9 @@ the other telemetry harnesses share the same filter logic.
 - Do not treat a single Criterion regression block as proof when a same-code
   rerun contradicts it. Experiment 0219 recorded one noisy validated block and
   an exact rerun that returned to the normal range.
-- Do not assume the whole service telemetry target has filter-clean output
-  just because service-window samples are filtered. Experiment 0220 only gated
-  `runtime_service_window_harness.rs`.
+- Do not add local Criterion argument parsing to individual remote-free
+  service telemetry harness modules. Use the shared sample filter so focused
+  benchmark output stays target-wide and filter-clean.
 - Recheck thresholds when KV block size, request arena capacity, burst size,
   request concurrency, or batch size changes.
 - For heterogeneous traces, derive the budget from actual retained item sizes
@@ -738,12 +758,13 @@ the other telemetry harnesses share the same filter logic.
 - `documentation/experiments/0218-remote-free-local-dirty-group-benchmark-helper.md`
 - `documentation/experiments/0219-remote-free-local-dirty-group-benchmark-descriptors.md`
 - `documentation/experiments/0220-remote-free-service-window-filtered-sample-printing.md`
+- `documentation/experiments/0221-remote-free-service-telemetry-shared-sample-filter.md`
 
 ## Open Questions
 
-- Can the remote-free service telemetry benchmark share one filter-aware
-  sample printing helper across all harness modules so focused runs suppress
-  unrelated sample blocks target-wide?
+- Can remote-free service telemetry samples be emitted as optional
+  machine-readable JSON lines so future experiments can compare counters and
+  timings without relying on ad hoc text filters?
 - Which workload signal should set the retained item window in production:
   scheduler turn age, active request concurrency, KV cache pressure, or memory
   pressure from observability counters?

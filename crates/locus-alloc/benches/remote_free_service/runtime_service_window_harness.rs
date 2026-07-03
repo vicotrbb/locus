@@ -1,6 +1,6 @@
 #![allow(missing_docs)]
 
-use std::{convert::Infallible, env};
+use std::convert::Infallible;
 
 use criterion::{black_box, Criterion};
 use locus_alloc::{
@@ -30,6 +30,7 @@ use crate::remote_free_service_runtime_local_dirty_group_harness::{
     assert_bounded_missing_owner, assert_integrated_missing_owner, assert_validated_missing_owner,
     collect_runtime_local_dirty_group_window, RuntimeLocalDirtyGroupCollectionMode,
 };
+use crate::remote_free_service_sample_filter::should_print_sample;
 
 const SERVICE_WINDOW_STABLE_WINDOWS: u64 = 2;
 const SERVICE_WINDOW_MAX_MUTATIONS: u64 = 2;
@@ -438,17 +439,8 @@ fn print_service_window_sample_summary(mode: ServiceWindowRunnerMode, sample_nam
 }
 
 fn should_print_service_window_sample(sample_name: &str) -> bool {
-    let filters = criterion_filter_tokens();
-    filters.is_empty()
-        || filters
-            .iter()
-            .any(|filter| service_window_sample_matches_filter(sample_name, filter))
-}
-
-fn service_window_sample_matches_filter(sample_name: &str, filter: &str) -> bool {
-    sample_name.contains(filter)
-        || service_window_sample_benchmark_name(sample_name)
-            .is_some_and(|benchmark_name| benchmark_name.contains(filter))
+    service_window_sample_benchmark_name(sample_name)
+        .is_some_and(|benchmark_name| should_print_sample(sample_name, &benchmark_name))
 }
 
 fn service_window_sample_benchmark_name(sample_name: &str) -> Option<String> {
@@ -456,49 +448,6 @@ fn service_window_sample_benchmark_name(sample_name: &str) -> Option<String> {
         .strip_suffix("_sample_summary")
         .or_else(|| sample_name.strip_suffix("_sample"))
         .map(|prefix| format!("{prefix}_sequence"))
-}
-
-fn criterion_filter_tokens() -> Vec<String> {
-    let mut args = env::args().skip(1);
-    let mut filters = Vec::new();
-
-    while let Some(arg) = args.next() {
-        if arg == "--bench" || arg == "bench" {
-            continue;
-        }
-        if arg.starts_with("--") {
-            if criterion_option_takes_value(&arg) {
-                let _ = args.next();
-            }
-            continue;
-        }
-        if arg.starts_with('-') {
-            continue;
-        }
-        filters.push(arg);
-    }
-
-    filters
-}
-
-fn criterion_option_takes_value(arg: &str) -> bool {
-    !arg.contains('=')
-        && matches!(
-            arg,
-            "--baseline"
-                | "--color"
-                | "--confidence-level"
-                | "--measurement-time"
-                | "--noise-threshold"
-                | "--nresamples"
-                | "--output-format"
-                | "--plotting-backend"
-                | "--profile-time"
-                | "--sample-size"
-                | "--save-baseline"
-                | "--significance-level"
-                | "--warm-up-time"
-        )
 }
 
 fn run_runtime_service_window_sequence(

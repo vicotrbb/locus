@@ -16,12 +16,16 @@ use crate::remote_free_service_application_harness::{
 use crate::remote_free_service_harness::{
     format_milli, CounterSummary, BYTES_PER_BLOCK, QUEUE_CAPACITY, SAMPLES,
 };
+use crate::remote_free_service_sample_filter::should_print_sample;
 
 const COORDINATOR_STABLE_WINDOWS: u64 = 2;
 const COORDINATOR_MAX_MUTATIONS: u64 = 2;
 const COORDINATOR_OWNERS: u64 = 3;
 const COORDINATOR_WINDOWS: u64 = 8;
 const COORDINATOR_ROLLBACK_VALIDATION_BYTES: u64 = BYTES_PER_BLOCK * 2 + 1;
+const COORDINATOR_BENCHMARK: &str = "remote_free_service_runtime_coordinator_sequence";
+const COORDINATOR_SAMPLE: &str = "remote_free_service_runtime_coordinator_sample";
+const COORDINATOR_SAMPLE_SUMMARY: &str = "remote_free_service_runtime_coordinator_sample_summary";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum CoordinatorDecisionKind {
@@ -56,24 +60,25 @@ pub(crate) fn benchmark_runtime_coordinator_sequence(c: &mut Criterion) {
     print_coordinator_sample();
     print_coordinator_sample_summary();
 
-    c.bench_function(
-        "remote_free_service_runtime_coordinator_sequence",
-        |bench| {
-            bench.iter(|| {
-                let stats = run_runtime_coordinator_sequence();
-                assert_coordinator_stats(stats);
-                black_box(stats);
-            });
-        },
-    );
+    c.bench_function(COORDINATOR_BENCHMARK, |bench| {
+        bench.iter(|| {
+            let stats = run_runtime_coordinator_sequence();
+            assert_coordinator_stats(stats);
+            black_box(stats);
+        });
+    });
 }
 
 fn print_coordinator_sample() {
+    if !should_print_sample(COORDINATOR_SAMPLE, COORDINATOR_BENCHMARK) {
+        return;
+    }
+
     let stats = run_runtime_coordinator_sequence();
     assert_coordinator_stats(stats);
 
     println!(
-        "remote_free_service_runtime_coordinator_sample owners={COORDINATOR_OWNERS} windows={COORDINATOR_WINDOWS} stable_windows={COORDINATOR_STABLE_WINDOWS} max_mutations={COORDINATOR_MAX_MUTATIONS} rollback_validation_bytes={COORDINATOR_ROLLBACK_VALIDATION_BYTES} submitted_count={} drained_count={} released_bytes={} policy_drains={} drain_rounds={} observed_reports={} reports_needing_retune={} max_pending_over_target={} max_queued_bytes_over_budget={} queue_backpressure_reports={} hold_decisions={} apply_decisions={} confirmed_decisions={} rollback_decisions={} mutation_limit_decisions={} runtime_install_count={} runtime_confirm_count={} runtime_rollback_count={} runtime_no_change_decisions={} max_wait_bursts={} mean_wait_bursts={} final_queue_capacity={} final_previous_config_present={} final_guard_pending_candidate={} final_guard_applied_mutations={} final_guard_confirmed_mutations={} final_guard_rollbacks={}",
+        "{COORDINATOR_SAMPLE} owners={COORDINATOR_OWNERS} windows={COORDINATOR_WINDOWS} stable_windows={COORDINATOR_STABLE_WINDOWS} max_mutations={COORDINATOR_MAX_MUTATIONS} rollback_validation_bytes={COORDINATOR_ROLLBACK_VALIDATION_BYTES} submitted_count={} drained_count={} released_bytes={} policy_drains={} drain_rounds={} observed_reports={} reports_needing_retune={} max_pending_over_target={} max_queued_bytes_over_budget={} queue_backpressure_reports={} hold_decisions={} apply_decisions={} confirmed_decisions={} rollback_decisions={} mutation_limit_decisions={} runtime_install_count={} runtime_confirm_count={} runtime_rollback_count={} runtime_no_change_decisions={} max_wait_bursts={} mean_wait_bursts={} final_queue_capacity={} final_previous_config_present={} final_guard_pending_candidate={} final_guard_applied_mutations={} final_guard_confirmed_mutations={} final_guard_rollbacks={}",
         stats.runtime.submitted_count,
         stats.runtime.drained_count,
         stats.runtime.released_bytes,
@@ -105,6 +110,10 @@ fn print_coordinator_sample() {
 }
 
 fn print_coordinator_sample_summary() {
+    if !should_print_sample(COORDINATOR_SAMPLE_SUMMARY, COORDINATOR_BENCHMARK) {
+        return;
+    }
+
     let mut policy_drains = CounterSummary::new();
     let mut drain_rounds = CounterSummary::new();
     let mut reports_needing_retune = CounterSummary::new();
@@ -131,7 +140,7 @@ fn print_coordinator_sample_summary() {
     }
 
     println!(
-        "remote_free_service_runtime_coordinator_sample_summary owners={COORDINATOR_OWNERS} windows={COORDINATOR_WINDOWS} samples={SAMPLES} policy_drains_min={} policy_drains_max={} policy_drains_mean={} drain_rounds_min={} drain_rounds_max={} drain_rounds_mean={} reports_needing_retune_min={} reports_needing_retune_max={} reports_needing_retune_mean={} apply_decisions_min={} apply_decisions_max={} apply_decisions_mean={} confirmed_decisions_min={} confirmed_decisions_max={} confirmed_decisions_mean={} rollback_decisions_min={} rollback_decisions_max={} rollback_decisions_mean={} mutation_limit_decisions_min={} mutation_limit_decisions_max={} mutation_limit_decisions_mean={} max_wait_min={} max_wait_max={} max_wait_mean={} mean_wait_min={} mean_wait_max={} mean_wait_mean={}",
+        "{COORDINATOR_SAMPLE_SUMMARY} owners={COORDINATOR_OWNERS} windows={COORDINATOR_WINDOWS} samples={SAMPLES} policy_drains_min={} policy_drains_max={} policy_drains_mean={} drain_rounds_min={} drain_rounds_max={} drain_rounds_mean={} reports_needing_retune_min={} reports_needing_retune_max={} reports_needing_retune_mean={} apply_decisions_min={} apply_decisions_max={} apply_decisions_mean={} confirmed_decisions_min={} confirmed_decisions_max={} confirmed_decisions_mean={} rollback_decisions_min={} rollback_decisions_max={} rollback_decisions_mean={} mutation_limit_decisions_min={} mutation_limit_decisions_max={} mutation_limit_decisions_mean={} max_wait_min={} max_wait_max={} max_wait_mean={} mean_wait_min={} mean_wait_max={} mean_wait_mean={}",
         policy_drains.min,
         policy_drains.max,
         format_milli(policy_drains.mean_milli(SAMPLES)),

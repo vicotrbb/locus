@@ -14,11 +14,16 @@ use crate::remote_free_service_application_harness::{
     RUNTIME_INITIAL_QUEUE_CAPACITY,
 };
 use crate::remote_free_service_harness::{format_milli, CounterSummary, BYTES_PER_BLOCK, SAMPLES};
+use crate::remote_free_service_sample_filter::should_print_sample;
 
 const RUNTIME_ROLLBACK_STABLE_WINDOWS: u64 = 2;
 const RUNTIME_ROLLBACK_MAX_MUTATIONS: u64 = 2;
 const RUNTIME_ROLLBACK_WINDOWS: u64 = 3;
 const RUNTIME_ROLLBACK_VALIDATION_BYTES: u64 = BYTES_PER_BLOCK * 2 + 1;
+const RUNTIME_ROLLBACK_BENCHMARK: &str = "remote_free_service_runtime_collected_rollback";
+const RUNTIME_ROLLBACK_SAMPLE: &str = "remote_free_service_runtime_collected_rollback_sample";
+const RUNTIME_ROLLBACK_SAMPLE_SUMMARY: &str =
+    "remote_free_service_runtime_collected_rollback_sample_summary";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum RuntimeRollbackDecisionKind {
@@ -56,7 +61,7 @@ pub(crate) fn benchmark_runtime_collected_rollback(c: &mut Criterion) {
     print_runtime_rollback_sample();
     print_runtime_rollback_sample_summary();
 
-    c.bench_function("remote_free_service_runtime_collected_rollback", |bench| {
+    c.bench_function(RUNTIME_ROLLBACK_BENCHMARK, |bench| {
         bench.iter(|| {
             let stats = run_runtime_collected_rollback();
             assert_runtime_rollback_stats(stats);
@@ -66,11 +71,15 @@ pub(crate) fn benchmark_runtime_collected_rollback(c: &mut Criterion) {
 }
 
 fn print_runtime_rollback_sample() {
+    if !should_print_sample(RUNTIME_ROLLBACK_SAMPLE, RUNTIME_ROLLBACK_BENCHMARK) {
+        return;
+    }
+
     let stats = run_runtime_collected_rollback();
     assert_runtime_rollback_stats(stats);
 
     println!(
-        "remote_free_service_runtime_collected_rollback_sample windows={RUNTIME_ROLLBACK_WINDOWS} stable_windows={RUNTIME_ROLLBACK_STABLE_WINDOWS} max_mutations={RUNTIME_ROLLBACK_MAX_MUTATIONS} validation_bytes={RUNTIME_ROLLBACK_VALIDATION_BYTES} submitted_count={} drained_count={} released_bytes={} policy_drains={} drain_rounds={} observed_reports={} reports_needing_retune={} max_pending_over_target={} max_queued_bytes_over_budget={} queue_backpressure_reports={} hold_decisions={} apply_decisions={} rollback_decisions={} runtime_install_count={} runtime_confirm_count={} runtime_rollback_count={} runtime_no_change_decisions={} max_wait_bursts={} mean_wait_bursts={} final_queue_capacity={} final_previous_config_present={} final_guard_pending_candidate={} final_guard_applied_mutations={} final_guard_confirmed_mutations={} final_guard_rollbacks={}",
+        "{RUNTIME_ROLLBACK_SAMPLE} windows={RUNTIME_ROLLBACK_WINDOWS} stable_windows={RUNTIME_ROLLBACK_STABLE_WINDOWS} max_mutations={RUNTIME_ROLLBACK_MAX_MUTATIONS} validation_bytes={RUNTIME_ROLLBACK_VALIDATION_BYTES} submitted_count={} drained_count={} released_bytes={} policy_drains={} drain_rounds={} observed_reports={} reports_needing_retune={} max_pending_over_target={} max_queued_bytes_over_budget={} queue_backpressure_reports={} hold_decisions={} apply_decisions={} rollback_decisions={} runtime_install_count={} runtime_confirm_count={} runtime_rollback_count={} runtime_no_change_decisions={} max_wait_bursts={} mean_wait_bursts={} final_queue_capacity={} final_previous_config_present={} final_guard_pending_candidate={} final_guard_applied_mutations={} final_guard_confirmed_mutations={} final_guard_rollbacks={}",
         stats.runtime.submitted_count,
         stats.runtime.drained_count,
         stats.runtime.released_bytes,
@@ -100,6 +109,10 @@ fn print_runtime_rollback_sample() {
 }
 
 fn print_runtime_rollback_sample_summary() {
+    if !should_print_sample(RUNTIME_ROLLBACK_SAMPLE_SUMMARY, RUNTIME_ROLLBACK_BENCHMARK) {
+        return;
+    }
+
     let mut policy_drains = CounterSummary::new();
     let mut drain_rounds = CounterSummary::new();
     let mut reports_needing_retune = CounterSummary::new();
@@ -122,7 +135,7 @@ fn print_runtime_rollback_sample_summary() {
     }
 
     println!(
-        "remote_free_service_runtime_collected_rollback_sample_summary windows={RUNTIME_ROLLBACK_WINDOWS} samples={SAMPLES} policy_drains_min={} policy_drains_max={} policy_drains_mean={} drain_rounds_min={} drain_rounds_max={} drain_rounds_mean={} reports_needing_retune_min={} reports_needing_retune_max={} reports_needing_retune_mean={} apply_decisions_min={} apply_decisions_max={} apply_decisions_mean={} rollback_decisions_min={} rollback_decisions_max={} rollback_decisions_mean={} max_wait_min={} max_wait_max={} max_wait_mean={} mean_wait_min={} mean_wait_max={} mean_wait_mean={}",
+        "{RUNTIME_ROLLBACK_SAMPLE_SUMMARY} windows={RUNTIME_ROLLBACK_WINDOWS} samples={SAMPLES} policy_drains_min={} policy_drains_max={} policy_drains_mean={} drain_rounds_min={} drain_rounds_max={} drain_rounds_mean={} reports_needing_retune_min={} reports_needing_retune_max={} reports_needing_retune_mean={} apply_decisions_min={} apply_decisions_max={} apply_decisions_mean={} rollback_decisions_min={} rollback_decisions_max={} rollback_decisions_mean={} max_wait_min={} max_wait_max={} max_wait_mean={} mean_wait_min={} mean_wait_max={} mean_wait_mean={}",
         policy_drains.min,
         policy_drains.max,
         format_milli(policy_drains.mean_milli(SAMPLES)),

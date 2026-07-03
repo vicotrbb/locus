@@ -26,6 +26,8 @@ mod remote_free_service_runtime_local_dirty_group_harness;
 mod remote_free_service_runtime_registry_harness;
 #[path = "remote_free_service/runtime_service_window_harness.rs"]
 mod remote_free_service_runtime_service_window_harness;
+#[path = "remote_free_service/sample_filter.rs"]
+mod remote_free_service_sample_filter;
 
 fn remote_free_service_telemetry(c: &mut Criterion) {
     remote_free_service_harness::benchmark_service_telemetry(c);

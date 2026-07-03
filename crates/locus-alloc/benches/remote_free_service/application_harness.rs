@@ -20,11 +20,20 @@ use crate::remote_free_service_harness::{
     format_milli, CounterSummary, ServiceTelemetryCase, BATCH_LIMIT, BURSTS, BURST_BLOCKS,
     BYTES_PER_BLOCK, QUEUE_CAPACITY, SAMPLES, TARGET_PENDING_BLOCKS,
 };
+use crate::remote_free_service_sample_filter::should_print_sample;
 
 pub(crate) const QUEUE_CAPACITY_GROWTH_FACTOR: usize = 2;
 const RUNTIME_WINDOWS: u64 = 3;
 pub(crate) const RUNTIME_INITIAL_QUEUE_CAPACITY: usize =
     QUEUE_CAPACITY / QUEUE_CAPACITY_GROWTH_FACTOR;
+const RUNTIME_APPLY_ROLLBACK_BENCHMARK: &str = "remote_free_service_runtime_apply_rollback";
+const RUNTIME_APPLY_ROLLBACK_SAMPLE: &str = "remote_free_service_runtime_apply_rollback_sample";
+const RUNTIME_APPLY_ROLLBACK_SAMPLE_SUMMARY: &str =
+    "remote_free_service_runtime_apply_rollback_sample_summary";
+const RUNTIME_APPLY_CONFIRM_BENCHMARK: &str = "remote_free_service_runtime_apply_confirm";
+const RUNTIME_APPLY_CONFIRM_SAMPLE: &str = "remote_free_service_runtime_apply_confirm_sample";
+const RUNTIME_APPLY_CONFIRM_SAMPLE_SUMMARY: &str =
+    "remote_free_service_runtime_apply_confirm_sample_summary";
 
 #[derive(Debug)]
 pub(crate) struct RuntimeTraceBlock {
@@ -65,7 +74,7 @@ enum RuntimeOwnerWindowEvent {
 pub(crate) fn benchmark_runtime_application(c: &mut Criterion) {
     print_runtime_application_sample();
     print_runtime_application_sample_summary();
-    c.bench_function("remote_free_service_runtime_apply_rollback", |b| {
+    c.bench_function(RUNTIME_APPLY_ROLLBACK_BENCHMARK, |b| {
         b.iter(|| {
             let stats = run_runtime_application_sequence();
             assert_runtime_application_stats(stats);
@@ -75,7 +84,7 @@ pub(crate) fn benchmark_runtime_application(c: &mut Criterion) {
 
     print_runtime_confirm_sample();
     print_runtime_confirm_sample_summary();
-    c.bench_function("remote_free_service_runtime_apply_confirm", |b| {
+    c.bench_function(RUNTIME_APPLY_CONFIRM_BENCHMARK, |b| {
         b.iter(|| {
             let stats = run_runtime_confirm_sequence();
             assert_runtime_confirm_stats(stats);
@@ -210,11 +219,18 @@ impl RuntimeLocalDirtyFlushStats {
 }
 
 fn print_runtime_application_sample() {
+    if !should_print_sample(
+        RUNTIME_APPLY_ROLLBACK_SAMPLE,
+        RUNTIME_APPLY_ROLLBACK_BENCHMARK,
+    ) {
+        return;
+    }
+
     let stats = run_runtime_application_sequence();
     assert_runtime_application_stats(stats);
 
     println!(
-        "remote_free_service_runtime_apply_rollback_sample windows={RUNTIME_WINDOWS} initial_queue_capacity={RUNTIME_INITIAL_QUEUE_CAPACITY} installed_queue_capacity={QUEUE_CAPACITY} final_queue_capacity={} submitted_count={} drained_count={} released_bytes={} policy_drains={} drain_rounds={} install_count={} rollback_count={} max_wait_bursts={} mean_wait_bursts={} final_previous_config_present={}",
+        "{RUNTIME_APPLY_ROLLBACK_SAMPLE} windows={RUNTIME_WINDOWS} initial_queue_capacity={RUNTIME_INITIAL_QUEUE_CAPACITY} installed_queue_capacity={QUEUE_CAPACITY} final_queue_capacity={} submitted_count={} drained_count={} released_bytes={} policy_drains={} drain_rounds={} install_count={} rollback_count={} max_wait_bursts={} mean_wait_bursts={} final_previous_config_present={}",
         stats.final_queue_capacity,
         stats.submitted_count,
         stats.drained_count,
@@ -230,11 +246,18 @@ fn print_runtime_application_sample() {
 }
 
 fn print_runtime_confirm_sample() {
+    if !should_print_sample(
+        RUNTIME_APPLY_CONFIRM_SAMPLE,
+        RUNTIME_APPLY_CONFIRM_BENCHMARK,
+    ) {
+        return;
+    }
+
     let stats = run_runtime_confirm_sequence();
     assert_runtime_confirm_stats(stats);
 
     println!(
-        "remote_free_service_runtime_apply_confirm_sample windows={RUNTIME_WINDOWS} initial_queue_capacity={RUNTIME_INITIAL_QUEUE_CAPACITY} installed_queue_capacity={QUEUE_CAPACITY} final_queue_capacity={} submitted_count={} drained_count={} released_bytes={} policy_drains={} drain_rounds={} install_count={} confirm_count={} rollback_count={} max_wait_bursts={} mean_wait_bursts={} final_previous_config_present={}",
+        "{RUNTIME_APPLY_CONFIRM_SAMPLE} windows={RUNTIME_WINDOWS} initial_queue_capacity={RUNTIME_INITIAL_QUEUE_CAPACITY} installed_queue_capacity={QUEUE_CAPACITY} final_queue_capacity={} submitted_count={} drained_count={} released_bytes={} policy_drains={} drain_rounds={} install_count={} confirm_count={} rollback_count={} max_wait_bursts={} mean_wait_bursts={} final_previous_config_present={}",
         stats.final_queue_capacity,
         stats.submitted_count,
         stats.drained_count,
@@ -251,6 +274,13 @@ fn print_runtime_confirm_sample() {
 }
 
 fn print_runtime_application_sample_summary() {
+    if !should_print_sample(
+        RUNTIME_APPLY_ROLLBACK_SAMPLE_SUMMARY,
+        RUNTIME_APPLY_ROLLBACK_BENCHMARK,
+    ) {
+        return;
+    }
+
     let mut policy_drains = CounterSummary::new();
     let mut drain_rounds = CounterSummary::new();
     let mut max_wait = CounterSummary::new();
@@ -267,7 +297,7 @@ fn print_runtime_application_sample_summary() {
     }
 
     println!(
-        "remote_free_service_runtime_apply_rollback_sample_summary windows={RUNTIME_WINDOWS} samples={SAMPLES} policy_drains_min={} policy_drains_max={} policy_drains_mean={} drain_rounds_min={} drain_rounds_max={} drain_rounds_mean={} max_wait_min={} max_wait_max={} max_wait_mean={} mean_wait_min={} mean_wait_max={} mean_wait_mean={}",
+        "{RUNTIME_APPLY_ROLLBACK_SAMPLE_SUMMARY} windows={RUNTIME_WINDOWS} samples={SAMPLES} policy_drains_min={} policy_drains_max={} policy_drains_mean={} drain_rounds_min={} drain_rounds_max={} drain_rounds_mean={} max_wait_min={} max_wait_max={} max_wait_mean={} mean_wait_min={} mean_wait_max={} mean_wait_mean={}",
         policy_drains.min,
         policy_drains.max,
         format_milli(policy_drains.mean_milli(SAMPLES)),
@@ -284,6 +314,13 @@ fn print_runtime_application_sample_summary() {
 }
 
 fn print_runtime_confirm_sample_summary() {
+    if !should_print_sample(
+        RUNTIME_APPLY_CONFIRM_SAMPLE_SUMMARY,
+        RUNTIME_APPLY_CONFIRM_BENCHMARK,
+    ) {
+        return;
+    }
+
     let mut policy_drains = CounterSummary::new();
     let mut drain_rounds = CounterSummary::new();
     let mut max_wait = CounterSummary::new();
@@ -300,7 +337,7 @@ fn print_runtime_confirm_sample_summary() {
     }
 
     println!(
-        "remote_free_service_runtime_apply_confirm_sample_summary windows={RUNTIME_WINDOWS} samples={SAMPLES} policy_drains_min={} policy_drains_max={} policy_drains_mean={} drain_rounds_min={} drain_rounds_max={} drain_rounds_mean={} max_wait_min={} max_wait_max={} max_wait_mean={} mean_wait_min={} mean_wait_max={} mean_wait_mean={}",
+        "{RUNTIME_APPLY_CONFIRM_SAMPLE_SUMMARY} windows={RUNTIME_WINDOWS} samples={SAMPLES} policy_drains_min={} policy_drains_max={} policy_drains_mean={} drain_rounds_min={} drain_rounds_max={} drain_rounds_mean={} max_wait_min={} max_wait_max={} max_wait_mean={} mean_wait_min={} mean_wait_max={} mean_wait_mean={}",
         policy_drains.min,
         policy_drains.max,
         format_milli(policy_drains.mean_milli(SAMPLES)),

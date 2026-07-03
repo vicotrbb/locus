@@ -7,6 +7,7 @@ use crate::remote_free_service_harness::{
     assert_service_telemetry, format_milli, run_service_case, CounterSummary, ServiceTelemetryCase,
     ServiceTelemetryStats, BLOCKS_PER_OWNER, BYTES_PER_BLOCK, OWNERS, SAMPLES,
 };
+use crate::remote_free_service_sample_filter::should_print_sample;
 
 const DRY_RUN_STABLE_WINDOWS: u64 = 2;
 
@@ -66,6 +67,10 @@ fn benchmark_dry_run_sequence_kind(c: &mut Criterion, kind: DryRunSequenceKind) 
 }
 
 fn print_dry_run_sequence_sample(kind: DryRunSequenceKind) {
+    if !should_print_sample(kind.sample_label(), kind.bench_label()) {
+        return;
+    }
+
     let stats = run_dry_run_sequence(kind);
     assert_dry_run_sequence(kind, stats);
     let label = kind.sample_label();
@@ -96,6 +101,10 @@ fn print_dry_run_sequence_sample(kind: DryRunSequenceKind) {
 }
 
 fn print_dry_run_sequence_sample_summary(kind: DryRunSequenceKind) {
+    if !should_print_sample(kind.summary_label(), kind.bench_label()) {
+        return;
+    }
+
     let mut reports_needing_retune = CounterSummary::new();
     let mut max_pending_over_target = CounterSummary::new();
     let mut max_queued_bytes_over_budget = CounterSummary::new();

@@ -15,11 +15,18 @@ use crate::remote_free_service_application_harness::{
 use crate::remote_free_service_harness::{
     format_milli, CounterSummary, BYTES_PER_BLOCK, QUEUE_CAPACITY, SAMPLES,
 };
+use crate::remote_free_service_sample_filter::should_print_sample;
 
 const MULTI_OWNER_RUNTIME_STABLE_WINDOWS: u64 = 2;
 const MULTI_OWNER_RUNTIME_MAX_MUTATIONS: u64 = 2;
 const MULTI_OWNER_RUNTIME_OWNERS: u64 = 3;
 const MULTI_OWNER_RUNTIME_WINDOWS: u64 = 8;
+const MULTI_OWNER_RUNTIME_BENCHMARK: &str =
+    "remote_free_service_runtime_collected_multi_owner_mutation_limit";
+const MULTI_OWNER_RUNTIME_SAMPLE: &str =
+    "remote_free_service_runtime_collected_multi_owner_mutation_limit_sample";
+const MULTI_OWNER_RUNTIME_SAMPLE_SUMMARY: &str =
+    "remote_free_service_runtime_collected_multi_owner_mutation_limit_sample_summary";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum MultiOwnerDecisionKind {
@@ -52,24 +59,25 @@ pub(crate) fn benchmark_runtime_collected_multi_owner_mutation_limit(c: &mut Cri
     print_multi_owner_sample();
     print_multi_owner_sample_summary();
 
-    c.bench_function(
-        "remote_free_service_runtime_collected_multi_owner_mutation_limit",
-        |bench| {
-            bench.iter(|| {
-                let stats = run_multi_owner_runtime_collected_sequence();
-                assert_multi_owner_runtime_stats(stats);
-                black_box(stats);
-            });
-        },
-    );
+    c.bench_function(MULTI_OWNER_RUNTIME_BENCHMARK, |bench| {
+        bench.iter(|| {
+            let stats = run_multi_owner_runtime_collected_sequence();
+            assert_multi_owner_runtime_stats(stats);
+            black_box(stats);
+        });
+    });
 }
 
 fn print_multi_owner_sample() {
+    if !should_print_sample(MULTI_OWNER_RUNTIME_SAMPLE, MULTI_OWNER_RUNTIME_BENCHMARK) {
+        return;
+    }
+
     let stats = run_multi_owner_runtime_collected_sequence();
     assert_multi_owner_runtime_stats(stats);
 
     println!(
-        "remote_free_service_runtime_collected_multi_owner_mutation_limit_sample owners={MULTI_OWNER_RUNTIME_OWNERS} windows={MULTI_OWNER_RUNTIME_WINDOWS} stable_windows={MULTI_OWNER_RUNTIME_STABLE_WINDOWS} max_mutations={MULTI_OWNER_RUNTIME_MAX_MUTATIONS} submitted_count={} drained_count={} released_bytes={} policy_drains={} drain_rounds={} observed_reports={} reports_needing_retune={} max_pending_over_target={} max_queued_bytes_over_budget={} queue_backpressure_reports={} hold_decisions={} apply_decisions={} confirmed_decisions={} mutation_limit_decisions={} runtime_install_count={} runtime_confirm_count={} runtime_rollback_count={} runtime_no_change_decisions={} max_wait_bursts={} mean_wait_bursts={} final_queue_capacity={} final_previous_config_present={} final_guard_pending_candidate={} final_guard_applied_mutations={} final_guard_confirmed_mutations={} final_guard_rollbacks={}",
+        "{MULTI_OWNER_RUNTIME_SAMPLE} owners={MULTI_OWNER_RUNTIME_OWNERS} windows={MULTI_OWNER_RUNTIME_WINDOWS} stable_windows={MULTI_OWNER_RUNTIME_STABLE_WINDOWS} max_mutations={MULTI_OWNER_RUNTIME_MAX_MUTATIONS} submitted_count={} drained_count={} released_bytes={} policy_drains={} drain_rounds={} observed_reports={} reports_needing_retune={} max_pending_over_target={} max_queued_bytes_over_budget={} queue_backpressure_reports={} hold_decisions={} apply_decisions={} confirmed_decisions={} mutation_limit_decisions={} runtime_install_count={} runtime_confirm_count={} runtime_rollback_count={} runtime_no_change_decisions={} max_wait_bursts={} mean_wait_bursts={} final_queue_capacity={} final_previous_config_present={} final_guard_pending_candidate={} final_guard_applied_mutations={} final_guard_confirmed_mutations={} final_guard_rollbacks={}",
         stats.runtime.submitted_count,
         stats.runtime.drained_count,
         stats.runtime.released_bytes,
@@ -100,6 +108,13 @@ fn print_multi_owner_sample() {
 }
 
 fn print_multi_owner_sample_summary() {
+    if !should_print_sample(
+        MULTI_OWNER_RUNTIME_SAMPLE_SUMMARY,
+        MULTI_OWNER_RUNTIME_BENCHMARK,
+    ) {
+        return;
+    }
+
     let mut policy_drains = CounterSummary::new();
     let mut drain_rounds = CounterSummary::new();
     let mut reports_needing_retune = CounterSummary::new();
@@ -124,7 +139,7 @@ fn print_multi_owner_sample_summary() {
     }
 
     println!(
-        "remote_free_service_runtime_collected_multi_owner_mutation_limit_sample_summary owners={MULTI_OWNER_RUNTIME_OWNERS} windows={MULTI_OWNER_RUNTIME_WINDOWS} samples={SAMPLES} policy_drains_min={} policy_drains_max={} policy_drains_mean={} drain_rounds_min={} drain_rounds_max={} drain_rounds_mean={} reports_needing_retune_min={} reports_needing_retune_max={} reports_needing_retune_mean={} apply_decisions_min={} apply_decisions_max={} apply_decisions_mean={} confirmed_decisions_min={} confirmed_decisions_max={} confirmed_decisions_mean={} mutation_limit_decisions_min={} mutation_limit_decisions_max={} mutation_limit_decisions_mean={} max_wait_min={} max_wait_max={} max_wait_mean={} mean_wait_min={} mean_wait_max={} mean_wait_mean={}",
+        "{MULTI_OWNER_RUNTIME_SAMPLE_SUMMARY} owners={MULTI_OWNER_RUNTIME_OWNERS} windows={MULTI_OWNER_RUNTIME_WINDOWS} samples={SAMPLES} policy_drains_min={} policy_drains_max={} policy_drains_mean={} drain_rounds_min={} drain_rounds_max={} drain_rounds_mean={} reports_needing_retune_min={} reports_needing_retune_max={} reports_needing_retune_mean={} apply_decisions_min={} apply_decisions_max={} apply_decisions_mean={} confirmed_decisions_min={} confirmed_decisions_max={} confirmed_decisions_mean={} mutation_limit_decisions_min={} mutation_limit_decisions_max={} mutation_limit_decisions_mean={} max_wait_min={} max_wait_max={} max_wait_mean={} mean_wait_min={} mean_wait_max={} mean_wait_mean={}",
         policy_drains.min,
         policy_drains.max,
         format_milli(policy_drains.mean_milli(SAMPLES)),
