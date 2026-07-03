@@ -742,6 +742,11 @@ JSON line and the saved verdict JSON records it claims to summarize. The real
 mixed rollup matches the saved verdict log, while a controlled stale
 `records=1` JSON edit fails with `CountDrift` against expected `records=2`.
 
+Experiment 0260 added structured JSON verdicts for verdict rollup drift
+verification. The real mixed rollup emits `status=matched` with `drift=null`,
+while a controlled stale `records=1` archived rollup emits `status=drifted`
+with `drift.field=records`, expected `2`, and actual `1`.
+
 ## Measured Thresholds
 
 | Path | Shape inputs | Budget | Matched counters |
@@ -1136,6 +1141,7 @@ mixed rollup matches the saved verdict log, while a controlled stale
 - `documentation/experiments/0257-remote-free-service-telemetry-rollup-check-log-summary-verdict-rollup.md`
 - `documentation/experiments/0258-remote-free-service-telemetry-rollup-check-log-summary-verdict-rollup-parser.md`
 - `documentation/experiments/0259-remote-free-service-telemetry-rollup-check-log-summary-verdict-rollup-drift.md`
+- `documentation/experiments/0260-remote-free-service-telemetry-rollup-check-log-summary-verdict-rollup-drift-json.md`
 
 ## Open Questions
 
