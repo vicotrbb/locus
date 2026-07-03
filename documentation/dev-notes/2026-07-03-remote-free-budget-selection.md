@@ -781,6 +781,10 @@ real matched artifact reloads as `status=matched`, while the controlled stale
 expected `2`, and actual `1`. The parser rejects status drift, drift payload
 drift, and nested grouped summary drift.
 
+Experiment 0267 added a dashboard rollup over saved verifier-summary drift
+verdict JSON records. The real mixed log reports two records, one matched
+artifact, one drifted artifact, and one `records` drift bucket.
+
 ## Measured Thresholds
 
 | Path | Shape inputs | Budget | Matched counters |
@@ -1182,6 +1186,7 @@ drift, and nested grouped summary drift.
 - `documentation/experiments/0264-remote-free-service-telemetry-rollup-check-log-summary-verdict-rollup-verification-summary-drift.md`
 - `documentation/experiments/0265-remote-free-service-telemetry-rollup-check-log-summary-verdict-rollup-verification-summary-drift-json.md`
 - `documentation/experiments/0266-remote-free-service-telemetry-rollup-check-log-summary-verdict-rollup-verification-summary-drift-json-parser.md`
+- `documentation/experiments/0267-remote-free-service-telemetry-rollup-check-log-summary-verdict-rollup-verification-summary-drift-json-rollup.md`
 
 ## Open Questions
 
