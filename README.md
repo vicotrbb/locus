@@ -52,11 +52,12 @@ docker run --rm -v "$PWD":/work -w /work rust:1.96 cargo run -p locus-validate -
 
 The `locality_environment` example reports whether `numa_maps`, cgroup `memory.numa_stat`, and node `numastat` are available. The `mapped_scratch_bind` example prints the mapped arena address, attempts `mbind`, write-touches pages, and, when the host exposes the evidence, correlates the mapping with `numa_maps` and cgroup NUMA deltas. The `mapped_scratch_lock` example validates the OS page-lock portion of future pinned host staging buffers. The `mapped_scratch_thp` example applies an opt-in transparent huge page hint, write-touches the arena, and reports `numa_maps` page-size evidence when available. `PinnedScratchPool` builds on that primitive with budgeted checkout and reuse of host page-locked mapped scratch arenas. The `pinned_scratch_pool` example prints stable checkout, allocation, release, reuse, and accounting lines. The `pinned_scratch_near_gpu` example tries to select the pool home node from discovered PCI GPU locality. The `live_pinned_scratch_validation_gate` example prints pinned scratch lines and a final host page-lock readiness gate. The `live_pinned_scratch_near_gpu_validation_gate` example prints near-GPU pinned scratch lines and a final near-GPU validation gate, but it does not yet register memory with CUDA or prove GPU-near placement.
 
-Captured `pinned_scratch_pool` output can be classified with:
+Captured probe output can be classified with:
 
 ```sh
 cargo run -p locus-validate --example pinned_scratch_validation_gate -- pinned-scratch.out
 cargo run -p locus-validate --example pinned_scratch_near_gpu_validation_gate -- near-gpu-pinned-scratch.out
+cargo run -p locus-validate --example mapped_scratch_thp_validation_gate -- mapped-scratch-thp.out
 ```
 
 Captured outputs from `mbind_region`, `locality_environment`, and `mapped_scratch_bind` can be combined with:
