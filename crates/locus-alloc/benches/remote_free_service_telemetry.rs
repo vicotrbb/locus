@@ -6,8 +6,8 @@ use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use locus_alloc::{
     RemoteFreeDrainController, RemoteFreeDrainPolicy, RemoteFreeQueue,
     RemoteFreeQueuedByteDrainConfig, RemoteFreeQueuedByteDriftReport,
-    RemoteFreeQueuedByteRetuneAction, RemoteFreeServiceRetuneSummary,
-    RemoteFreeTryEnqueueErrorKind,
+    RemoteFreeQueuedByteRetuneAction, RemoteFreeServiceRetuneCandidate,
+    RemoteFreeServiceRetuneSummary, RemoteFreeTryEnqueueErrorKind,
 };
 
 const OWNERS: usize = 4;
@@ -36,6 +36,7 @@ struct ExpectedServiceTelemetry {
     queue_backpressure_reports: u64,
     keep_config_reports: u64,
     drain_earlier_reports: u64,
+    retune_candidate: RemoteFreeServiceRetuneCandidate,
 }
 
 #[derive(Debug)]
@@ -76,6 +77,7 @@ impl ServiceTelemetryCase {
                 queue_backpressure_reports: 0,
                 keep_config_reports: 32,
                 drain_earlier_reports: 0,
+                retune_candidate: RemoteFreeServiceRetuneCandidate::KeepConfig,
             },
         }
     }
@@ -92,6 +94,7 @@ impl ServiceTelemetryCase {
                 queue_backpressure_reports: 0,
                 keep_config_reports: 26,
                 drain_earlier_reports: 6,
+                retune_candidate: RemoteFreeServiceRetuneCandidate::DrainEarlier,
             },
         }
     }
@@ -169,10 +172,11 @@ fn print_service_sample(case: ServiceTelemetryCase) {
     let stats = run_service_case(case);
     assert_service_telemetry(case, stats);
     let counts = stats.summary.action_counts();
+    let candidate = RemoteFreeServiceRetuneCandidate::from_summary(stats.summary);
     let label = case.label;
 
     println!(
-        "remote_free_service_telemetry_sample={label} owners={OWNERS} blocks_per_owner={BLOCKS_PER_OWNER} bursts={BURSTS} burst_blocks={BURST_BLOCKS} capacity={QUEUE_CAPACITY} batch_limit={BATCH_LIMIT} submitted_count={} drained_count={} released_bytes={} policy_drains={} drain_rounds={} max_wait_bursts={} mean_wait_bursts={} observed_reports={} reports_needing_retune={} max_pending_over_target={} max_queued_bytes_over_budget={} queue_backpressure_reports={} keep_config_reports={} drain_earlier_reports={}",
+        "remote_free_service_telemetry_sample={label} owners={OWNERS} blocks_per_owner={BLOCKS_PER_OWNER} bursts={BURSTS} burst_blocks={BURST_BLOCKS} capacity={QUEUE_CAPACITY} batch_limit={BATCH_LIMIT} submitted_count={} drained_count={} released_bytes={} policy_drains={} drain_rounds={} max_wait_bursts={} mean_wait_bursts={} observed_reports={} reports_needing_retune={} max_pending_over_target={} max_queued_bytes_over_budget={} queue_backpressure_reports={} keep_config_reports={} drain_earlier_reports={} retune_candidate={}",
         stats.submitted_count,
         stats.drained_count,
         stats.released_bytes,
@@ -186,7 +190,8 @@ fn print_service_sample(case: ServiceTelemetryCase) {
         stats.summary.max_queued_bytes_over_budget(),
         stats.summary.queue_backpressure_reports(),
         counts.count(RemoteFreeQueuedByteRetuneAction::KeepConfig),
-        counts.count(RemoteFreeQueuedByteRetuneAction::DrainEarlier)
+        counts.count(RemoteFreeQueuedByteRetuneAction::DrainEarlier),
+        candidate.as_str()
     );
 }
 
@@ -198,6 +203,7 @@ fn print_service_sample_summary(case: ServiceTelemetryCase) {
     let mut drain_earlier_reports = CounterSummary::new();
     let mut max_wait = CounterSummary::new();
     let mut mean_wait = CounterSummary::new();
+    let mut retune_candidate = case.expected.retune_candidate;
 
     for _ in 0..SAMPLES {
         let stats = run_service_case(case);
@@ -211,11 +217,13 @@ fn print_service_sample_summary(case: ServiceTelemetryCase) {
         drain_earlier_reports.observe(counts.count(RemoteFreeQueuedByteRetuneAction::DrainEarlier));
         max_wait.observe(stats.max_wait_bursts);
         mean_wait.observe(stats.mean_wait_milli());
+        retune_candidate = RemoteFreeServiceRetuneCandidate::from_summary(stats.summary);
     }
 
     let label = case.label;
     println!(
-        "remote_free_service_telemetry_sample_summary={label} owners={OWNERS} blocks_per_owner={BLOCKS_PER_OWNER} bursts={BURSTS} burst_blocks={BURST_BLOCKS} capacity={QUEUE_CAPACITY} batch_limit={BATCH_LIMIT} samples={SAMPLES} reports_needing_retune_min={} reports_needing_retune_max={} reports_needing_retune_mean={} max_pending_over_target_min={} max_pending_over_target_max={} max_pending_over_target_mean={} max_queued_bytes_over_budget_min={} max_queued_bytes_over_budget_max={} max_queued_bytes_over_budget_mean={} keep_config_reports_min={} keep_config_reports_max={} keep_config_reports_mean={} drain_earlier_reports_min={} drain_earlier_reports_max={} drain_earlier_reports_mean={} max_wait_min={} max_wait_max={} max_wait_mean={} mean_wait_min={} mean_wait_max={} mean_wait_mean={}",
+        "remote_free_service_telemetry_sample_summary={label} owners={OWNERS} blocks_per_owner={BLOCKS_PER_OWNER} bursts={BURSTS} burst_blocks={BURST_BLOCKS} capacity={QUEUE_CAPACITY} batch_limit={BATCH_LIMIT} retune_candidate={} samples={SAMPLES} reports_needing_retune_min={} reports_needing_retune_max={} reports_needing_retune_mean={} max_pending_over_target_min={} max_pending_over_target_max={} max_pending_over_target_mean={} max_queued_bytes_over_budget_min={} max_queued_bytes_over_budget_max={} max_queued_bytes_over_budget_mean={} keep_config_reports_min={} keep_config_reports_max={} keep_config_reports_mean={} drain_earlier_reports_min={} drain_earlier_reports_max={} drain_earlier_reports_mean={} max_wait_min={} max_wait_max={} max_wait_mean={} mean_wait_min={} mean_wait_max={} mean_wait_mean={}",
+        retune_candidate.as_str(),
         reports_needing_retune.min,
         reports_needing_retune.max,
         format_milli(reports_needing_retune.mean_milli(SAMPLES)),
@@ -383,6 +391,10 @@ fn assert_service_telemetry(case: ServiceTelemetryCase, stats: ServiceTelemetryS
     assert_eq!(
         counts.count(RemoteFreeQueuedByteRetuneAction::DrainEarlier),
         expected.drain_earlier_reports
+    );
+    assert_eq!(
+        RemoteFreeServiceRetuneCandidate::from_summary(stats.summary),
+        expected.retune_candidate
     );
 }
 

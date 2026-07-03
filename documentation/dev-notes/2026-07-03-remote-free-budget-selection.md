@@ -159,6 +159,11 @@ reported 32 `keep_config` reports, while a service with one end-drain owner
 reported six `drain_earlier` reports, 192 pending items over target, and
 786,432 queued bytes over budget without mutating policy.
 
+Experiment 0190 added `RemoteFreeServiceRetuneCandidate::from_summary` as the
+first non-mutating planner over service telemetry. The fixed-policy service
+selected `keep_config`; the one-owner end-drain service selected
+`drain_earlier` while preserving the same measured owner-loop counters.
+
 ## Measured Thresholds
 
 | Path | Shape inputs | Budget | Matched counters |
@@ -188,6 +193,9 @@ reported six `drain_earlier` reports, 192 pending items over target, and
 8. Aggregate owner-loop reports with `RemoteFreeServiceRetuneSummary` when a
    service-level decision needs to distinguish isolated owner drift from
    service-wide clean policy.
+9. Use `RemoteFreeServiceRetuneCandidate::from_summary` to select the next
+   benchmark candidate from telemetry. Do not apply the candidate directly to
+   live policy.
 
 ## Guardrails
 
@@ -202,6 +210,8 @@ reported six `drain_earlier` reports, 192 pending items over target, and
   is safe. Adaptive changes still need workload-specific allocation benchmarks.
 - Do not let service-level telemetry mutate policy directly. It is an
   observation source until a concrete adaptive candidate survives benchmarks.
+- Do not let the candidate planner mutate policy directly. It selects the next
+  benchmark case, not a production action.
 - Recheck thresholds when KV block size, request arena capacity, burst size,
   request concurrency, or batch size changes.
 - For heterogeneous traces, derive the budget from actual retained item sizes
@@ -228,11 +238,12 @@ reported six `drain_earlier` reports, 192 pending items over target, and
 - `documentation/experiments/0187-request-remote-free-retune-action.md`
 - `documentation/experiments/0188-remote-free-retune-action-evidence-matrix.md`
 - `documentation/experiments/0189-remote-free-service-retune-telemetry.md`
+- `documentation/experiments/0190-remote-free-service-retune-candidate-planner.md`
 
 ## Open Questions
 
-- Which non-mutating adaptive candidate planner should consume service-level
-  telemetry first?
+- Should the planner-selected `drain_earlier` service candidate be benchmarked
+  as a separate case before any adaptive mutation exists?
 - Which workload signal should set the retained item window in production:
   scheduler turn age, active request concurrency, KV cache pressure, or memory
   pressure from observability counters?

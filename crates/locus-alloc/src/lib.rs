@@ -76,9 +76,9 @@ pub use remote_free::{
     RemoteFreeQueueStats, RemoteFreeQueuedByteBudget, RemoteFreeQueuedByteBudgetError,
     RemoteFreeQueuedByteDrainConfig, RemoteFreeQueuedByteDrainConfigError,
     RemoteFreeQueuedByteDriftReport, RemoteFreeQueuedByteRetuneAction,
-    RemoteFreeQueuedByteRetuneHint, RemoteFreeRetuneActionCounts, RemoteFreeServiceRetuneSummary,
-    RemoteFreeSink, RemoteFreeTrackedDrain, RemoteFreeTryEnqueueError,
-    RemoteFreeTryEnqueueErrorKind,
+    RemoteFreeQueuedByteRetuneHint, RemoteFreeRetuneActionCounts, RemoteFreeServiceRetuneCandidate,
+    RemoteFreeServiceRetuneSummary, RemoteFreeSink, RemoteFreeTrackedDrain,
+    RemoteFreeTryEnqueueError, RemoteFreeTryEnqueueErrorKind,
 };
 
 pub use request_scratch::{

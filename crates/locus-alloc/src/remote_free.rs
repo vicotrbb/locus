@@ -7,6 +7,7 @@ mod budget;
 mod config;
 mod controller;
 mod drift;
+mod planner;
 mod telemetry;
 
 pub use budget::{RemoteFreeQueuedByteBudget, RemoteFreeQueuedByteBudgetError};
@@ -21,6 +22,7 @@ pub use drift::{
     RemoteFreeQueuedByteDriftReport, RemoteFreeQueuedByteRetuneAction,
     RemoteFreeQueuedByteRetuneHint,
 };
+pub use planner::RemoteFreeServiceRetuneCandidate;
 pub use telemetry::{RemoteFreeRetuneActionCounts, RemoteFreeServiceRetuneSummary};
 
 /// Owner-drained queue for batching remote frees back to an owning worker.
