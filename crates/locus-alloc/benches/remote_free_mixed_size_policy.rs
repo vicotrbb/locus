@@ -1,10 +1,10 @@
 #![allow(missing_docs)]
 
-use std::{collections::VecDeque, num::NonZeroU64, thread};
+use std::{num::NonZeroU64, thread};
 
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use locus_alloc::{
-    RemoteFreeDrainObservation, RemoteFreeDrainPolicy, RemoteFreeQueue,
+    RemoteFreeDrainObservation, RemoteFreeDrainPolicy, RemoteFreeDrainTracker, RemoteFreeQueue,
     RemoteFreeTryEnqueueErrorKind,
 };
 
@@ -160,7 +160,7 @@ fn run_trace_sample(capacity: usize, batch_limit: usize, policy: TracePolicy) ->
     let sink = queue.sink();
     let mut stats = TraceStats::new();
     let mut size_index = 0_usize;
-    let mut pending_submit_bursts = VecDeque::new();
+    let mut drain_tracker = RemoteFreeDrainTracker::new();
 
     for burst in 0..TRACE_BURSTS {
         for _ in 0..TRACE_BURST_BLOCKS {
@@ -175,23 +175,18 @@ fn run_trace_sample(capacity: usize, batch_limit: usize, policy: TracePolicy) ->
                 match sink.try_enqueue(block) {
                     Ok(()) => {
                         stats.submitted_count = stats.submitted_count.saturating_add(1);
-                        pending_submit_bursts.push_back(burst);
-                        stats.queued_bytes = stats.queued_bytes.saturating_add(size as u64);
+                        drain_tracker.record_submit(burst, size as u64);
+                        stats.queued_bytes = drain_tracker.queued_bytes();
                         stats.max_queued_bytes = stats.max_queued_bytes.max(stats.queued_bytes);
                         stats.max_pending_count =
-                            stats.max_pending_count.max(queue.stats().pending_count);
+                            stats.max_pending_count.max(drain_tracker.pending_count());
                         break;
                     }
                     Err(error) if error.kind() == RemoteFreeTryEnqueueErrorKind::Full => {
                         stats.full_count = stats.full_count.saturating_add(1);
                         block = error.into_item();
 
-                        if drain_trace_batch(
-                            &mut queue,
-                            burst,
-                            &mut stats,
-                            &mut pending_submit_bursts,
-                        ) == 0
+                        if drain_trace_batch(&mut queue, burst, &mut stats, &mut drain_tracker) == 0
                         {
                             thread::yield_now();
                         } else {
@@ -204,28 +199,16 @@ fn run_trace_sample(capacity: usize, batch_limit: usize, policy: TracePolicy) ->
         }
 
         let completed_bursts = burst.saturating_add(1);
-        let observation =
-            trace_observation(&queue, &stats, &pending_submit_bursts, completed_bursts);
+        let observation = trace_observation(&queue, &stats, &drain_tracker, completed_bursts);
         if policy.should_drain(observation)
-            && drain_trace_batch(
-                &mut queue,
-                completed_bursts,
-                &mut stats,
-                &mut pending_submit_bursts,
-            ) > 0
+            && drain_trace_batch(&mut queue, completed_bursts, &mut stats, &mut drain_tracker) > 0
         {
             stats.policy_drains = stats.policy_drains.saturating_add(1);
         }
     }
 
     while stats.drained_count < stats.submitted_count {
-        if drain_trace_batch(
-            &mut queue,
-            TRACE_BURSTS,
-            &mut stats,
-            &mut pending_submit_bursts,
-        ) == 0
-        {
+        if drain_trace_batch(&mut queue, TRACE_BURSTS, &mut stats, &mut drain_tracker) == 0 {
             thread::yield_now();
         }
     }
@@ -233,46 +216,40 @@ fn run_trace_sample(capacity: usize, batch_limit: usize, policy: TracePolicy) ->
     let queue_stats = queue.stats();
     assert_eq!(queue_stats.pending_count, 0);
     assert_eq!(queue_stats.full_count, stats.full_count);
-    assert!(pending_submit_bursts.is_empty());
+    assert!(drain_tracker.is_empty());
     stats
 }
 
 fn trace_observation(
     queue: &RemoteFreeQueue<TraceBlock>,
     stats: &TraceStats,
-    pending_submit_bursts: &VecDeque<u64>,
+    drain_tracker: &RemoteFreeDrainTracker,
     current_burst: u64,
 ) -> RemoteFreeDrainObservation {
     let queue_stats = queue.stats();
-    let tracked_pending_count =
-        u64::try_from(pending_submit_bursts.len()).expect("pending count fits in u64");
-    assert_eq!(tracked_pending_count, queue_stats.pending_count);
+    let observation = drain_tracker.observation(current_burst);
 
-    let oldest_pending_age = pending_submit_bursts.front().map_or(0, |submit_burst| {
-        current_burst.saturating_sub(*submit_burst)
-    });
+    assert_eq!(observation.pending_count, queue_stats.pending_count);
+    assert_eq!(observation.queued_bytes, stats.queued_bytes);
 
-    RemoteFreeDrainObservation::new(
-        queue_stats.pending_count,
-        stats.queued_bytes,
-        oldest_pending_age,
-    )
+    observation
 }
 
 fn drain_trace_batch(
     queue: &mut RemoteFreeQueue<TraceBlock>,
     current_burst: u64,
     stats: &mut TraceStats,
-    pending_submit_bursts: &mut VecDeque<u64>,
+    drain_tracker: &mut RemoteFreeDrainTracker,
 ) -> usize {
     let drained = queue.drain_batch(|mut block| {
-        let tracked_submit_burst = pending_submit_bursts
-            .pop_front()
-            .expect("pending submit burst");
-        assert_eq!(tracked_submit_burst, block.submit_burst);
         let allocation_len = block.allocation.len() as u64;
+        let tracked = drain_tracker
+            .record_drain(allocation_len)
+            .expect("tracked drain");
+        assert_eq!(tracked.submit_turn, block.submit_burst);
+        assert_eq!(tracked.released_bytes, allocation_len);
         let wait_bursts = current_burst.saturating_sub(block.submit_burst);
-        stats.queued_bytes = stats.queued_bytes.saturating_sub(allocation_len);
+        stats.queued_bytes = drain_tracker.queued_bytes();
         stats.released_bytes = stats.released_bytes.saturating_add(allocation_len);
         stats.max_wait_bursts = stats.max_wait_bursts.max(wait_bursts);
         stats.total_wait_bursts = stats.total_wait_bursts.saturating_add(wait_bursts);

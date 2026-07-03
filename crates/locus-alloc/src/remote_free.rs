@@ -1,3 +1,4 @@
+use std::collections::VecDeque;
 use std::fmt;
 use std::num::NonZeroU64;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -68,6 +69,21 @@ pub struct RemoteFreeDrainPolicy {
     age_bound: Option<NonZeroU64>,
 }
 
+/// Owner-side pending work tracker for remote-free drain policy observations.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct RemoteFreeDrainTracker {
+    pending_turns: VecDeque<RemoteFreeDrainTurn>,
+    pending_count: u64,
+    queued_bytes: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct RemoteFreeDrainTurn {
+    submit_turn: u64,
+    pending_count: u64,
+    queued_bytes: u64,
+}
+
 /// Result of applying a remote-free drain policy.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RemoteFreeDrainDecision {
@@ -86,6 +102,36 @@ pub enum RemoteFreeDrainReason {
     PendingAge,
     /// Pending item count reached the configured maximum.
     PendingCount,
+}
+
+/// Metadata for one tracked remote-free drain.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RemoteFreeTrackedDrain {
+    /// Logical turn recorded for the drained work item.
+    pub submit_turn: u64,
+    /// Released byte size recorded for the drained work item.
+    pub released_bytes: u64,
+}
+
+/// Remote-free drain tracker accounting failures.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum RemoteFreeDrainTrackerError {
+    /// A drain was recorded with no pending tracked work.
+    Empty,
+    /// A drain released more bytes than remain in the oldest pending turn.
+    ReleasedBytesExceedQueued {
+        /// Bytes reported by the drain event.
+        released_bytes: u64,
+        /// Bytes remaining in the oldest pending turn.
+        queued_bytes: u64,
+    },
+    /// The final item for a pending turn did not release the remaining bytes.
+    InconsistentFinalRelease {
+        /// Bytes reported by the drain event.
+        released_bytes: u64,
+        /// Bytes expected for the final item in the oldest pending turn.
+        expected_bytes: u64,
+    },
 }
 
 impl<T> RemoteFreeQueue<T> {
@@ -164,6 +210,116 @@ impl<T> RemoteFreeQueue<T> {
             disconnected_count: self.sink.disconnected_count(),
             drained_count: self.drained_count,
         }
+    }
+}
+
+impl RemoteFreeDrainTracker {
+    /// Creates an empty owner-side drain tracker.
+    #[must_use]
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Records one successfully submitted remote-free work item.
+    pub fn record_submit(&mut self, submit_turn: u64, queued_bytes: u64) {
+        if let Some(back) = self.pending_turns.back_mut() {
+            if back.submit_turn == submit_turn {
+                back.pending_count = back.pending_count.saturating_add(1);
+                back.queued_bytes = back.queued_bytes.saturating_add(queued_bytes);
+                self.pending_count = self.pending_count.saturating_add(1);
+                self.queued_bytes = self.queued_bytes.saturating_add(queued_bytes);
+                return;
+            }
+        }
+
+        self.pending_turns.push_back(RemoteFreeDrainTurn {
+            submit_turn,
+            pending_count: 1,
+            queued_bytes,
+        });
+        self.pending_count = self.pending_count.saturating_add(1);
+        self.queued_bytes = self.queued_bytes.saturating_add(queued_bytes);
+    }
+
+    /// Records one FIFO owner-side drain.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when no work is pending or when the released byte
+    /// accounting is inconsistent with the oldest pending turn.
+    pub fn record_drain(
+        &mut self,
+        released_bytes: u64,
+    ) -> Result<RemoteFreeTrackedDrain, RemoteFreeDrainTrackerError> {
+        let submit_turn = {
+            let front = self
+                .pending_turns
+                .front_mut()
+                .ok_or(RemoteFreeDrainTrackerError::Empty)?;
+
+            if released_bytes > front.queued_bytes {
+                return Err(RemoteFreeDrainTrackerError::ReleasedBytesExceedQueued {
+                    released_bytes,
+                    queued_bytes: front.queued_bytes,
+                });
+            }
+
+            if front.pending_count == 1 && released_bytes != front.queued_bytes {
+                return Err(RemoteFreeDrainTrackerError::InconsistentFinalRelease {
+                    released_bytes,
+                    expected_bytes: front.queued_bytes,
+                });
+            }
+
+            front.pending_count -= 1;
+            front.queued_bytes -= released_bytes;
+            front.submit_turn
+        };
+
+        self.pending_count -= 1;
+        self.queued_bytes -= released_bytes;
+
+        if self
+            .pending_turns
+            .front()
+            .is_some_and(|front| front.pending_count == 0)
+        {
+            self.pending_turns.pop_front();
+        }
+
+        Ok(RemoteFreeTrackedDrain {
+            submit_turn,
+            released_bytes,
+        })
+    }
+
+    /// Returns current pending work count.
+    #[must_use]
+    pub fn pending_count(&self) -> u64 {
+        self.pending_count
+    }
+
+    /// Returns current retained queued bytes.
+    #[must_use]
+    pub fn queued_bytes(&self) -> u64 {
+        self.queued_bytes
+    }
+
+    /// Returns true when no work is pending.
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.pending_count == 0
+    }
+
+    /// Builds a drain-policy observation for the current logical turn.
+    #[must_use]
+    pub fn observation(&self, current_turn: u64) -> RemoteFreeDrainObservation {
+        let oldest_pending_age = self
+            .pending_turns
+            .front()
+            .map_or(0, |front| current_turn.saturating_sub(front.submit_turn));
+
+        RemoteFreeDrainObservation::new(self.pending_count, self.queued_bytes, oldest_pending_age)
     }
 }
 
@@ -447,9 +603,33 @@ impl<T> fmt::Display for RemoteFreeTryEnqueueError<T> {
     }
 }
 
+impl fmt::Display for RemoteFreeDrainTrackerError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Empty => f.write_str("remote free drain tracker is empty"),
+            Self::ReleasedBytesExceedQueued {
+                released_bytes,
+                queued_bytes,
+            } => write!(
+                f,
+                "remote free drain released {released_bytes} bytes with only {queued_bytes} queued"
+            ),
+            Self::InconsistentFinalRelease {
+                released_bytes,
+                expected_bytes,
+            } => write!(
+                f,
+                "remote free final drain released {released_bytes} bytes but expected {expected_bytes}"
+            ),
+        }
+    }
+}
+
 impl<T> std::error::Error for RemoteFreeEnqueueError<T> {}
 
 impl<T> std::error::Error for RemoteFreeTryEnqueueError<T> {}
+
+impl std::error::Error for RemoteFreeDrainTrackerError {}
 
 #[cfg(test)]
 mod tests {
@@ -457,8 +637,8 @@ mod tests {
 
     use super::{
         RemoteFreeDrainDecision, RemoteFreeDrainObservation, RemoteFreeDrainPolicy,
-        RemoteFreeDrainReason, RemoteFreeQueue, RemoteFreeQueueError,
-        RemoteFreeTryEnqueueErrorKind,
+        RemoteFreeDrainReason, RemoteFreeDrainTracker, RemoteFreeDrainTrackerError,
+        RemoteFreeQueue, RemoteFreeQueueError, RemoteFreeTryEnqueueErrorKind,
     };
 
     #[test]
@@ -621,6 +801,89 @@ mod tests {
         assert_eq!(
             policy.decide(observation),
             RemoteFreeDrainDecision::Drain(RemoteFreeDrainReason::PendingCount)
+        );
+    }
+
+    #[test]
+    fn remote_free_drain_tracker_reports_policy_observations() {
+        let mut tracker = RemoteFreeDrainTracker::new();
+
+        tracker.record_submit(0, 4096);
+        tracker.record_submit(0, 8192);
+        tracker.record_submit(1, 16_384);
+
+        assert_eq!(tracker.pending_count(), 3);
+        assert_eq!(tracker.queued_bytes(), 28_672);
+        assert_eq!(
+            tracker.observation(2),
+            RemoteFreeDrainObservation::new(3, 28_672, 2)
+        );
+
+        let first = tracker.record_drain(4096).expect("first drain");
+        assert_eq!(first.submit_turn, 0);
+        assert_eq!(first.released_bytes, 4096);
+        assert_eq!(
+            tracker.observation(2),
+            RemoteFreeDrainObservation::new(2, 24_576, 2)
+        );
+
+        let second = tracker.record_drain(8192).expect("second drain");
+        assert_eq!(second.submit_turn, 0);
+        assert_eq!(
+            tracker.observation(2),
+            RemoteFreeDrainObservation::new(1, 16_384, 1)
+        );
+
+        let third = tracker.record_drain(16_384).expect("third drain");
+        assert_eq!(third.submit_turn, 1);
+        assert!(tracker.is_empty());
+        assert_eq!(
+            tracker.observation(3),
+            RemoteFreeDrainObservation::new(0, 0, 0)
+        );
+    }
+
+    #[test]
+    fn remote_free_drain_tracker_rejects_empty_drain() {
+        let mut tracker = RemoteFreeDrainTracker::new();
+
+        assert_eq!(
+            tracker.record_drain(1).expect_err("empty tracker"),
+            RemoteFreeDrainTrackerError::Empty
+        );
+    }
+
+    #[test]
+    fn remote_free_drain_tracker_rejects_over_release() {
+        let mut tracker = RemoteFreeDrainTracker::new();
+        tracker.record_submit(0, 4096);
+
+        assert_eq!(
+            tracker.record_drain(8192).expect_err("over release"),
+            RemoteFreeDrainTrackerError::ReleasedBytesExceedQueued {
+                released_bytes: 8192,
+                queued_bytes: 4096,
+            }
+        );
+        assert_eq!(
+            tracker.observation(1),
+            RemoteFreeDrainObservation::new(1, 4096, 1)
+        );
+    }
+
+    #[test]
+    fn remote_free_drain_tracker_rejects_inconsistent_final_release() {
+        let mut tracker = RemoteFreeDrainTracker::new();
+        tracker.record_submit(0, 4096);
+        tracker.record_submit(0, 4096);
+
+        tracker.record_drain(2048).expect("first drain");
+        assert_eq!(
+            tracker.record_drain(2048).expect_err("final mismatch"),
+            RemoteFreeDrainTrackerError::InconsistentFinalRelease {
+                released_bytes: 2048,
+                expected_bytes: 6144,
+            }
         );
     }
 }
