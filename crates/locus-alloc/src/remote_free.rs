@@ -33,7 +33,10 @@ pub use coordinator::{
     RemoteFreeServiceRuntimeRetuneError, RemoteFreeServiceRuntimeRetuneOutcome,
     RemoteFreeServiceRuntimeRetuneOwnerError, RemoteFreeServiceRuntimeRetuneOwners,
 };
-pub use dirty_window::RemoteFreeServiceRuntimeDirtyOwners;
+pub use dirty_window::{
+    RemoteFreeServiceRuntimeDirtyOwnerSnapshot, RemoteFreeServiceRuntimeDirtyOwnerTracker,
+    RemoteFreeServiceRuntimeDirtyOwners, RemoteFreeServiceRuntimeDirtySink,
+};
 pub use drift::{
     RemoteFreeQueuedByteDriftReport, RemoteFreeQueuedByteRetuneAction,
     RemoteFreeQueuedByteRetuneHint,

@@ -6,13 +6,14 @@ use criterion::{black_box, Criterion};
 use locus_alloc::{
     RemoteFreeDrainPolicy, RemoteFreeOwnerRuntime, RemoteFreeServiceRetuneCandidate,
     RemoteFreeServiceRetuneGuard, RemoteFreeServiceRetunePolicyApplicator,
-    RemoteFreeServiceRetuneSummary, RemoteFreeServiceRuntimeDirtyOwners,
-    RemoteFreeServiceRuntimeOwnerId, RemoteFreeServiceRuntimeRetuneCoordinator,
-    RemoteFreeServiceRuntimeRetuneOwners, RemoteFreeServiceRuntimeWindowObservation,
-    RemoteFreeServiceRuntimeWindowStats,
+    RemoteFreeServiceRetuneSummary, RemoteFreeServiceRuntimeDirtyOwnerTracker,
+    RemoteFreeServiceRuntimeDirtyOwners, RemoteFreeServiceRuntimeOwnerId,
+    RemoteFreeServiceRuntimeRetuneCoordinator, RemoteFreeServiceRuntimeRetuneOwners,
+    RemoteFreeServiceRuntimeWindowObservation, RemoteFreeServiceRuntimeWindowStats,
 };
 
 use crate::remote_free_service_application_harness::{
+    run_runtime_owner_window_with_dirty_summary_and_block_bytes,
     run_runtime_owner_window_with_summary, run_runtime_owner_window_with_summary_and_block_bytes,
     service_config, RuntimeApplicationStats, RuntimeTraceBlock, QUEUE_CAPACITY_GROWTH_FACTOR,
     RUNTIME_INITIAL_QUEUE_CAPACITY,
@@ -42,6 +43,7 @@ enum ServiceWindowRunnerMode {
     RoutedObservation,
     CollectedOwnerBorrow,
     DirtyOwnerBorrow,
+    DirtyEnqueueMark,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -119,6 +121,29 @@ pub(crate) fn benchmark_runtime_dirty_window_collection_sequence(c: &mut Criteri
             bench.iter(|| {
                 let stats =
                     run_runtime_service_window_sequence(ServiceWindowRunnerMode::DirtyOwnerBorrow);
+                assert_service_window_stats(&stats);
+                black_box(stats);
+            });
+        },
+    );
+}
+
+pub(crate) fn benchmark_runtime_dirty_enqueue_collection_sequence(c: &mut Criterion) {
+    print_service_window_sample(
+        ServiceWindowRunnerMode::DirtyEnqueueMark,
+        "remote_free_service_runtime_dirty_enqueue_collection_sample",
+    );
+    print_service_window_sample_summary(
+        ServiceWindowRunnerMode::DirtyEnqueueMark,
+        "remote_free_service_runtime_dirty_enqueue_collection_sample_summary",
+    );
+
+    c.bench_function(
+        "remote_free_service_runtime_dirty_enqueue_collection_sequence",
+        |bench| {
+            bench.iter(|| {
+                let stats =
+                    run_runtime_service_window_sequence(ServiceWindowRunnerMode::DirtyEnqueueMark);
                 assert_service_window_stats(&stats);
                 black_box(stats);
             });
@@ -425,6 +450,23 @@ fn observe_window(
             assert!(dirty_owners.is_empty());
             stats
         }
+        ServiceWindowRunnerMode::DirtyEnqueueMark => {
+            let tracker = RemoteFreeServiceRuntimeDirtyOwnerTracker::new();
+            let summary = run_runtime_owner_window_with_dirty_summary_and_block_bytes(
+                owners.owner_mut(owner_id).expect("owner for dirty sink"),
+                &mut stats.runtime,
+                block_bytes,
+                owner_id,
+                &tracker,
+            );
+            assert_eq!(tracker.owner_ids(), vec![owner_id]);
+
+            let stats = owners
+                .collect_tracked_dirty_service_window(&tracker, |_, _| Ok::<_, Infallible>(summary))
+                .expect("tracked dirty service window stats");
+            assert!(tracker.is_empty());
+            stats
+        }
     };
 
     assert_one_window_decision(window_stats, expected_decision);
@@ -476,6 +518,17 @@ fn assert_missing_owner(
                 .expect_err("missing owner");
             assert_eq!(error.owner_id(), missing);
             assert_eq!(dirty_owners.owner_ids(), &[missing]);
+        }
+        ServiceWindowRunnerMode::DirtyEnqueueMark => {
+            let tracker = RemoteFreeServiceRuntimeDirtyOwnerTracker::new();
+            assert!(tracker.mark_dirty(missing));
+            let error = owners
+                .collect_tracked_dirty_service_window(&tracker, |_, _| {
+                    Ok::<_, Infallible>(RemoteFreeServiceRetuneSummary::new())
+                })
+                .expect_err("missing owner");
+            assert_eq!(error.owner_id(), missing);
+            assert_eq!(tracker.owner_ids(), vec![missing]);
         }
     }
 }

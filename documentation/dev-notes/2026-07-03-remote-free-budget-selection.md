@@ -305,6 +305,15 @@ blocks, 2048 drained blocks, 9,437,440 released bytes, two installs, one
 confirm, one rollback, one mutation-limit decision, four no-change outcomes,
 and one missing-owner check.
 
+Experiment 0209 added `RemoteFreeServiceRuntimeDirtyOwnerTracker` and
+`RemoteFreeServiceRuntimeDirtySink` as the first enqueue-side dirty-owner mark
+path. A real allocation benchmark marked owners dirty from successful
+`try_enqueue` calls, collected from tracker snapshots, preserved newer marks
+across snapshot clearing, and preserved the same 2048 submitted blocks, 2048
+drained blocks, 9,437,440 released bytes, two installs, one confirm, one
+rollback, one mutation-limit decision, four no-change outcomes, and one
+missing-owner check.
+
 ## Measured Thresholds
 
 | Path | Shape inputs | Budget | Matched counters |
@@ -388,6 +397,11 @@ and one missing-owner check.
     `collect_dirty_service_window` when a service loop can mark owners with new
     remote-free activity and wants to avoid scanning every registered owner on
     each service window.
+27. Use `RemoteFreeServiceRuntimeDirtyOwnerTracker` and
+    `RemoteFreeServiceRuntimeDirtySink` when remote enqueue handles should mark
+    owners dirty directly after successful enqueue attempts. Collect from
+    tracker snapshots so newer marks are not cleared by an older successful
+    service window.
 
 ## Guardrails
 
@@ -446,6 +460,12 @@ and one missing-owner check.
 - Do not clear dirty-owner marks before a service window has completed
   successfully. Keep marks available for retry or inspection when collection
   or routing fails.
+- Do not mark an owner dirty before an enqueue attempt has succeeded. Failed
+  full or disconnected enqueue attempts should preserve queue accounting
+  without scheduling unnecessary service-window collection.
+- Do not clear all tracker marks after collecting one snapshot. Clear only the
+  captured owner generations so marks that arrive during collection remain
+  visible.
 - Recheck thresholds when KV block size, request arena capacity, burst size,
   request concurrency, or batch size changes.
 - For heterogeneous traces, derive the budget from actual retained item sizes
@@ -491,12 +511,14 @@ and one missing-owner check.
 - `documentation/experiments/0206-remote-free-runtime-service-window-runner.md`
 - `documentation/experiments/0207-remote-free-runtime-window-collection.md`
 - `documentation/experiments/0208-remote-free-dirty-owner-window-collection.md`
+- `documentation/experiments/0209-remote-free-enqueue-dirty-owner-marks.md`
 
 ## Open Questions
 
-- Where should dirty-owner marks be emitted in a live runtime: directly from
-  remote enqueue handles, from owner control-loop drain observations, or from a
-  separate service scheduler event queue?
+- Should dirty enqueue marking use the mutex-backed tracker directly in
+  production, or should high-contention services batch marks through
+  per-thread or per-worker local buffers before merging into the service
+  tracker?
 - Which workload signal should set the retained item window in production:
   scheduler turn age, active request concurrency, KV cache pressure, or memory
   pressure from observability counters?
