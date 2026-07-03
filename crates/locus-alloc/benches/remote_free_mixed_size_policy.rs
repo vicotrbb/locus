@@ -4,10 +4,12 @@ use std::{num::NonZeroU64, thread};
 
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use locus_alloc::{
-    RemoteFreeDrainController, RemoteFreeDrainPolicy, RemoteFreeQueue, RemoteFreeQueuedByteBudget,
-    RemoteFreeTryEnqueueErrorKind,
+    RemoteFreeDrainController, RemoteFreeDrainPolicy, RemoteFreeQueue,
+    RemoteFreeQueuedByteDrainConfig, RemoteFreeTryEnqueueErrorKind,
 };
 
+const TRACE_QUEUE_CAPACITY: usize = 256;
+const TRACE_DRAIN_BATCH_LIMIT: usize = 64;
 const TRACE_BURSTS: u64 = 8;
 const TRACE_BURST_BLOCKS: u64 = 32;
 const TRACE_BLOCKS: u64 = TRACE_BURSTS * TRACE_BURST_BLOCKS;
@@ -70,26 +72,29 @@ impl TracePolicy {
     }
 
     fn max_queued640kib() -> Self {
-        let queued_byte_budget = trace_target_queued_byte_budget();
+        let config = trace_target_queued_byte_config();
         Self {
             label: "max_queued640kib",
-            drain_policy: queued_byte_budget.into_policy(),
+            drain_policy: config.drain_policy(),
         }
     }
 }
 
-fn trace_target_queued_byte_budget() -> RemoteFreeQueuedByteBudget {
+fn trace_target_queued_byte_config() -> RemoteFreeQueuedByteDrainConfig {
     let target_blocks = TRACE_BURST_BLOCKS
         .checked_mul(TRACE_TARGET_QUEUED_BURSTS)
         .and_then(|blocks| usize::try_from(blocks).ok())
         .expect("trace target block count fits usize");
-    let budget = RemoteFreeQueuedByteBudget::from_item_sizes(
+    let config = RemoteFreeQueuedByteDrainConfig::from_item_sizes(
+        TRACE_QUEUE_CAPACITY,
+        TRACE_DRAIN_BATCH_LIMIT,
         TRACE_SIZES_U64.iter().copied().cycle().take(target_blocks),
     )
-    .expect("queued-byte budget");
+    .expect("drain config");
 
-    debug_assert_eq!(budget.bytes(), 655_360);
-    budget
+    debug_assert_eq!(config.target_pending_items(), 64);
+    debug_assert_eq!(config.queued_byte_budget().bytes(), 655_360);
+    config
 }
 
 impl CounterSummary {
@@ -145,36 +150,36 @@ impl TraceStats {
 
 fn remote_free_mixed_size_end_drain_capacity256_batch64(c: &mut Criterion) {
     let policy = TracePolicy::end_drain();
-    print_trace_sample(policy, 256, 64);
+    print_trace_sample(policy, TRACE_QUEUE_CAPACITY, TRACE_DRAIN_BATCH_LIMIT);
     remote_free_mixed_size_policy(
         c,
         "remote_free_mixed_size_trace_capacity256_batch64_end_drain",
-        256,
-        64,
+        TRACE_QUEUE_CAPACITY,
+        TRACE_DRAIN_BATCH_LIMIT,
         policy,
     );
 }
 
 fn remote_free_mixed_size_max_wait2_capacity256_batch64(c: &mut Criterion) {
     let policy = TracePolicy::max_wait2();
-    print_trace_sample(policy, 256, 64);
+    print_trace_sample(policy, TRACE_QUEUE_CAPACITY, TRACE_DRAIN_BATCH_LIMIT);
     remote_free_mixed_size_policy(
         c,
         "remote_free_mixed_size_trace_capacity256_batch64_max_wait2",
-        256,
-        64,
+        TRACE_QUEUE_CAPACITY,
+        TRACE_DRAIN_BATCH_LIMIT,
         policy,
     );
 }
 
 fn remote_free_mixed_size_max_queued640kib_capacity256_batch64(c: &mut Criterion) {
     let policy = TracePolicy::max_queued640kib();
-    print_trace_sample(policy, 256, 64);
+    print_trace_sample(policy, TRACE_QUEUE_CAPACITY, TRACE_DRAIN_BATCH_LIMIT);
     remote_free_mixed_size_policy(
         c,
         "remote_free_mixed_size_trace_capacity256_batch64_max_queued640kib",
-        256,
-        64,
+        TRACE_QUEUE_CAPACITY,
+        TRACE_DRAIN_BATCH_LIMIT,
         policy,
     );
 }

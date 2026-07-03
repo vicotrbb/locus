@@ -43,7 +43,9 @@ The config currently supports:
 - grouped retained item shapes through
   `RemoteFreeQueuedByteDrainConfig::from_grouped_item_shape`;
 - uniform retained item shapes through
-  `RemoteFreeQueuedByteDrainConfig::from_item_shape`.
+  `RemoteFreeQueuedByteDrainConfig::from_item_shape`;
+- heterogeneous retained item sizes through
+  `RemoteFreeQueuedByteDrainConfig::from_item_sizes`.
 
 It rejects:
 
@@ -109,8 +111,9 @@ owner's `drain_batch` closure.
 
 ## Open Questions
 
-- Should `RemoteFreeQueuedByteDrainConfig` grow a heterogeneous constructor
-  after that shape needs queue and batch validation at a call site?
+- Should the runtime add an adaptive layer above
+  `RemoteFreeQueuedByteDrainConfig` when `full_count` or retained bytes drift
+  from the configured target window?
 - Which workload signal should set the retained item window in production:
   scheduler turn age, active request concurrency, KV cache pressure, or memory
   pressure from observability counters?

@@ -51,6 +51,8 @@ pub enum RemoteFreeQueuedByteDrainConfigError {
     ZeroDrainBatchLimit,
     /// Target pending item window was zero.
     ZeroTargetPendingItems,
+    /// Counting heterogeneous retained items overflowed.
+    TargetPendingItemsOverflow,
     /// Target pending item window cannot fit in `usize`.
     TargetPendingItemsExceedUsize {
         /// Target pending items.
@@ -150,6 +152,28 @@ impl RemoteFreeQueuedByteDrainConfig {
         )
     }
 
+    /// Creates a config from heterogeneous retained item sizes.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when queue sizing is invalid, the item-size iterator is
+    /// empty, any item size is zero, or retained-byte budget derivation fails.
+    pub fn from_item_sizes(
+        queue_capacity: usize,
+        drain_batch_limit: usize,
+        item_sizes: impl IntoIterator<Item = u64>,
+    ) -> Result<Self, RemoteFreeQueuedByteDrainConfigError> {
+        let (target_pending_items, queued_byte_budget) =
+            budget_from_item_sizes(item_sizes.into_iter())?;
+
+        Self::new(
+            queue_capacity,
+            drain_batch_limit,
+            target_pending_items,
+            queued_byte_budget,
+        )
+    }
+
     /// Creates a config from grouped retained item shape inputs.
     ///
     /// # Errors
@@ -220,6 +244,50 @@ impl RemoteFreeQueuedByteDrainConfig {
     }
 }
 
+fn budget_from_item_sizes(
+    item_sizes: impl Iterator<Item = u64>,
+) -> Result<(u64, RemoteFreeQueuedByteBudget), RemoteFreeQueuedByteDrainConfigError> {
+    let mut target_pending_items = 0_u64;
+    let mut retained_bytes = 0_u64;
+
+    for next_item_bytes in item_sizes {
+        target_pending_items = increment_target_pending_items(target_pending_items)?;
+
+        if next_item_bytes == 0 {
+            return Err(RemoteFreeQueuedByteDrainConfigError::Budget(
+                RemoteFreeQueuedByteBudgetError::ZeroBytesPerItem,
+            ));
+        }
+
+        retained_bytes = retained_bytes.checked_add(next_item_bytes).ok_or(
+            RemoteFreeQueuedByteDrainConfigError::Budget(
+                RemoteFreeQueuedByteBudgetError::RetainedBytesSumOverflow {
+                    accumulated_bytes: retained_bytes,
+                    next_item_bytes,
+                },
+            ),
+        )?;
+    }
+
+    if target_pending_items == 0 {
+        return Err(RemoteFreeQueuedByteDrainConfigError::Budget(
+            RemoteFreeQueuedByteBudgetError::ZeroPendingItems,
+        ));
+    }
+
+    let queued_byte_budget = RemoteFreeQueuedByteBudget::try_new(retained_bytes)
+        .map_err(RemoteFreeQueuedByteDrainConfigError::Budget)?;
+    Ok((target_pending_items, queued_byte_budget))
+}
+
+fn increment_target_pending_items(
+    target_pending_items: u64,
+) -> Result<u64, RemoteFreeQueuedByteDrainConfigError> {
+    target_pending_items
+        .checked_add(1)
+        .ok_or(RemoteFreeQueuedByteDrainConfigError::TargetPendingItemsOverflow)
+}
+
 fn target_pending_items_for_grouped_shape(
     groups: u64,
     items_per_group: u64,
@@ -254,6 +322,9 @@ impl fmt::Display for RemoteFreeQueuedByteDrainConfigError {
             }
             Self::ZeroTargetPendingItems => {
                 f.write_str("remote-free target pending item window must be non-zero")
+            }
+            Self::TargetPendingItemsOverflow => {
+                f.write_str("remote-free target pending item count overflowed")
             }
             Self::TargetPendingItemsExceedUsize {
                 target_pending_items,
@@ -291,7 +362,10 @@ impl std::error::Error for RemoteFreeQueuedByteDrainConfigError {
 
 #[cfg(test)]
 mod tests {
-    use super::{RemoteFreeQueuedByteDrainConfig, RemoteFreeQueuedByteDrainConfigError};
+    use super::{
+        increment_target_pending_items, RemoteFreeQueuedByteDrainConfig,
+        RemoteFreeQueuedByteDrainConfigError,
+    };
     use crate::{
         RemoteFreeDrainDecision, RemoteFreeDrainObservation, RemoteFreeDrainReason,
         RemoteFreeQueuedByteBudget, RemoteFreeQueuedByteBudgetError,
@@ -343,6 +417,18 @@ mod tests {
                 .decide(RemoteFreeDrainObservation::new(64, 262_144, 1)),
             RemoteFreeDrainDecision::Drain(RemoteFreeDrainReason::QueuedBytes)
         );
+    }
+
+    #[test]
+    fn remote_free_queued_byte_drain_config_derives_heterogeneous_item_sizes() {
+        let item_sizes = [4096, 4096, 8192, 4096, 16_384, 4096, 32_768, 8192];
+        let config =
+            RemoteFreeQueuedByteDrainConfig::from_item_sizes(16, 8, item_sizes).expect("config");
+
+        assert_eq!(config.queue_capacity(), 16);
+        assert_eq!(config.drain_batch_limit(), 8);
+        assert_eq!(config.target_pending_items(), 8);
+        assert_eq!(config.queued_byte_budget().bytes(), 81_920);
     }
 
     #[test]
@@ -401,6 +487,32 @@ mod tests {
                 RemoteFreeQueuedByteDrainConfigError::DrainBatchLimitBelowTarget {
                     drain_batch_limit: 63,
                     target_pending_items: 64,
+                }
+            )
+        );
+    }
+
+    #[test]
+    fn remote_free_queued_byte_drain_config_rejects_queue_below_heterogeneous_target() {
+        assert_eq!(
+            RemoteFreeQueuedByteDrainConfig::from_item_sizes(7, 8, [4096; 8]),
+            Err(
+                RemoteFreeQueuedByteDrainConfigError::QueueCapacityBelowTarget {
+                    queue_capacity: 7,
+                    target_pending_items: 8,
+                }
+            )
+        );
+    }
+
+    #[test]
+    fn remote_free_queued_byte_drain_config_rejects_batch_below_heterogeneous_target() {
+        assert_eq!(
+            RemoteFreeQueuedByteDrainConfig::from_item_sizes(8, 7, [4096; 8]),
+            Err(
+                RemoteFreeQueuedByteDrainConfigError::DrainBatchLimitBelowTarget {
+                    drain_batch_limit: 7,
+                    target_pending_items: 8,
                 }
             )
         );
@@ -469,6 +581,39 @@ mod tests {
                     bytes_per_item: 2,
                 },
             ))
+        );
+    }
+
+    #[test]
+    fn remote_free_queued_byte_drain_config_propagates_heterogeneous_budget_errors() {
+        assert_eq!(
+            RemoteFreeQueuedByteDrainConfig::from_item_sizes(256, 64, []),
+            Err(RemoteFreeQueuedByteDrainConfigError::Budget(
+                RemoteFreeQueuedByteBudgetError::ZeroPendingItems,
+            ))
+        );
+        assert_eq!(
+            RemoteFreeQueuedByteDrainConfig::from_item_sizes(256, 64, [4096, 0, 8192]),
+            Err(RemoteFreeQueuedByteDrainConfigError::Budget(
+                RemoteFreeQueuedByteBudgetError::ZeroBytesPerItem,
+            ))
+        );
+        assert_eq!(
+            RemoteFreeQueuedByteDrainConfig::from_item_sizes(256, 64, [u64::MAX, 1]),
+            Err(RemoteFreeQueuedByteDrainConfigError::Budget(
+                RemoteFreeQueuedByteBudgetError::RetainedBytesSumOverflow {
+                    accumulated_bytes: u64::MAX,
+                    next_item_bytes: 1,
+                },
+            ))
+        );
+    }
+
+    #[test]
+    fn remote_free_queued_byte_drain_config_rejects_heterogeneous_item_count_overflow() {
+        assert_eq!(
+            increment_target_pending_items(u64::MAX),
+            Err(RemoteFreeQueuedByteDrainConfigError::TargetPendingItemsOverflow)
         );
     }
 }
