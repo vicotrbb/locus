@@ -35,6 +35,12 @@ struct DryRunSequenceStats {
 }
 
 #[derive(Debug, Clone, Copy)]
+enum DryRunSequenceKind {
+    StableCandidates,
+    OscillatingCandidates,
+}
+
+#[derive(Debug, Clone, Copy)]
 struct DryRunExpectedStep {
     candidate: RemoteFreeServiceRetuneCandidate,
     streak: u64,
@@ -42,24 +48,30 @@ struct DryRunExpectedStep {
 }
 
 pub fn benchmark_dry_run_sequence(c: &mut Criterion) {
-    print_dry_run_sequence_sample();
-    print_dry_run_sequence_sample_summary();
+    benchmark_dry_run_sequence_kind(c, DryRunSequenceKind::StableCandidates);
+    benchmark_dry_run_sequence_kind(c, DryRunSequenceKind::OscillatingCandidates);
+}
 
-    c.bench_function("remote_free_service_telemetry_dry_run_sequence", |b| {
+fn benchmark_dry_run_sequence_kind(c: &mut Criterion, kind: DryRunSequenceKind) {
+    print_dry_run_sequence_sample(kind);
+    print_dry_run_sequence_sample_summary(kind);
+
+    c.bench_function(kind.bench_label(), |b| {
         b.iter(|| {
-            let stats = run_dry_run_sequence();
-            assert_dry_run_sequence(stats);
+            let stats = run_dry_run_sequence(kind);
+            assert_dry_run_sequence(kind, stats);
             black_box(stats);
         });
     });
 }
 
-fn print_dry_run_sequence_sample() {
-    let stats = run_dry_run_sequence();
-    assert_dry_run_sequence(stats);
+fn print_dry_run_sequence_sample(kind: DryRunSequenceKind) {
+    let stats = run_dry_run_sequence(kind);
+    assert_dry_run_sequence(kind, stats);
+    let label = kind.sample_label();
 
     println!(
-        "remote_free_service_dry_run_sample windows={} stable_windows={DRY_RUN_STABLE_WINDOWS} submitted_count={} drained_count={} released_bytes={} policy_drains={} observed_reports={} reports_needing_retune={} max_pending_over_target={} max_queued_bytes_over_budget={} queue_backpressure_reports={} keep_config_candidate_windows={} drain_earlier_candidate_windows={} combined_candidate_windows={} would_apply_drain_earlier_windows={} would_apply_combined_windows={} max_wait_bursts={} mean_wait_bursts={} final_candidate={} final_streak={} final_would_apply={}",
+        "{label} windows={} stable_windows={DRY_RUN_STABLE_WINDOWS} submitted_count={} drained_count={} released_bytes={} policy_drains={} observed_reports={} reports_needing_retune={} max_pending_over_target={} max_queued_bytes_over_budget={} queue_backpressure_reports={} keep_config_candidate_windows={} drain_earlier_candidate_windows={} combined_candidate_windows={} would_apply_drain_earlier_windows={} would_apply_combined_windows={} max_wait_bursts={} mean_wait_bursts={} final_candidate={} final_streak={} final_would_apply={}",
         stats.service_windows,
         stats.submitted_count,
         stats.drained_count,
@@ -83,7 +95,7 @@ fn print_dry_run_sequence_sample() {
     );
 }
 
-fn print_dry_run_sequence_sample_summary() {
+fn print_dry_run_sequence_sample_summary(kind: DryRunSequenceKind) {
     let mut reports_needing_retune = CounterSummary::new();
     let mut max_pending_over_target = CounterSummary::new();
     let mut max_queued_bytes_over_budget = CounterSummary::new();
@@ -97,8 +109,8 @@ fn print_dry_run_sequence_sample_summary() {
     let mut final_streak = 0;
 
     for _ in 0..SAMPLES {
-        let stats = run_dry_run_sequence();
-        assert_dry_run_sequence(stats);
+        let stats = run_dry_run_sequence(kind);
+        assert_dry_run_sequence(kind, stats);
 
         reports_needing_retune.observe(stats.reports_needing_retune);
         max_pending_over_target.observe(stats.max_pending_over_target);
@@ -113,8 +125,9 @@ fn print_dry_run_sequence_sample_summary() {
         final_streak = stats.final_streak;
     }
 
+    let label = kind.summary_label();
     println!(
-        "remote_free_service_dry_run_sample_summary windows=6 stable_windows={DRY_RUN_STABLE_WINDOWS} samples={SAMPLES} reports_needing_retune_min={} reports_needing_retune_max={} reports_needing_retune_mean={} max_pending_over_target_min={} max_pending_over_target_max={} max_pending_over_target_mean={} max_queued_bytes_over_budget_min={} max_queued_bytes_over_budget_max={} max_queued_bytes_over_budget_mean={} queue_backpressure_reports_min={} queue_backpressure_reports_max={} queue_backpressure_reports_mean={} would_apply_drain_earlier_windows_min={} would_apply_drain_earlier_windows_max={} would_apply_drain_earlier_windows_mean={} would_apply_combined_windows_min={} would_apply_combined_windows_max={} would_apply_combined_windows_mean={} max_wait_min={} max_wait_max={} max_wait_mean={} mean_wait_min={} mean_wait_max={} mean_wait_mean={} final_candidate={} final_streak={} final_would_apply={}",
+        "{label} windows=6 stable_windows={DRY_RUN_STABLE_WINDOWS} samples={SAMPLES} reports_needing_retune_min={} reports_needing_retune_max={} reports_needing_retune_mean={} max_pending_over_target_min={} max_pending_over_target_max={} max_pending_over_target_mean={} max_queued_bytes_over_budget_min={} max_queued_bytes_over_budget_max={} max_queued_bytes_over_budget_mean={} queue_backpressure_reports_min={} queue_backpressure_reports_max={} queue_backpressure_reports_mean={} would_apply_drain_earlier_windows_min={} would_apply_drain_earlier_windows_max={} would_apply_drain_earlier_windows_mean={} would_apply_combined_windows_min={} would_apply_combined_windows_max={} would_apply_combined_windows_mean={} max_wait_min={} max_wait_max={} max_wait_mean={} mean_wait_min={} mean_wait_max={} mean_wait_mean={} final_candidate={} final_streak={} final_would_apply={}",
         reports_needing_retune.min,
         reports_needing_retune.max,
         format_milli(reports_needing_retune.mean_milli(SAMPLES)),
@@ -145,49 +158,9 @@ fn print_dry_run_sequence_sample_summary() {
     );
 }
 
-fn run_dry_run_sequence() -> DryRunSequenceStats {
-    let cases = [
-        ServiceTelemetryCase::fixed_policy_all_clean(),
-        ServiceTelemetryCase::one_end_drain_owner(),
-        ServiceTelemetryCase::one_end_drain_owner(),
-        ServiceTelemetryCase::one_capacity128_end_drain_owner(),
-        ServiceTelemetryCase::one_capacity128_end_drain_owner(),
-        ServiceTelemetryCase::fixed_policy_all_clean(),
-    ];
-    let expected_steps = [
-        DryRunExpectedStep {
-            candidate: RemoteFreeServiceRetuneCandidate::KeepConfig,
-            streak: 0,
-            would_apply: None,
-        },
-        DryRunExpectedStep {
-            candidate: RemoteFreeServiceRetuneCandidate::DrainEarlier,
-            streak: 1,
-            would_apply: None,
-        },
-        DryRunExpectedStep {
-            candidate: RemoteFreeServiceRetuneCandidate::DrainEarlier,
-            streak: 2,
-            would_apply: Some(RemoteFreeServiceRetuneCandidate::DrainEarlier),
-        },
-        DryRunExpectedStep {
-            candidate: RemoteFreeServiceRetuneCandidate::IncreaseQueueCapacityAndDrainEarlier,
-            streak: 1,
-            would_apply: None,
-        },
-        DryRunExpectedStep {
-            candidate: RemoteFreeServiceRetuneCandidate::IncreaseQueueCapacityAndDrainEarlier,
-            streak: 2,
-            would_apply: Some(
-                RemoteFreeServiceRetuneCandidate::IncreaseQueueCapacityAndDrainEarlier,
-            ),
-        },
-        DryRunExpectedStep {
-            candidate: RemoteFreeServiceRetuneCandidate::KeepConfig,
-            streak: 0,
-            would_apply: None,
-        },
-    ];
+fn run_dry_run_sequence(kind: DryRunSequenceKind) -> DryRunSequenceStats {
+    let cases = kind.cases();
+    let expected_steps = kind.expected_steps();
     let mut planner = RemoteFreeServiceRetuneDryRunPlanner::try_new(DRY_RUN_STABLE_WINDOWS)
         .expect("dry-run planner");
     let mut sequence_stats = DryRunSequenceStats::new();
@@ -211,6 +184,139 @@ fn run_dry_run_sequence() -> DryRunSequenceStats {
     sequence_stats.final_streak = planner.consecutive_candidate_windows();
     sequence_stats.final_would_apply = planner.would_apply_candidate();
     sequence_stats
+}
+
+impl DryRunSequenceKind {
+    fn bench_label(self) -> &'static str {
+        match self {
+            Self::StableCandidates => "remote_free_service_telemetry_dry_run_sequence",
+            Self::OscillatingCandidates => "remote_free_service_telemetry_dry_run_oscillation",
+        }
+    }
+
+    fn sample_label(self) -> &'static str {
+        match self {
+            Self::StableCandidates => "remote_free_service_dry_run_sample",
+            Self::OscillatingCandidates => "remote_free_service_dry_run_oscillation_sample",
+        }
+    }
+
+    fn summary_label(self) -> &'static str {
+        match self {
+            Self::StableCandidates => "remote_free_service_dry_run_sample_summary",
+            Self::OscillatingCandidates => "remote_free_service_dry_run_oscillation_sample_summary",
+        }
+    }
+
+    fn cases(self) -> [ServiceTelemetryCase; 6] {
+        match self {
+            Self::StableCandidates => [
+                ServiceTelemetryCase::fixed_policy_all_clean(),
+                ServiceTelemetryCase::one_end_drain_owner(),
+                ServiceTelemetryCase::one_end_drain_owner(),
+                ServiceTelemetryCase::one_capacity128_end_drain_owner(),
+                ServiceTelemetryCase::one_capacity128_end_drain_owner(),
+                ServiceTelemetryCase::fixed_policy_all_clean(),
+            ],
+            Self::OscillatingCandidates => [
+                ServiceTelemetryCase::fixed_policy_all_clean(),
+                ServiceTelemetryCase::one_end_drain_owner(),
+                ServiceTelemetryCase::one_capacity128_end_drain_owner(),
+                ServiceTelemetryCase::one_end_drain_owner(),
+                ServiceTelemetryCase::one_capacity128_end_drain_owner(),
+                ServiceTelemetryCase::fixed_policy_all_clean(),
+            ],
+        }
+    }
+
+    fn expected_steps(self) -> [DryRunExpectedStep; 6] {
+        match self {
+            Self::StableCandidates => [
+                DryRunExpectedStep {
+                    candidate: RemoteFreeServiceRetuneCandidate::KeepConfig,
+                    streak: 0,
+                    would_apply: None,
+                },
+                DryRunExpectedStep {
+                    candidate: RemoteFreeServiceRetuneCandidate::DrainEarlier,
+                    streak: 1,
+                    would_apply: None,
+                },
+                DryRunExpectedStep {
+                    candidate: RemoteFreeServiceRetuneCandidate::DrainEarlier,
+                    streak: 2,
+                    would_apply: Some(RemoteFreeServiceRetuneCandidate::DrainEarlier),
+                },
+                DryRunExpectedStep {
+                    candidate:
+                        RemoteFreeServiceRetuneCandidate::IncreaseQueueCapacityAndDrainEarlier,
+                    streak: 1,
+                    would_apply: None,
+                },
+                DryRunExpectedStep {
+                    candidate:
+                        RemoteFreeServiceRetuneCandidate::IncreaseQueueCapacityAndDrainEarlier,
+                    streak: 2,
+                    would_apply: Some(
+                        RemoteFreeServiceRetuneCandidate::IncreaseQueueCapacityAndDrainEarlier,
+                    ),
+                },
+                DryRunExpectedStep {
+                    candidate: RemoteFreeServiceRetuneCandidate::KeepConfig,
+                    streak: 0,
+                    would_apply: None,
+                },
+            ],
+            Self::OscillatingCandidates => [
+                DryRunExpectedStep {
+                    candidate: RemoteFreeServiceRetuneCandidate::KeepConfig,
+                    streak: 0,
+                    would_apply: None,
+                },
+                DryRunExpectedStep {
+                    candidate: RemoteFreeServiceRetuneCandidate::DrainEarlier,
+                    streak: 1,
+                    would_apply: None,
+                },
+                DryRunExpectedStep {
+                    candidate:
+                        RemoteFreeServiceRetuneCandidate::IncreaseQueueCapacityAndDrainEarlier,
+                    streak: 1,
+                    would_apply: None,
+                },
+                DryRunExpectedStep {
+                    candidate: RemoteFreeServiceRetuneCandidate::DrainEarlier,
+                    streak: 1,
+                    would_apply: None,
+                },
+                DryRunExpectedStep {
+                    candidate:
+                        RemoteFreeServiceRetuneCandidate::IncreaseQueueCapacityAndDrainEarlier,
+                    streak: 1,
+                    would_apply: None,
+                },
+                DryRunExpectedStep {
+                    candidate: RemoteFreeServiceRetuneCandidate::KeepConfig,
+                    streak: 0,
+                    would_apply: None,
+                },
+            ],
+        }
+    }
+
+    fn expected_would_apply_drain_earlier_windows(self) -> u64 {
+        match self {
+            Self::StableCandidates => 1,
+            Self::OscillatingCandidates => 0,
+        }
+    }
+
+    fn expected_would_apply_combined_windows(self) -> u64 {
+        match self {
+            Self::StableCandidates => 1,
+            Self::OscillatingCandidates => 0,
+        }
+    }
 }
 
 impl DryRunSequenceStats {
@@ -309,7 +415,7 @@ impl DryRunSequenceStats {
     }
 }
 
-fn assert_dry_run_sequence(stats: DryRunSequenceStats) {
+fn assert_dry_run_sequence(kind: DryRunSequenceKind, stats: DryRunSequenceStats) {
     assert_eq!(stats.service_windows, 6);
     assert_eq!(stats.submitted_count, BLOCKS_PER_OWNER * OWNERS as u64 * 6);
     assert_eq!(stats.drained_count, stats.submitted_count);
@@ -326,8 +432,14 @@ fn assert_dry_run_sequence(stats: DryRunSequenceStats) {
     assert_eq!(stats.keep_config_candidate_windows, 2);
     assert_eq!(stats.drain_earlier_candidate_windows, 2);
     assert_eq!(stats.combined_candidate_windows, 2);
-    assert_eq!(stats.would_apply_drain_earlier_windows, 1);
-    assert_eq!(stats.would_apply_combined_windows, 1);
+    assert_eq!(
+        stats.would_apply_drain_earlier_windows,
+        kind.expected_would_apply_drain_earlier_windows()
+    );
+    assert_eq!(
+        stats.would_apply_combined_windows,
+        kind.expected_would_apply_combined_windows()
+    );
     assert_eq!(stats.max_wait_bursts, 8);
     assert_eq!(stats.mean_wait_milli(), 1_875);
     assert_eq!(

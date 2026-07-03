@@ -189,6 +189,12 @@ entrypoint plus static-service and dry-run support modules under
 `crates/locus-alloc/benches/remote_free_service/` so future service-window
 experiments do not keep growing one large benchmark file.
 
+Experiment 0194 added an oscillating dry-run sequence. Alternating
+`drain_earlier` and `increase_queue_capacity_and_drain_earlier` service
+windows produced zero would-apply windows for both candidates while preserving
+6144 submitted blocks, 6144 drained blocks, 25,165,824 released bytes, max
+wait 8 bursts, and mean wait 1.875 bursts.
+
 ## Measured Thresholds
 
 | Path | Shape inputs | Budget | Matched counters |
@@ -248,6 +254,9 @@ experiments do not keep growing one large benchmark file.
 - Do not let dry-run planner output mutate policy directly. It records stable
   would-apply candidates across windows and still needs a guarded adaptive
   benchmark before live policy changes.
+- Do not treat oscillating actionable candidates as stable evidence. Experiment
+  0194 showed that alternating `drain_earlier` and combined candidates should
+  keep `would_apply` at none.
 - Recheck thresholds when KV block size, request arena capacity, burst size,
   request concurrency, or batch size changes.
 - For heterogeneous traces, derive the budget from actual retained item sizes
@@ -278,11 +287,12 @@ experiments do not keep growing one large benchmark file.
 - `documentation/experiments/0191-remote-free-planner-candidate-drain-earlier.md`
 - `documentation/experiments/0192-remote-free-planner-candidate-capacity-and-drain.md`
 - `documentation/experiments/0193-remote-free-dry-run-service-planner.md`
+- `documentation/experiments/0194-remote-free-dry-run-oscillation.md`
 
 ## Open Questions
 
-- Should the next step be a guarded live adaptive policy benchmark, or a
-  longer dry-run benchmark that stresses oscillating service candidates first?
+- What mutation limits and rollback conditions should the first guarded live
+  adaptive policy benchmark require?
 - Which workload signal should set the retained item window in production:
   scheduler turn age, active request concurrency, KV cache pressure, or memory
   pressure from observability counters?
