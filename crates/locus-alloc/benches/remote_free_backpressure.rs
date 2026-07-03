@@ -13,26 +13,53 @@ enum ProducerCommand {
 }
 
 fn remote_free_try_enqueue_backpressure_batch8(c: &mut Criterion) {
-    print_backpressure_sample("batch8", 8);
+    print_backpressure_sample("batch8", 8, 8);
     remote_free_try_enqueue_backpressure(
         c,
         "remote_free_try_enqueue_backpressure_256x4k_batch8",
+        8,
+        8,
+    );
+}
+
+fn remote_free_try_enqueue_backpressure_capacity8_batch64(c: &mut Criterion) {
+    print_backpressure_sample("capacity8_batch64", 8, 64);
+    remote_free_try_enqueue_backpressure(
+        c,
+        "remote_free_try_enqueue_backpressure_256x4k_capacity8_batch64",
+        8,
+        64,
+    );
+}
+
+fn remote_free_try_enqueue_backpressure_capacity64_batch8(c: &mut Criterion) {
+    print_backpressure_sample("capacity64_batch8", 64, 8);
+    remote_free_try_enqueue_backpressure(
+        c,
+        "remote_free_try_enqueue_backpressure_256x4k_capacity64_batch8",
+        64,
         8,
     );
 }
 
 fn remote_free_try_enqueue_backpressure_batch64(c: &mut Criterion) {
-    print_backpressure_sample("batch64", 64);
+    print_backpressure_sample("batch64", 64, 64);
     remote_free_try_enqueue_backpressure(
         c,
         "remote_free_try_enqueue_backpressure_256x4k_batch64",
         64,
+        64,
     );
 }
 
-fn remote_free_try_enqueue_backpressure(c: &mut Criterion, name: &'static str, batch_limit: usize) {
+fn remote_free_try_enqueue_backpressure(
+    c: &mut Criterion,
+    name: &'static str,
+    capacity: usize,
+    batch_limit: usize,
+) {
     c.bench_function(name, |bench| {
-        let mut queue = RemoteFreeQueue::new(batch_limit, batch_limit).expect("queue");
+        let mut queue = RemoteFreeQueue::new(capacity, batch_limit).expect("queue");
         let sink = queue.sink();
         let (command_sender, command_receiver) = sync_channel::<ProducerCommand>(1);
 
@@ -73,10 +100,10 @@ fn remote_free_try_enqueue_backpressure(c: &mut Criterion, name: &'static str, b
     });
 }
 
-fn print_backpressure_sample(label: &'static str, batch_limit: usize) {
-    let stats = run_backpressure_sample(batch_limit);
+fn print_backpressure_sample(label: &'static str, capacity: usize, batch_limit: usize) {
+    let stats = run_backpressure_sample(capacity, batch_limit);
     println!(
-        "remote_free_backpressure_sample={label} blocks=256 batch_limit={batch_limit} submitted_count={} drained_count={} pending_count={} full_count={} disconnected_count={}",
+        "remote_free_backpressure_sample={label} blocks=256 capacity={capacity} batch_limit={batch_limit} submitted_count={} drained_count={} pending_count={} full_count={} disconnected_count={}",
         stats.submitted_count,
         stats.drained_count,
         stats.pending_count,
@@ -85,8 +112,8 @@ fn print_backpressure_sample(label: &'static str, batch_limit: usize) {
     );
 }
 
-fn run_backpressure_sample(batch_limit: usize) -> RemoteFreeQueueStats {
-    let mut queue = RemoteFreeQueue::new(batch_limit, batch_limit).expect("queue");
+fn run_backpressure_sample(capacity: usize, batch_limit: usize) -> RemoteFreeQueueStats {
+    let mut queue = RemoteFreeQueue::new(capacity, batch_limit).expect("queue");
     let sink = queue.sink();
     let producer = thread::spawn(move || produce_blocks(&sink, 256));
 
@@ -125,6 +152,8 @@ fn produce_blocks(sink: &RemoteFreeSink<Vec<u8>>, blocks: usize) {
 criterion_group!(
     benches,
     remote_free_try_enqueue_backpressure_batch8,
+    remote_free_try_enqueue_backpressure_capacity8_batch64,
+    remote_free_try_enqueue_backpressure_capacity64_batch8,
     remote_free_try_enqueue_backpressure_batch64
 );
 criterion_main!(benches);
