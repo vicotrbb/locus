@@ -1532,6 +1532,9 @@ and stale archived dashboard rollup recheck JSON verdict records.
 Experiment 0345 aggregated those saved matched and stale JSON verdict records
 into a compact dashboard rollup with one matched record, one drifted record,
 and one `records` drift bucket.
+Experiment 0346 made that saved dashboard rollup artifact itself reloadable
+through the parser-only path, preserving the same two-record summary recheck
+cohort counters.
 
 ## Open Questions
 
