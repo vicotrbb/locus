@@ -1142,6 +1142,10 @@ artifact reloads as `status=drifted` with `field=records`.
 - Do not hand-maintain long positional saved-output commands when the evidence
   set has stable labels. Use a manifest so the labels and paths are reviewed
   together.
+- Do not inspect repeated-check rollup drift verdict artifacts one at a time
+  when dashboard status is needed. Experiment 0282 showed the mixed JSON log
+  can aggregate matched checks, drifted checks, and `records` drift buckets
+  through the repeated-check CLI rollup path.
 - Do not archive remote-free service telemetry output copies without the
   matching manifest and validation summary. Use the collector so copied
   outputs and the counter-gated summary stay together.
@@ -1275,6 +1279,7 @@ artifact reloads as `status=drifted` with `field=records`.
 - `documentation/experiments/0279-remote-free-service-telemetry-rollup-check-log-summary-verdict-rollup-verification-summary-drift-json-rollup-drift-json-rollup-drift-json-rollup-drift.md`
 - `documentation/experiments/0280-remote-free-service-telemetry-rollup-check-log-summary-verdict-rollup-verification-summary-drift-json-rollup-drift-json-rollup-drift-json-rollup-drift-json.md`
 - `documentation/experiments/0281-remote-free-service-telemetry-rollup-check-log-summary-verdict-rollup-verification-summary-drift-json-rollup-drift-json-rollup-drift-json-rollup-drift-json-parser.md`
+- `documentation/experiments/0282-remote-free-service-telemetry-rollup-check-log-summary-verdict-rollup-verification-summary-drift-json-rollup-drift-json-rollup-drift-json-rollup-drift-json-rollup.md`
 
 ## Open Questions
 
