@@ -3,8 +3,10 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::{sync_channel, Receiver, SyncSender, TryRecvError, TrySendError};
 use std::sync::Arc;
 
+mod budget;
 mod controller;
 
+pub use budget::{RemoteFreeQueuedByteBudget, RemoteFreeQueuedByteBudgetError};
 pub use controller::{
     RemoteFreeDrainController, RemoteFreeDrainControllerError, RemoteFreeDrainControllerStatus,
     RemoteFreeDrainDecision, RemoteFreeDrainObservation, RemoteFreeDrainPolicy,

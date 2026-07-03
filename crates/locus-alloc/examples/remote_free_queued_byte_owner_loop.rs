@@ -1,9 +1,9 @@
 #![allow(missing_docs)]
 
-use std::{num::NonZeroU64, thread};
+use std::thread;
 
 use locus_alloc::{
-    RemoteFreeDrainController, RemoteFreeDrainPolicy, RemoteFreeQueue,
+    RemoteFreeDrainController, RemoteFreeQueue, RemoteFreeQueuedByteBudget,
     RemoteFreeTryEnqueueErrorKind,
 };
 
@@ -50,8 +50,12 @@ impl OwnerLoopStats {
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let queued_byte_budget = queued_byte_budget()?;
-    let policy = RemoteFreeDrainPolicy::new().with_max_queued_bytes(queued_byte_budget);
+    let queued_byte_budget = RemoteFreeQueuedByteBudget::from_grouped_item_shape(
+        REQUEST_CONCURRENCY,
+        REMOTE_FREE_BLOCKS_PER_REQUEST,
+        REPRESENTATIVE_BLOCK_BYTES,
+    )?;
+    let policy = queued_byte_budget.into_policy();
     let mut controller = RemoteFreeDrainController::new(policy);
     let mut queue = RemoteFreeQueue::new(QUEUE_CAPACITY, DRAIN_BATCH_LIMIT)?;
     let sink = queue.sink();
@@ -64,7 +68,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("request_concurrency={REQUEST_CONCURRENCY}");
     println!("remote_free_blocks_per_request={REMOTE_FREE_BLOCKS_PER_REQUEST}");
     println!("representative_block_bytes={REPRESENTATIVE_BLOCK_BYTES}");
-    println!("queued_byte_budget={}", queued_byte_budget.get());
+    println!("queued_byte_budget={}", queued_byte_budget.bytes());
 
     for burst in 0..TRACE_BURSTS {
         for _ in 0..TRACE_BURST_BLOCKS {
@@ -135,16 +139,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     );
 
     Ok(())
-}
-
-fn queued_byte_budget() -> Result<NonZeroU64, Box<dyn std::error::Error>> {
-    let retained_blocks = REQUEST_CONCURRENCY
-        .checked_mul(REMOTE_FREE_BLOCKS_PER_REQUEST)
-        .ok_or("retained block budget overflow")?;
-    let retained_bytes = retained_blocks
-        .checked_mul(REPRESENTATIVE_BLOCK_BYTES)
-        .ok_or("retained byte budget overflow")?;
-    NonZeroU64::new(retained_bytes).ok_or_else(|| "retained byte budget must be non-zero".into())
 }
 
 fn drain_owner_batch(

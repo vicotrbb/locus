@@ -73,7 +73,8 @@ pub use remote_free::{
     RemoteFreeDrainDecision, RemoteFreeDrainObservation, RemoteFreeDrainPolicy,
     RemoteFreeDrainReason, RemoteFreeDrainStats, RemoteFreeDrainTracker,
     RemoteFreeDrainTrackerError, RemoteFreeEnqueueError, RemoteFreeQueue, RemoteFreeQueueError,
-    RemoteFreeQueueStats, RemoteFreeSink, RemoteFreeTrackedDrain, RemoteFreeTryEnqueueError,
+    RemoteFreeQueueStats, RemoteFreeQueuedByteBudget, RemoteFreeQueuedByteBudgetError,
+    RemoteFreeSink, RemoteFreeTrackedDrain, RemoteFreeTryEnqueueError,
     RemoteFreeTryEnqueueErrorKind,
 };
 
