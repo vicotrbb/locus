@@ -753,6 +753,12 @@ controlled stale `records=1` archive reloads as `status=drifted` with
 `field=records`, expected `2`, and actual `1`. The parser rejects status drift,
 drift payload drift, and nested grouped rollup drift.
 
+Experiment 0262 added a compact dashboard summary over saved verdict rollup
+verification JSON records. The real combined verifier archive reports two
+records, one matched artifact, one drifted artifact, and one `records` drift
+bucket. The first accumulator shape failed clippy's `too_many_lines` lint, so
+the final implementation splits drift-bucket selection into a small helper.
+
 ## Measured Thresholds
 
 | Path | Shape inputs | Budget | Matched counters |
@@ -1149,6 +1155,7 @@ drift payload drift, and nested grouped rollup drift.
 - `documentation/experiments/0259-remote-free-service-telemetry-rollup-check-log-summary-verdict-rollup-drift.md`
 - `documentation/experiments/0260-remote-free-service-telemetry-rollup-check-log-summary-verdict-rollup-drift-json.md`
 - `documentation/experiments/0261-remote-free-service-telemetry-rollup-check-log-summary-verdict-rollup-drift-json-parser.md`
+- `documentation/experiments/0262-remote-free-service-telemetry-rollup-check-log-summary-verdict-rollup-verification-summary.md`
 
 ## Open Questions
 
