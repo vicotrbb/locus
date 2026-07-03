@@ -9,9 +9,9 @@ use locus_alloc::{
     RemoteFreeQueuedByteDrainConfig, RemoteFreeQueuedByteDriftReport,
     RemoteFreeServiceRetuneCandidate, RemoteFreeServiceRetuneGuardDecision,
     RemoteFreeServiceRetunePolicyApplication, RemoteFreeServiceRetunePolicyApplicator,
-    RemoteFreeServiceRetuneSummary, RemoteFreeServiceRuntimeDirtyOwnerLocalBuffer,
-    RemoteFreeServiceRuntimeDirtyOwnerTracker, RemoteFreeServiceRuntimeOwnerId,
-    RemoteFreeTryEnqueueError, RemoteFreeTryEnqueueErrorKind,
+    RemoteFreeServiceRetuneSummary, RemoteFreeServiceRuntimeDirtyOwnerFlushStats,
+    RemoteFreeServiceRuntimeDirtyOwnerLocalBuffer, RemoteFreeServiceRuntimeDirtyOwnerTracker,
+    RemoteFreeServiceRuntimeOwnerId, RemoteFreeTryEnqueueError, RemoteFreeTryEnqueueErrorKind,
 };
 
 use crate::remote_free_service_harness::{
@@ -44,6 +44,20 @@ pub(crate) struct RuntimeApplicationStats {
     pub(crate) rollback_count: u64,
     pub(crate) final_queue_capacity: usize,
     pub(crate) final_previous_config_present: bool,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub(crate) struct RuntimeLocalDirtyFlushStats {
+    pub(crate) flush_count: u64,
+    pub(crate) owner_count: u64,
+    pub(crate) new_tracker_marks: u64,
+    pub(crate) duplicate_local_marks: u64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum RuntimeOwnerWindowEvent {
+    SuccessfulEnqueue,
+    BurstComplete,
 }
 
 pub(crate) fn benchmark_runtime_application(c: &mut Criterion) {
@@ -171,6 +185,25 @@ impl RuntimeApplicationStats {
         }
 
         self.total_wait_bursts.saturating_mul(1000) / self.drained_count
+    }
+}
+
+impl RuntimeLocalDirtyFlushStats {
+    pub(crate) fn observe(&mut self, stats: RemoteFreeServiceRuntimeDirtyOwnerFlushStats) {
+        if stats.owner_count == 0 && stats.duplicate_local_marks == 0 {
+            return;
+        }
+
+        self.flush_count = self.flush_count.saturating_add(1);
+        self.owner_count = self
+            .owner_count
+            .saturating_add(u64::try_from(stats.owner_count).expect("dirty owner count fits u64"));
+        self.new_tracker_marks = self
+            .new_tracker_marks
+            .saturating_add(stats.new_tracker_marks);
+        self.duplicate_local_marks = self
+            .duplicate_local_marks
+            .saturating_add(stats.duplicate_local_marks);
     }
 }
 
@@ -422,7 +455,7 @@ pub(crate) fn run_runtime_owner_window_with_dirty_summary_and_block_bytes(
         stats,
         block_bytes,
         |block| sink.try_enqueue(block),
-        || {},
+        |_| {},
         |report| {
             summary.observe_report(report);
         },
@@ -446,8 +479,10 @@ pub(crate) fn run_runtime_owner_window_with_local_dirty_summary_and_block_bytes(
         stats,
         block_bytes,
         |block| sink.try_enqueue(block),
-        || {
-            let _ = buffer.mark_dirty(owner_id);
+        |event| {
+            if event == RuntimeOwnerWindowEvent::SuccessfulEnqueue {
+                let _ = buffer.mark_dirty(owner_id);
+            }
         },
         |report| {
             summary.observe_report(report);
@@ -455,6 +490,43 @@ pub(crate) fn run_runtime_owner_window_with_local_dirty_summary_and_block_bytes(
     );
 
     summary
+}
+
+pub(crate) fn run_runtime_owner_window_with_local_dirty_burst_summary_and_block_bytes(
+    runtime: &mut RemoteFreeOwnerRuntime<RuntimeTraceBlock>,
+    stats: &mut RuntimeApplicationStats,
+    block_bytes: u64,
+    owner_id: RemoteFreeServiceRuntimeOwnerId,
+    tracker: &RemoteFreeServiceRuntimeDirtyOwnerTracker,
+) -> (RemoteFreeServiceRetuneSummary, RuntimeLocalDirtyFlushStats) {
+    let mut summary = RemoteFreeServiceRetuneSummary::new();
+    let mut flush_stats = RuntimeLocalDirtyFlushStats::default();
+    let mut buffer = RemoteFreeServiceRuntimeDirtyOwnerLocalBuffer::new();
+    let sink = runtime.sink();
+
+    run_runtime_owner_window_inner_with_enqueue(
+        runtime,
+        stats,
+        block_bytes,
+        |block| sink.try_enqueue(block),
+        |event| match event {
+            RuntimeOwnerWindowEvent::SuccessfulEnqueue => {
+                let _ = buffer.mark_dirty(owner_id);
+            }
+            RuntimeOwnerWindowEvent::BurstComplete => {
+                flush_stats.observe(buffer.flush_into(tracker));
+            }
+        },
+        |report| {
+            summary.observe_report(report);
+        },
+    );
+
+    if !buffer.is_empty() {
+        flush_stats.observe(buffer.flush_into(tracker));
+    }
+
+    (summary, flush_stats)
 }
 
 fn run_runtime_owner_window_inner(
@@ -470,7 +542,7 @@ fn run_runtime_owner_window_inner(
         stats,
         block_bytes,
         |block| sink.try_enqueue(block),
-        || {},
+        |_| {},
         observe_report,
     );
 }
@@ -482,7 +554,7 @@ fn run_runtime_owner_window_inner_with_enqueue(
     mut try_enqueue: impl FnMut(
         RuntimeTraceBlock,
     ) -> Result<(), RemoteFreeTryEnqueueError<RuntimeTraceBlock>>,
-    mut after_successful_enqueue: impl FnMut(),
+    mut observe_event: impl FnMut(RuntimeOwnerWindowEvent),
     mut observe_report: impl FnMut(RemoteFreeQueuedByteDriftReport),
 ) {
     for burst in 0..BURSTS {
@@ -495,7 +567,7 @@ fn run_runtime_owner_window_inner_with_enqueue(
             loop {
                 match try_enqueue(block) {
                     Ok(()) => {
-                        after_successful_enqueue();
+                        observe_event(RuntimeOwnerWindowEvent::SuccessfulEnqueue);
                         runtime.record_submit(burst, block_bytes);
                         stats.submitted_count = stats.submitted_count.saturating_add(1);
                         break;
@@ -511,6 +583,7 @@ fn run_runtime_owner_window_inner_with_enqueue(
             }
         }
 
+        observe_event(RuntimeOwnerWindowEvent::BurstComplete);
         let completed_bursts = burst.saturating_add(1);
         let runtime_status = runtime.status(completed_bursts).expect("runtime status");
         observe_report(

@@ -51,6 +51,9 @@ fn remote_free_service_telemetry(c: &mut Criterion) {
     remote_free_service_runtime_service_window_harness::benchmark_runtime_dirty_local_collection_sequence(
         c,
     );
+    remote_free_service_runtime_service_window_harness::benchmark_runtime_dirty_local_burst_collection_sequence(
+        c,
+    );
 }
 
 criterion_group!(benches, remote_free_service_telemetry);
