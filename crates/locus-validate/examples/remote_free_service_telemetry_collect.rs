@@ -12,6 +12,7 @@ use std::{
 
 use locus_validate::{
     format_remote_free_service_telemetry_timing_stability_manifest,
+    remote_free_service_telemetry_repeated_capture_labels,
     summarize_remote_free_service_telemetry_timing_stability,
     RemoteFreeServiceTelemetryTimingStabilityRun,
 };
@@ -56,24 +57,29 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     } else {
         CollectionMode::SavedOutput
     };
+    let repeat_count = if collection_mode == CollectionMode::BenchmarkCapture
+        && args.first().is_some_and(|arg| arg == "--repeat")
+    {
+        if args.len() < 2 {
+            return Err(Box::new(usage_error(&program)));
+        }
+        let repeat_count = args[1].parse::<usize>().map_err(|error| {
+            io::Error::new(
+                io::ErrorKind::InvalidInput,
+                format!("invalid repeated benchmark capture count: {error}"),
+            )
+        })?;
+        args.drain(0..2);
+        Some(repeat_count)
+    } else {
+        None
+    };
     let criterion_args = split_criterion_args(&mut args);
 
-    if args.len() < 5 || (args.len() - 3) % 2 != 0 {
-        return Err(Box::new(usage_error(&program)));
-    }
-
-    let evidence_root = PathBuf::from(&args[0]);
-    let baseline = SourceRun {
-        label: args[1].clone(),
-        input: args[2].clone(),
+    let (evidence_root, baseline, candidates) = match repeat_count {
+        Some(count) => repeated_benchmark_sources(&program, &args, count)?,
+        None => explicit_sources(&program, &args)?,
     };
-    let candidates = args[3..]
-        .chunks_exact(2)
-        .map(|chunk| SourceRun {
-            label: chunk[0].clone(),
-            input: chunk[1].clone(),
-        })
-        .collect::<Vec<_>>();
     let candidate_labels = candidates
         .iter()
         .map(|candidate| candidate.label.clone())
@@ -130,6 +136,57 @@ impl CollectionMode {
             Self::BenchmarkCapture => "benchmark_capture",
         }
     }
+}
+
+fn explicit_sources(
+    program: &str,
+    args: &[String],
+) -> Result<(PathBuf, SourceRun, Vec<SourceRun>), Box<dyn std::error::Error>> {
+    if args.len() < 5 || (args.len() - 3) % 2 != 0 {
+        return Err(Box::new(usage_error(program)));
+    }
+
+    let evidence_root = PathBuf::from(&args[0]);
+    let baseline = SourceRun {
+        label: args[1].clone(),
+        input: args[2].clone(),
+    };
+    let candidates = args[3..]
+        .chunks_exact(2)
+        .map(|chunk| SourceRun {
+            label: chunk[0].clone(),
+            input: chunk[1].clone(),
+        })
+        .collect::<Vec<_>>();
+
+    Ok((evidence_root, baseline, candidates))
+}
+
+fn repeated_benchmark_sources(
+    program: &str,
+    args: &[String],
+    count: usize,
+) -> Result<(PathBuf, SourceRun, Vec<SourceRun>), Box<dyn std::error::Error>> {
+    if args.len() != 3 {
+        return Err(Box::new(usage_error(program)));
+    }
+
+    let evidence_root = PathBuf::from(&args[0]);
+    let labels = remote_free_service_telemetry_repeated_capture_labels(&args[1], count)?;
+    let benchmark_filter = &args[2];
+    let baseline = SourceRun {
+        label: labels[0].clone(),
+        input: benchmark_filter.clone(),
+    };
+    let candidates = labels[1..]
+        .iter()
+        .map(|label| SourceRun {
+            label: label.clone(),
+            input: benchmark_filter.clone(),
+        })
+        .collect::<Vec<_>>();
+
+    Ok((evidence_root, baseline, candidates))
 }
 
 fn split_criterion_args(args: &mut Vec<String>) -> Vec<String> {
@@ -258,7 +315,7 @@ fn usage_error(program: &str) -> io::Error {
     io::Error::new(
         io::ErrorKind::InvalidInput,
         format!(
-            "usage: {program} [--run-id <run-id>] <evidence-root> <baseline-label> <baseline-output> <candidate-label> <candidate-output> [candidate-label candidate-output ...]\n       {program} [--run-id <run-id>] --bench <evidence-root> <baseline-label> <baseline-filter> <candidate-label> <candidate-filter> [candidate-label candidate-filter ...] [-- <criterion-arg> ...]"
+            "usage: {program} [--run-id <run-id>] <evidence-root> <baseline-label> <baseline-output> <candidate-label> <candidate-output> [candidate-label candidate-output ...]\n       {program} [--run-id <run-id>] --bench <evidence-root> <baseline-label> <baseline-filter> <candidate-label> <candidate-filter> [candidate-label candidate-filter ...] [-- <criterion-arg> ...]\n       {program} [--run-id <run-id>] --bench --repeat <count> <evidence-root> <base-label> <benchmark-filter> [-- <criterion-arg> ...]"
         ),
     )
 }

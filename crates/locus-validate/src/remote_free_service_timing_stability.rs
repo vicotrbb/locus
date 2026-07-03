@@ -492,6 +492,39 @@ pub fn format_remote_free_service_telemetry_timing_stability_manifest(
     Ok(output)
 }
 
+/// Generates deterministic labels for a repeated direct-capture cohort.
+///
+/// The first label is intended to be used as the manifest baseline and the
+/// remaining labels as candidates. Labels are emitted as
+/// `<base_label>-<ordinal>`, with at least two ordinal digits.
+///
+/// # Errors
+///
+/// Returns an error when `count` is less than two or when the base label would
+/// produce invalid manifest labels.
+pub fn remote_free_service_telemetry_repeated_capture_labels(
+    base_label: &str,
+    count: usize,
+) -> Result<Vec<String>, RemoteFreeServiceTelemetryTimingStabilityManifestFormatError> {
+    if count < 2 {
+        return Err(
+            RemoteFreeServiceTelemetryTimingStabilityManifestFormatError::MissingCandidates,
+        );
+    }
+
+    validate_manifest_label(base_label)?;
+    let width = count.ilog10() as usize + 1;
+    let width = width.max(2);
+    let labels = (1..=count)
+        .map(|index| format!("{base_label}-{index:0width$}"))
+        .collect::<Vec<_>>();
+    for label in &labels {
+        validate_manifest_label(label)?;
+    }
+
+    Ok(labels)
+}
+
 /// Summarizes repeated remote-free service telemetry timing evidence.
 ///
 /// Each candidate is compared with the baseline. Counter-stable candidates
@@ -674,6 +707,7 @@ mod tests {
     use super::{
         format_remote_free_service_telemetry_timing_stability_manifest,
         parse_remote_free_service_telemetry_timing_stability_manifest,
+        remote_free_service_telemetry_repeated_capture_labels,
         summarize_remote_free_service_telemetry_timing_stability,
         RemoteFreeServiceTelemetryTimingStabilityError,
         RemoteFreeServiceTelemetryTimingStabilityManifestFormatError,
@@ -840,6 +874,53 @@ mod tests {
             .expect("parse");
         assert_eq!(parsed.baseline.label, "apply-confirm-a");
         assert_eq!(parsed.candidates.len(), 2);
+    }
+
+    #[test]
+    fn generates_repeated_capture_labels() {
+        let labels =
+            remote_free_service_telemetry_repeated_capture_labels("apply-confirm-repeat", 3)
+                .expect("labels");
+
+        assert_eq!(
+            labels,
+            [
+                "apply-confirm-repeat-01",
+                "apply-confirm-repeat-02",
+                "apply-confirm-repeat-03",
+            ]
+        );
+    }
+
+    #[test]
+    fn pads_repeated_capture_labels_for_large_cohorts() {
+        let labels =
+            remote_free_service_telemetry_repeated_capture_labels("run", 100).expect("labels");
+
+        assert_eq!(labels[0], "run-001");
+        assert_eq!(labels[99], "run-100");
+    }
+
+    #[test]
+    fn rejects_repeated_capture_without_candidates() {
+        let error = remote_free_service_telemetry_repeated_capture_labels("run", 1)
+            .expect_err("missing candidates");
+
+        assert!(matches!(
+            error,
+            RemoteFreeServiceTelemetryTimingStabilityManifestFormatError::MissingCandidates
+        ));
+    }
+
+    #[test]
+    fn rejects_invalid_repeated_capture_base_label() {
+        let error = remote_free_service_telemetry_repeated_capture_labels("../run", 2)
+            .expect_err("invalid label");
+
+        assert!(matches!(
+            error,
+            RemoteFreeServiceTelemetryTimingStabilityManifestFormatError::InvalidLabel(_)
+        ));
     }
 
     #[test]

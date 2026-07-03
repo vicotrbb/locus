@@ -47,6 +47,7 @@ pub use remote_free_service_sample_compare::{
 pub use remote_free_service_timing_stability::{
     format_remote_free_service_telemetry_timing_stability_manifest,
     parse_remote_free_service_telemetry_timing_stability_manifest,
+    remote_free_service_telemetry_repeated_capture_labels,
     summarize_remote_free_service_telemetry_timing_stability,
     RemoteFreeServiceTelemetryTimingStabilityDiscard,
     RemoteFreeServiceTelemetryTimingStabilityError,

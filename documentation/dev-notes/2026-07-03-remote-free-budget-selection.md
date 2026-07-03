@@ -526,6 +526,14 @@ outputs, `manifest.txt`, and `validation-summary.txt`. The summary reported
 `stable`, one accepted run, zero discarded runs, and one timing range from
 56,591,000 ps to 56,765,000 ps, for a 174,000 ps spread.
 
+Experiment 0229 added repeated direct capture to the same collector. One
+`--bench --repeat 3` command against
+`remote_free_service_runtime_apply_confirm` generated labels
+`apply-confirm-repeat-01` through `apply-confirm-repeat-03`, captured three
+JSON-enabled Criterion outputs, and produced a manifest-backed `stable`
+summary with two accepted candidate runs, zero discarded runs, and one timing
+range from 52,900,000 ps to 53,428,000 ps, for a 528,000 ps spread.
+
 ## Measured Thresholds
 
 | Path | Shape inputs | Budget | Matched counters |
