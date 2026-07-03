@@ -45,6 +45,13 @@ struct TraceStats {
     total_wait_bursts: u64,
 }
 
+#[derive(Debug, Clone, Copy)]
+struct CounterSummary {
+    min: u64,
+    max: u64,
+    sum: u64,
+}
+
 impl TracePolicy {
     fn end_drain() -> Self {
         Self {
@@ -59,6 +66,30 @@ impl TracePolicy {
             drain_policy: RemoteFreeDrainPolicy::new()
                 .with_max_pending_age(NonZeroU64::new(2).expect("non-zero")),
         }
+    }
+}
+
+impl CounterSummary {
+    fn new() -> Self {
+        Self {
+            min: u64::MAX,
+            max: 0,
+            sum: 0,
+        }
+    }
+
+    fn observe(&mut self, value: u64) {
+        self.min = self.min.min(value);
+        self.max = self.max.max(value);
+        self.sum = self.sum.saturating_add(value);
+    }
+
+    fn mean_milli(self, samples: u64) -> u64 {
+        self.sum.saturating_mul(1000) / samples
+    }
+
+    fn mean(self, samples: u64) -> u64 {
+        self.sum / samples
     }
 }
 
@@ -150,6 +181,66 @@ fn print_trace_sample(policy: TracePolicy, capacity: usize, batch_limit: usize) 
         format_milli(stats.mean_wait_milli())
     );
     assert_eq!(stats.released_bytes, TRACE_TOTAL_BYTES);
+
+    print_trace_sample_summary(policy, capacity, batch_limit);
+}
+
+fn print_trace_sample_summary(policy: TracePolicy, capacity: usize, batch_limit: usize) {
+    const SAMPLES: u64 = 8;
+
+    let mut full = CounterSummary::new();
+    let mut forced_drains = CounterSummary::new();
+    let mut policy_drains = CounterSummary::new();
+    let mut drain_rounds = CounterSummary::new();
+    let mut max_pending = CounterSummary::new();
+    let mut max_queued_bytes = CounterSummary::new();
+    let mut max_wait = CounterSummary::new();
+    let mut mean_wait = CounterSummary::new();
+
+    for _ in 0..SAMPLES {
+        let stats = run_trace_sample(capacity, batch_limit, policy);
+        full.observe(stats.full_count);
+        forced_drains.observe(stats.forced_drains);
+        policy_drains.observe(stats.policy_drains);
+        drain_rounds.observe(stats.drain_rounds);
+        max_pending.observe(stats.max_pending_count);
+        max_queued_bytes.observe(stats.max_queued_bytes);
+        max_wait.observe(stats.max_wait_bursts);
+        mean_wait.observe(stats.mean_wait_milli());
+        assert_eq!(stats.submitted_count, TRACE_BLOCKS);
+        assert_eq!(stats.drained_count, TRACE_BLOCKS);
+        assert_eq!(stats.queued_bytes, 0);
+        assert_eq!(stats.released_bytes, TRACE_TOTAL_BYTES);
+    }
+
+    let policy_label = policy.label;
+    println!(
+        "remote_free_mixed_size_policy_sample_summary={policy_label} blocks={TRACE_BLOCKS} bursts={TRACE_BURSTS} burst_blocks={TRACE_BURST_BLOCKS} capacity={capacity} batch_limit={batch_limit} samples={SAMPLES} full_min={} full_max={} full_mean={} forced_drains_min={} forced_drains_max={} forced_drains_mean={} policy_drains_min={} policy_drains_max={} policy_drains_mean={} drain_rounds_min={} drain_rounds_max={} drain_rounds_mean={} max_pending_min={} max_pending_max={} max_pending_mean={} max_queued_bytes_min={} max_queued_bytes_max={} max_queued_bytes_mean={} max_wait_min={} max_wait_max={} max_wait_mean={} mean_wait_min={} mean_wait_max={} mean_wait_mean={}",
+        full.min,
+        full.max,
+        format_milli(full.mean_milli(SAMPLES)),
+        forced_drains.min,
+        forced_drains.max,
+        format_milli(forced_drains.mean_milli(SAMPLES)),
+        policy_drains.min,
+        policy_drains.max,
+        format_milli(policy_drains.mean_milli(SAMPLES)),
+        drain_rounds.min,
+        drain_rounds.max,
+        format_milli(drain_rounds.mean_milli(SAMPLES)),
+        max_pending.min,
+        max_pending.max,
+        format_milli(max_pending.mean_milli(SAMPLES)),
+        max_queued_bytes.min,
+        max_queued_bytes.max,
+        max_queued_bytes.mean(SAMPLES),
+        max_wait.min,
+        max_wait.max,
+        format_milli(max_wait.mean_milli(SAMPLES)),
+        format_milli(mean_wait.min),
+        format_milli(mean_wait.max),
+        format_milli(mean_wait.mean(SAMPLES))
+    );
 }
 
 fn run_trace_sample(capacity: usize, batch_limit: usize, policy: TracePolicy) -> TraceStats {
