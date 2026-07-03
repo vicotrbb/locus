@@ -18,6 +18,7 @@ const GUARDED_MAX_MUTATIONS: u64 = 2;
 enum GuardedSequenceKind {
     ConfirmingCandidates,
     RollbackFailedCandidate,
+    MutationLimit,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -71,6 +72,7 @@ struct GuardedSequenceStats {
 pub fn benchmark_guarded_sequences(c: &mut Criterion) {
     benchmark_guarded_sequence_kind(c, GuardedSequenceKind::ConfirmingCandidates);
     benchmark_guarded_sequence_kind(c, GuardedSequenceKind::RollbackFailedCandidate);
+    benchmark_guarded_sequence_kind(c, GuardedSequenceKind::MutationLimit);
 }
 
 fn benchmark_guarded_sequence_kind(c: &mut Criterion, kind: GuardedSequenceKind) {
@@ -257,6 +259,7 @@ impl GuardedSequenceKind {
         match self {
             Self::ConfirmingCandidates => "remote_free_service_telemetry_guarded_confirming",
             Self::RollbackFailedCandidate => "remote_free_service_telemetry_guarded_rollback",
+            Self::MutationLimit => "remote_free_service_telemetry_guarded_mutation_limit",
         }
     }
 
@@ -264,6 +267,7 @@ impl GuardedSequenceKind {
         match self {
             Self::ConfirmingCandidates => "remote_free_service_guarded_confirming_sample",
             Self::RollbackFailedCandidate => "remote_free_service_guarded_rollback_sample",
+            Self::MutationLimit => "remote_free_service_guarded_mutation_limit_sample",
         }
     }
 
@@ -271,6 +275,7 @@ impl GuardedSequenceKind {
         match self {
             Self::ConfirmingCandidates => "remote_free_service_guarded_confirming_sample_summary",
             Self::RollbackFailedCandidate => "remote_free_service_guarded_rollback_sample_summary",
+            Self::MutationLimit => "remote_free_service_guarded_mutation_limit_sample_summary",
         }
     }
 
@@ -288,6 +293,17 @@ impl GuardedSequenceKind {
             Self::RollbackFailedCandidate => vec![
                 GuardedStep::Case(ServiceTelemetryCase::fixed_policy_all_clean()),
                 GuardedStep::Case(ServiceTelemetryCase::one_end_drain_owner()),
+                GuardedStep::Case(ServiceTelemetryCase::one_end_drain_owner()),
+                GuardedStep::Case(ServiceTelemetryCase::one_end_drain_owner()),
+            ],
+            Self::MutationLimit => vec![
+                GuardedStep::Case(ServiceTelemetryCase::fixed_policy_all_clean()),
+                GuardedStep::Case(ServiceTelemetryCase::one_end_drain_owner()),
+                GuardedStep::Case(ServiceTelemetryCase::one_end_drain_owner()),
+                GuardedStep::PendingCandidate,
+                GuardedStep::Case(ServiceTelemetryCase::one_capacity128_end_drain_owner()),
+                GuardedStep::Case(ServiceTelemetryCase::one_capacity128_end_drain_owner()),
+                GuardedStep::PendingCandidate,
                 GuardedStep::Case(ServiceTelemetryCase::one_end_drain_owner()),
                 GuardedStep::Case(ServiceTelemetryCase::one_end_drain_owner()),
             ],
@@ -347,6 +363,47 @@ impl GuardedSequenceKind {
                     decision: GuardedDecisionKind::Rollback,
                 },
             ],
+            Self::MutationLimit => vec![
+                GuardedExpectedStep {
+                    candidate: RemoteFreeServiceRetuneCandidate::KeepConfig,
+                    decision: GuardedDecisionKind::Hold,
+                },
+                GuardedExpectedStep {
+                    candidate: RemoteFreeServiceRetuneCandidate::DrainEarlier,
+                    decision: GuardedDecisionKind::Hold,
+                },
+                GuardedExpectedStep {
+                    candidate: RemoteFreeServiceRetuneCandidate::DrainEarlier,
+                    decision: GuardedDecisionKind::Apply,
+                },
+                GuardedExpectedStep {
+                    candidate: RemoteFreeServiceRetuneCandidate::DrainEarlier,
+                    decision: GuardedDecisionKind::Confirmed,
+                },
+                GuardedExpectedStep {
+                    candidate:
+                        RemoteFreeServiceRetuneCandidate::IncreaseQueueCapacityAndDrainEarlier,
+                    decision: GuardedDecisionKind::Hold,
+                },
+                GuardedExpectedStep {
+                    candidate:
+                        RemoteFreeServiceRetuneCandidate::IncreaseQueueCapacityAndDrainEarlier,
+                    decision: GuardedDecisionKind::Apply,
+                },
+                GuardedExpectedStep {
+                    candidate:
+                        RemoteFreeServiceRetuneCandidate::IncreaseQueueCapacityAndDrainEarlier,
+                    decision: GuardedDecisionKind::Confirmed,
+                },
+                GuardedExpectedStep {
+                    candidate: RemoteFreeServiceRetuneCandidate::DrainEarlier,
+                    decision: GuardedDecisionKind::Hold,
+                },
+                GuardedExpectedStep {
+                    candidate: RemoteFreeServiceRetuneCandidate::DrainEarlier,
+                    decision: GuardedDecisionKind::MutationLimitReached,
+                },
+            ],
         }
     }
 
@@ -354,6 +411,7 @@ impl GuardedSequenceKind {
         match self {
             Self::ConfirmingCandidates => 7,
             Self::RollbackFailedCandidate => 4,
+            Self::MutationLimit => 9,
         }
     }
 
@@ -361,6 +419,7 @@ impl GuardedSequenceKind {
         match self {
             Self::ConfirmingCandidates => 96,
             Self::RollbackFailedCandidate => 52,
+            Self::MutationLimit => 120,
         }
     }
 
@@ -368,40 +427,50 @@ impl GuardedSequenceKind {
         match self {
             Self::ConfirmingCandidates => 24,
             Self::RollbackFailedCandidate => 18,
+            Self::MutationLimit => 36,
         }
     }
 
     fn expected_queue_backpressure_reports(self) -> u64 {
         match self {
-            Self::ConfirmingCandidates => 8,
             Self::RollbackFailedCandidate => 0,
+            Self::ConfirmingCandidates | Self::MutationLimit => 8,
         }
     }
 
     fn expected_apply_decisions(self) -> u64 {
         match self {
-            Self::ConfirmingCandidates => 2,
             Self::RollbackFailedCandidate => 1,
+            Self::ConfirmingCandidates | Self::MutationLimit => 2,
         }
     }
 
     fn expected_confirmed_decisions(self) -> u64 {
         match self {
-            Self::ConfirmingCandidates => 2,
             Self::RollbackFailedCandidate => 0,
+            Self::ConfirmingCandidates | Self::MutationLimit => 2,
         }
     }
 
     fn expected_rollback_decisions(self) -> u64 {
         match self {
-            Self::ConfirmingCandidates => 0,
             Self::RollbackFailedCandidate => 1,
+            Self::ConfirmingCandidates | Self::MutationLimit => 0,
+        }
+    }
+
+    fn expected_mutation_limit_decisions(self) -> u64 {
+        match self {
+            Self::ConfirmingCandidates | Self::RollbackFailedCandidate => 0,
+            Self::MutationLimit => 1,
         }
     }
 
     fn expected_max_queued_bytes_over_budget(self) -> u64 {
         match self {
-            Self::ConfirmingCandidates | Self::RollbackFailedCandidate => 786_432,
+            Self::ConfirmingCandidates | Self::RollbackFailedCandidate | Self::MutationLimit => {
+                786_432
+            }
         }
     }
 
@@ -409,6 +478,7 @@ impl GuardedSequenceKind {
         match self {
             Self::ConfirmingCandidates => 1_821,
             Self::RollbackFailedCandidate => 2_062,
+            Self::MutationLimit => 1_916,
         }
     }
 }
@@ -559,7 +629,10 @@ fn assert_guarded_sequence(kind: GuardedSequenceKind, stats: GuardedSequenceStat
         kind.expected_confirmed_decisions()
     );
     assert_eq!(stats.rollback_decisions, kind.expected_rollback_decisions());
-    assert_eq!(stats.mutation_limit_decisions, 0);
+    assert_eq!(
+        stats.mutation_limit_decisions,
+        kind.expected_mutation_limit_decisions()
+    );
     assert_eq!(stats.max_wait_bursts, 8);
     assert_eq!(stats.mean_wait_milli(), kind.expected_mean_wait_milli());
     assert_eq!(stats.final_pending_candidate, None);

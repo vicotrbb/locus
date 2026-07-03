@@ -203,6 +203,12 @@ rollback benchmark emitted one apply decision, rejected a non-clean validation
 window with one rollback, and preserved 4096 submitted blocks, 4096 drained
 blocks, and 16,777,216 released bytes.
 
+Experiment 0196 measured the guarded mutation-limit path. After two confirmed
+candidate applications, a third stable `drain_earlier` candidate emitted one
+`mutation_limit_reached` decision, zero additional apply decisions, and no
+pending validation candidate while preserving 9216 submitted blocks, 9216
+drained blocks, and 37,748,736 released bytes.
+
 ## Measured Thresholds
 
 | Path | Shape inputs | Budget | Matched counters |
@@ -246,6 +252,9 @@ blocks, and 16,777,216 released bytes.
 13. Use `RemoteFreeServiceRetuneGuard` when translating stable dry-run signals
     into explicit apply, confirm, rollback, or mutation-limit decisions. The
     guard still does not mutate policy directly.
+14. Treat `mutation_limit_reached` as a hold decision for live policy and
+    record it in service telemetry before allowing any later retune window to
+    apply.
 
 ## Guardrails
 
@@ -270,6 +279,9 @@ blocks, and 16,777,216 released bytes.
   keep `would_apply` at none.
 - Do not apply a guarded candidate without feeding the next service window back
   to the guard for confirmation or rollback.
+- Do not ignore guarded mutation-limit decisions. They mean the service should
+  hold its current policy and record telemetry instead of applying another
+  candidate.
 - Recheck thresholds when KV block size, request arena capacity, burst size,
   request concurrency, or batch size changes.
 - For heterogeneous traces, derive the budget from actual retained item sizes
@@ -302,11 +314,12 @@ blocks, and 16,777,216 released bytes.
 - `documentation/experiments/0193-remote-free-dry-run-service-planner.md`
 - `documentation/experiments/0194-remote-free-dry-run-oscillation.md`
 - `documentation/experiments/0195-remote-free-guarded-retune-plan.md`
+- `documentation/experiments/0196-remote-free-guarded-mutation-limit.md`
 
 ## Open Questions
 
-- Should the next benchmark exercise the guarded mutation-limit path before a
-  production-facing policy application API is introduced?
+- What is the smallest production-facing policy application API that can
+  consume guarded decisions without giving telemetry direct mutation authority?
 - Which workload signal should set the retained item window in production:
   scheduler turn age, active request concurrency, KV cache pressure, or memory
   pressure from observability counters?
