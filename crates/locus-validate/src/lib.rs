@@ -33,6 +33,8 @@ pub use thp_benchmark_evidence_report::{
     parse_mapped_scratch_thp_benchmark_evidence_report_output,
     MappedScratchThpBenchmarkEvidenceReason, MappedScratchThpBenchmarkEvidenceReport,
     MappedScratchThpBenchmarkEvidenceReportParseError, MappedScratchThpBenchmarkEvidenceStatus,
+    MappedScratchThpBenchmarkTimings, MappedScratchThpBenchmarkTimingsParseError,
+    MappedScratchThpTimingInterval,
 };
 pub use thp_fault_sample_comparison::{
     parse_mapped_scratch_thp_fault_sample_comparison_line,

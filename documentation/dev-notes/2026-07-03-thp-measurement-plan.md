@@ -39,11 +39,11 @@ docker run --rm -v "$PWD":/work -w /work rust:1.96 cargo bench -p locus-alloc --
 docker run --rm -v "$PWD":/work -w /work rust:1.96 cargo run -p locus-validate --example live_mapped_scratch_thp_validation_gate
 ```
 
-Run the gate before and after the benchmark so an environment change is visible. The benchmark log should contain three `thp_page_sample=` lines, three `fault_sample=` lines, and the Criterion timing blocks. Increase sample size for any result that will influence allocator policy.
+Run the gate before and after the benchmark so an environment change is visible. The benchmark log should contain three `thp_page_sample=` lines, three `fault_sample=` lines, and the Criterion timing blocks. Run `mapped_scratch_thp_benchmark_evidence_report` on the saved benchmark log to get one compact line with page-size evidence, fault deltas, and normalized timing intervals. Increase sample size for any result that will influence allocator policy.
 
 ## Next Questions
 
 - Which Linux host or container configuration exposes `numa_maps` page-size evidence for this mapping?
 - Does the `hugepage` advice case remain faster across repeated runs and larger sample sizes?
 - Does ready gate evidence correlate with the faster first-touch benchmark result?
-- Should the combined THP benchmark evidence report also parse Criterion timing intervals, or should timing stay in the raw benchmark log until repeated-run reporting is stronger?
+- Should repeated THP benchmark reports aggregate multiple compact evidence lines, or should repeated-run analysis stay outside the repository until a stable Linux host is available?
