@@ -5,6 +5,7 @@ use std::{num::NonZeroU64, sync::mpsc::sync_channel, thread};
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use locus_alloc::{
     KvBlockHandle, KvBlockPool, RemoteFreeDrainController, RemoteFreeDrainPolicy, RemoteFreeQueue,
+    RemoteFreeQueuedByteBudget,
 };
 use locus_core::NodeId;
 
@@ -19,7 +20,6 @@ const BLOCKS_U64: u64 = 256;
 const BURST_BLOCKS_U64: u64 = 32;
 const TOTAL_BYTES: u64 = BLOCKS_U64 * BLOCK_SIZE_U64;
 const TARGET_PENDING_BLOCKS: u64 = 64;
-const TARGET_QUEUED_BYTES: u64 = TARGET_PENDING_BLOCKS * BLOCK_SIZE_U64;
 
 enum RemoteCompletionCommand {
     Run(Vec<KvBlockHandle>),
@@ -73,8 +73,12 @@ impl KvPolicyCase {
     fn max_queued256kib() -> Self {
         Self {
             label: "max_queued256kib",
-            drain_policy: RemoteFreeDrainPolicy::new()
-                .with_max_queued_bytes(NonZeroU64::new(TARGET_QUEUED_BYTES).expect("non-zero")),
+            drain_policy: RemoteFreeQueuedByteBudget::from_item_shape(
+                TARGET_PENDING_BLOCKS,
+                BLOCK_SIZE_U64,
+            )
+            .expect("queued-byte budget")
+            .into_policy(),
         }
     }
 }

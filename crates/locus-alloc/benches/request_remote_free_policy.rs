@@ -4,7 +4,8 @@ use std::{alloc::Layout, num::NonZeroU64, sync::mpsc::sync_channel, thread};
 
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use locus_alloc::{
-    RemoteFreeDrainController, RemoteFreeDrainPolicy, RemoteFreeQueue, RequestScratchPool,
+    RemoteFreeDrainController, RemoteFreeDrainPolicy, RemoteFreeQueue, RemoteFreeQueuedByteBudget,
+    RequestScratchPool,
 };
 use locus_core::{NodeId, RequestHome, RequestId};
 
@@ -21,7 +22,6 @@ const QUEUE_CAPACITY: usize = 16;
 const BATCH_LIMIT: usize = 8;
 const TOTAL_TRACKED_BYTES: u64 = REQUESTS_U64 * ARENA_CAPACITY_U64;
 const TARGET_PENDING_REQUESTS: u64 = 8;
-const TARGET_QUEUED_BYTES: u64 = TARGET_PENDING_REQUESTS * ARENA_CAPACITY_U64;
 
 enum RemoteCompletionCommand {
     Run(Vec<RequestId>),
@@ -75,8 +75,12 @@ impl RequestPolicyCase {
     fn max_queued256kib() -> Self {
         Self {
             label: "max_queued256kib",
-            drain_policy: RemoteFreeDrainPolicy::new()
-                .with_max_queued_bytes(NonZeroU64::new(TARGET_QUEUED_BYTES).expect("non-zero")),
+            drain_policy: RemoteFreeQueuedByteBudget::from_item_shape(
+                TARGET_PENDING_REQUESTS,
+                ARENA_CAPACITY_U64,
+            )
+            .expect("queued-byte budget")
+            .into_policy(),
         }
     }
 }
