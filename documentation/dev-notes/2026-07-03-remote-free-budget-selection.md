@@ -770,6 +770,11 @@ saved verifier log, while a controlled stale `records=1` summary reports
 `field=records`, expected `2`, actual `1`, and strict verification rejects it
 with `CountDrift`.
 
+Experiment 0265 added compact JSON verdicts for verifier-summary drift checks.
+The real archive emits `status=matched` with `drift=null`, while a controlled
+stale `records=1` summary emits `status=drifted` with `drift.field=records`,
+expected `2`, and actual `1`.
+
 ## Measured Thresholds
 
 | Path | Shape inputs | Budget | Matched counters |
@@ -1169,6 +1174,7 @@ with `CountDrift`.
 - `documentation/experiments/0262-remote-free-service-telemetry-rollup-check-log-summary-verdict-rollup-verification-summary.md`
 - `documentation/experiments/0263-remote-free-service-telemetry-rollup-check-log-summary-verdict-rollup-verification-summary-parser.md`
 - `documentation/experiments/0264-remote-free-service-telemetry-rollup-check-log-summary-verdict-rollup-verification-summary-drift.md`
+- `documentation/experiments/0265-remote-free-service-telemetry-rollup-check-log-summary-verdict-rollup-verification-summary-drift-json.md`
 
 ## Open Questions
 
