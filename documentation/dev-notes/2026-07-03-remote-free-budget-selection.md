@@ -253,6 +253,15 @@ candidate while preserving 2048 submitted blocks, 2048 drained blocks,
 8,388,608 released bytes, two installs, two confirms, zero rollbacks, and four
 runtime no-change outcomes.
 
+Experiment 0203 added runtime-collected rollback from a real validation
+failure. After two 4096-byte capacity-128 owner windows produced a stable
+`increase_queue_capacity_and_drain_earlier` apply, the validation window
+allocated 8193-byte blocks and recorded their true retained bytes. Runtime
+telemetry reported retained-byte drift, the guard rolled back, and the runtime
+restored capacity 128 while preserving 768 submitted blocks, 768 drained
+blocks, 4,194,560 released bytes, one install, one rollback, zero confirms,
+and one no-change outcome.
+
 ## Measured Thresholds
 
 | Path | Shape inputs | Budget | Matched counters |
@@ -316,6 +325,9 @@ runtime no-change outcomes.
 20. Treat the service guard as the owner-spanning mutation budget when multiple
     runtimes report drift. A later drifting owner must hold when the service
     mutation budget is exhausted.
+21. Validate applied configs against the current retained-byte workload shape.
+    If block or arena size changes after apply, runtime-collected byte drift
+    should roll back the candidate rather than confirming stale sizing.
 
 ## Guardrails
 
@@ -357,6 +369,9 @@ runtime no-change outcomes.
 - Do not reset the service guard per owner when enforcing a service-wide
   mutation budget. The mutation limit is only meaningful across owners when the
   guard state is shared.
+- Do not confirm an applied config after validation reports retained-byte
+  drift. Roll back and remeasure the workload shape before deriving a new
+  queued-byte budget.
 - Recheck thresholds when KV block size, request arena capacity, burst size,
   request concurrency, or batch size changes.
 - For heterogeneous traces, derive the budget from actual retained item sizes
@@ -396,11 +411,10 @@ runtime no-change outcomes.
 - `documentation/experiments/0200-remote-free-guarded-runtime-sequence.md`
 - `documentation/experiments/0201-remote-free-runtime-collected-guarded-confirm.md`
 - `documentation/experiments/0202-remote-free-runtime-collected-multi-owner-mutation-limit.md`
+- `documentation/experiments/0203-remote-free-runtime-collected-rollback-byte-drift.md`
 
 ## Open Questions
 
-- How should runtime-collected telemetry drive rollback after a failed
-  validation window without synthetic summaries?
 - How should the guarded runtime sequence move from benchmark orchestration to
   reusable multi-owner runtime orchestration?
 - Which workload signal should set the retained item window in production:

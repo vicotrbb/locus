@@ -373,16 +373,32 @@ pub(crate) fn run_runtime_owner_window(
     runtime: &mut RemoteFreeOwnerRuntime<RuntimeTraceBlock>,
     stats: &mut RuntimeApplicationStats,
 ) {
-    run_runtime_owner_window_inner(runtime, stats, |_| {});
+    run_runtime_owner_window_with_block_bytes(runtime, stats, BYTES_PER_BLOCK);
 }
 
 pub(crate) fn run_runtime_owner_window_with_summary(
     runtime: &mut RemoteFreeOwnerRuntime<RuntimeTraceBlock>,
     stats: &mut RuntimeApplicationStats,
 ) -> RemoteFreeServiceRetuneSummary {
+    run_runtime_owner_window_with_summary_and_block_bytes(runtime, stats, BYTES_PER_BLOCK)
+}
+
+pub(crate) fn run_runtime_owner_window_with_block_bytes(
+    runtime: &mut RemoteFreeOwnerRuntime<RuntimeTraceBlock>,
+    stats: &mut RuntimeApplicationStats,
+    block_bytes: u64,
+) {
+    run_runtime_owner_window_inner(runtime, stats, block_bytes, |_| {});
+}
+
+pub(crate) fn run_runtime_owner_window_with_summary_and_block_bytes(
+    runtime: &mut RemoteFreeOwnerRuntime<RuntimeTraceBlock>,
+    stats: &mut RuntimeApplicationStats,
+    block_bytes: u64,
+) -> RemoteFreeServiceRetuneSummary {
     let mut summary = RemoteFreeServiceRetuneSummary::new();
 
-    run_runtime_owner_window_inner(runtime, stats, |report| {
+    run_runtime_owner_window_inner(runtime, stats, block_bytes, |report| {
         summary.observe_report(report);
     });
 
@@ -392,6 +408,7 @@ pub(crate) fn run_runtime_owner_window_with_summary(
 fn run_runtime_owner_window_inner(
     runtime: &mut RemoteFreeOwnerRuntime<RuntimeTraceBlock>,
     stats: &mut RuntimeApplicationStats,
+    block_bytes: u64,
     mut observe_report: impl FnMut(RemoteFreeQueuedByteDriftReport),
 ) {
     let sink = runtime.sink();
@@ -400,13 +417,13 @@ fn run_runtime_owner_window_inner(
         for _ in 0..BURST_BLOCKS {
             let mut block = RuntimeTraceBlock {
                 submit_burst: burst,
-                allocation: vec![0_u8; usize::try_from(BYTES_PER_BLOCK).expect("block size")],
+                allocation: vec![0_u8; usize::try_from(block_bytes).expect("block size")],
             };
 
             loop {
                 match sink.try_enqueue(block) {
                     Ok(()) => {
-                        runtime.record_submit(burst, BYTES_PER_BLOCK);
+                        runtime.record_submit(burst, block_bytes);
                         stats.submitted_count = stats.submitted_count.saturating_add(1);
                         break;
                     }
