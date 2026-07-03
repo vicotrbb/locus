@@ -143,6 +143,11 @@ End-drain reported `drain_earlier` against the 64-block, 262,144-byte target,
 while both max-wait-2 and queued-byte KV policies reported `keep_config` with
 real `KvBlockHandle` release through `KvBlockPool::free`.
 
+Experiment 0187 wired `retune_action` into the request remote-free benchmark.
+End-drain reported `drain_earlier` against the 8-request, 262,144-byte target,
+while both max-wait-2 and queued-byte request policies reported `keep_config`
+with real `RequestScratchPool::close_request` release.
+
 ## Measured Thresholds
 
 | Path | Shape inputs | Budget | Matched counters |
@@ -202,11 +207,11 @@ real `KvBlockHandle` release through `KvBlockPool::free`.
 - `documentation/experiments/0184-remote-free-retune-action-helper.md`
 - `documentation/experiments/0185-remote-free-owner-loop-retune-action.md`
 - `documentation/experiments/0186-kv-remote-free-retune-action.md`
+- `documentation/experiments/0187-request-remote-free-retune-action.md`
 
 ## Open Questions
 
-- Should request arenas or service-level telemetry be the next
-  `retune_action` surface?
+- Should service-level telemetry be the next `retune_action` surface?
 - Which workload signal should set the retained item window in production:
   scheduler turn age, active request concurrency, KV cache pressure, or memory
   pressure from observability counters?
