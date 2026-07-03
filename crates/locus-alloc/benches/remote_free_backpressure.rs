@@ -12,6 +12,33 @@ enum ProducerCommand {
     Stop,
 }
 
+#[derive(Debug, Clone, Copy)]
+struct CounterSummary {
+    min: u64,
+    max: u64,
+    sum: u64,
+}
+
+impl CounterSummary {
+    fn new() -> Self {
+        Self {
+            min: u64::MAX,
+            max: 0,
+            sum: 0,
+        }
+    }
+
+    fn observe(&mut self, value: u64) {
+        self.min = self.min.min(value);
+        self.max = self.max.max(value);
+        self.sum = self.sum.saturating_add(value);
+    }
+
+    fn mean_milli(self, samples: u64) -> u64 {
+        self.sum.saturating_mul(1000) / samples
+    }
+}
+
 fn remote_free_try_enqueue_backpressure_batch8(c: &mut Criterion) {
     print_backpressure_sample("batch8", 8, 8);
     remote_free_try_enqueue_backpressure(
@@ -110,6 +137,38 @@ fn print_backpressure_sample(label: &'static str, capacity: usize, batch_limit: 
         stats.full_count,
         stats.disconnected_count
     );
+
+    print_backpressure_sample_summary(label, capacity, batch_limit);
+}
+
+fn print_backpressure_sample_summary(label: &'static str, capacity: usize, batch_limit: usize) {
+    const SAMPLES: u64 = 8;
+
+    let mut full = CounterSummary::new();
+    let mut pending = CounterSummary::new();
+
+    for _ in 0..SAMPLES {
+        let stats = run_backpressure_sample(capacity, batch_limit);
+        full.observe(stats.full_count);
+        pending.observe(stats.pending_count);
+        assert_eq!(stats.submitted_count, 256);
+        assert_eq!(stats.drained_count, 256);
+        assert_eq!(stats.disconnected_count, 0);
+    }
+
+    println!(
+        "remote_free_backpressure_sample_summary={label} blocks=256 capacity={capacity} batch_limit={batch_limit} samples={SAMPLES} full_min={} full_max={} full_mean={} pending_min={} pending_max={} pending_mean={}",
+        full.min,
+        full.max,
+        format_milli(full.mean_milli(SAMPLES)),
+        pending.min,
+        pending.max,
+        format_milli(pending.mean_milli(SAMPLES))
+    );
+}
+
+fn format_milli(value: u64) -> String {
+    format!("{}.{:03}", value / 1000, value % 1000)
 }
 
 fn run_backpressure_sample(capacity: usize, batch_limit: usize) -> RemoteFreeQueueStats {
