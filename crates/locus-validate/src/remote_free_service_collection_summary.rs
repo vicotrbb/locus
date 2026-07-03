@@ -124,6 +124,29 @@ pub struct RemoteFreeServiceTelemetryCollectionSummaryRollupCheck {
     pub bundle_hosts_missing: u64,
 }
 
+/// Aggregated report for rollup release-check JSON records found in a saved log.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct RemoteFreeServiceTelemetryCollectionSummaryRollupCheckLogSummary {
+    /// Number of parsed JSON records.
+    pub records: u64,
+    /// Number of records with rollup refresh host metadata.
+    pub rollup_hosts_present: u64,
+    /// Number of records without rollup refresh host metadata.
+    pub rollup_hosts_missing: u64,
+    /// Number of bundle rows carrying capture host metadata.
+    pub bundle_hosts: u64,
+    /// Number of bundle rows without capture host metadata.
+    pub bundle_hosts_missing: u64,
+    /// Number of valid bundle rows across records.
+    pub status_valid_bundles: u64,
+    /// Number of drifted summary rows across records.
+    pub status_drifted_summaries: u64,
+    /// Number of missing artifact rows across records.
+    pub status_missing_artifacts: u64,
+    /// Number of other failure rows across records.
+    pub status_other_failures: u64,
+}
+
 /// Collection summary rollup data used to write schema v2 artifacts.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RemoteFreeServiceTelemetryCollectionSummaryRollup {
@@ -259,6 +282,24 @@ impl fmt::Display for RemoteFreeServiceTelemetryCollectionSummaryRollupCheck {
             self.drifted_summaries,
             self.missing_artifacts,
             self.other_failures
+        )
+    }
+}
+
+impl fmt::Display for RemoteFreeServiceTelemetryCollectionSummaryRollupCheckLogSummary {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "remote_free_service_telemetry_collection_summary_rollup_check_log=ok records={} rollup_hosts_present={} rollup_hosts_missing={} bundle_hosts={} bundle_hosts_missing={} status_valid_bundles={} status_drifted_summaries={} status_missing_artifacts={} status_other_failures={}",
+            self.records,
+            self.rollup_hosts_present,
+            self.rollup_hosts_missing,
+            self.bundle_hosts,
+            self.bundle_hosts_missing,
+            self.status_valid_bundles,
+            self.status_drifted_summaries,
+            self.status_missing_artifacts,
+            self.status_other_failures
         )
     }
 }
@@ -475,6 +516,8 @@ pub enum RemoteFreeServiceTelemetryCollectionSummaryRollupError {
         /// Actual value.
         actual: String,
     },
+    /// Aggregating parsed records overflowed a counter.
+    CountOverflow(&'static str),
     /// The artifact contains failed bundle rows.
     FailedBundles {
         /// Number of valid bundle rows.
@@ -545,6 +588,10 @@ impl fmt::Display for RemoteFreeServiceTelemetryCollectionSummaryRollupError {
                 f,
                 "remote-free service telemetry collection summary rollup JSON field drift: field={field} expected={expected} actual={actual}"
             ),
+            Self::CountOverflow(field) => write!(
+                f,
+                "remote-free service telemetry collection summary rollup count overflow: {field}"
+            ),
             Self::FailedBundles {
                 valid_bundles,
                 drifted_summaries,
@@ -569,6 +616,7 @@ impl std::error::Error for RemoteFreeServiceTelemetryCollectionSummaryRollupErro
             | Self::UnknownBundleStatus { .. }
             | Self::CountDrift { .. }
             | Self::JsonFieldDrift { .. }
+            | Self::CountOverflow(_)
             | Self::FailedBundles { .. } => None,
         }
     }
@@ -1062,6 +1110,89 @@ pub fn parse_remote_free_service_telemetry_collection_summary_rollup_check_json_
     Ok(check)
 }
 
+/// Summarizes rollup check JSON records found in a saved log.
+///
+/// # Errors
+///
+/// Returns an error when no JSON records are found, a record cannot be parsed,
+/// or aggregate counters overflow.
+pub fn summarize_remote_free_service_telemetry_collection_summary_rollup_check_json_log(
+    input: &str,
+) -> Result<
+    RemoteFreeServiceTelemetryCollectionSummaryRollupCheckLogSummary,
+    RemoteFreeServiceTelemetryCollectionSummaryRollupError,
+> {
+    let mut summary = RemoteFreeServiceTelemetryCollectionSummaryRollupCheckLogSummary::default();
+    for line in input.lines().map(str::trim).filter(|line| !line.is_empty()) {
+        if line.starts_with('{') {
+            let check =
+                parse_remote_free_service_telemetry_collection_summary_rollup_check_json_line(
+                    line,
+                )?;
+            add_rollup_check_to_log_summary(&mut summary, &check)?;
+        }
+    }
+    if summary.records == 0 {
+        return Err(
+            RemoteFreeServiceTelemetryCollectionSummaryRollupError::MissingField(
+                "rollup_check_json_line",
+            ),
+        );
+    }
+    Ok(summary)
+}
+
+fn add_rollup_check_to_log_summary(
+    summary: &mut RemoteFreeServiceTelemetryCollectionSummaryRollupCheckLogSummary,
+    check: &RemoteFreeServiceTelemetryCollectionSummaryRollupCheck,
+) -> Result<(), RemoteFreeServiceTelemetryCollectionSummaryRollupError> {
+    summary.records = checked_add_rollup_check_log_summary_count(summary.records, 1, "records")?;
+    if check.rollup_host_present {
+        summary.rollup_hosts_present = checked_add_rollup_check_log_summary_count(
+            summary.rollup_hosts_present,
+            1,
+            "rollup_hosts_present",
+        )?;
+    } else {
+        summary.rollup_hosts_missing = checked_add_rollup_check_log_summary_count(
+            summary.rollup_hosts_missing,
+            1,
+            "rollup_hosts_missing",
+        )?;
+    }
+    summary.bundle_hosts = checked_add_rollup_check_log_summary_count(
+        summary.bundle_hosts,
+        check.bundle_hosts,
+        "bundle_hosts",
+    )?;
+    summary.bundle_hosts_missing = checked_add_rollup_check_log_summary_count(
+        summary.bundle_hosts_missing,
+        check.bundle_hosts_missing,
+        "bundle_hosts_missing",
+    )?;
+    summary.status_valid_bundles = checked_add_rollup_check_log_summary_count(
+        summary.status_valid_bundles,
+        check.valid_bundles,
+        "status_valid_bundles",
+    )?;
+    summary.status_drifted_summaries = checked_add_rollup_check_log_summary_count(
+        summary.status_drifted_summaries,
+        check.drifted_summaries,
+        "status_drifted_summaries",
+    )?;
+    summary.status_missing_artifacts = checked_add_rollup_check_log_summary_count(
+        summary.status_missing_artifacts,
+        check.missing_artifacts,
+        "status_missing_artifacts",
+    )?;
+    summary.status_other_failures = checked_add_rollup_check_log_summary_count(
+        summary.status_other_failures,
+        check.other_failures,
+        "status_other_failures",
+    )?;
+    Ok(())
+}
+
 fn require_rollup_check_json_schema(
     value: &Value,
 ) -> Result<(), RemoteFreeServiceTelemetryCollectionSummaryRollupError> {
@@ -1501,6 +1632,15 @@ fn require_rollup_json_field(
     }
 }
 
+fn checked_add_rollup_check_log_summary_count(
+    lhs: u64,
+    rhs: u64,
+    field: &'static str,
+) -> Result<u64, RemoteFreeServiceTelemetryCollectionSummaryRollupError> {
+    lhs.checked_add(rhs)
+        .ok_or(RemoteFreeServiceTelemetryCollectionSummaryRollupError::CountOverflow(field))
+}
+
 fn rollup_artifact_fingerprint(text: &str) -> String {
     const FNV_OFFSET_BASIS: u64 = 0xcbf2_9ce4_8422_2325;
     const FNV_PRIME: u64 = 0x0000_0100_0000_01b3;
@@ -1601,6 +1741,7 @@ mod tests {
         resolve_remote_free_service_telemetry_collection_summary_manifest_path,
         resolve_remote_free_service_telemetry_collection_summary_validation_summary_path,
         rollup_artifact_fingerprint,
+        summarize_remote_free_service_telemetry_collection_summary_rollup_check_json_log,
         validate_remote_free_service_telemetry_collection_summary_rollup_artifact,
         verify_remote_free_service_telemetry_collection_summary_artifacts,
         write_remote_free_service_telemetry_collection_summary_rollup_artifact,
@@ -1847,6 +1988,26 @@ mod tests {
             rollup_host_present: true,
             bundle_hosts: 1,
             bundle_hosts_missing: 0,
+        }
+    }
+
+    fn sample_rollup_check_without_bundle_host(
+    ) -> RemoteFreeServiceTelemetryCollectionSummaryRollupCheck {
+        RemoteFreeServiceTelemetryCollectionSummaryRollupCheck {
+            path: std::path::PathBuf::from("target/locus-evidence/no-host-rollup.json"),
+            schema: "locus.remote_free_service.telemetry.collection_summary_rollup.v2".to_owned(),
+            artifact_bytes: 591,
+            artifact_fingerprint: "fnv1a64:f788b8ab364b6e1b".to_owned(),
+            summaries: 1,
+            valid_bundles: 1,
+            drifted_summaries: 0,
+            missing_artifacts: 0,
+            other_failures: 0,
+            timing_ranges: 1,
+            bundles: 1,
+            rollup_host_present: true,
+            bundle_hosts: 0,
+            bundle_hosts_missing: 1,
         }
     }
 
@@ -2350,6 +2511,74 @@ mod tests {
                 field: "artifact.fingerprint",
                 ..
             }
+        ));
+        Ok(())
+    }
+
+    #[test]
+    fn summarizes_rollup_check_json_log() -> Result<(), Box<dyn std::error::Error>> {
+        let first = sample_rollup_check();
+        let second = sample_rollup_check_without_bundle_host();
+        let first_line =
+            format_remote_free_service_telemetry_collection_summary_rollup_check_json_line(&first)?;
+        let second_line =
+            format_remote_free_service_telemetry_collection_summary_rollup_check_json_line(
+                &second,
+            )?;
+        let log = format!("{first}\n{first_line}\n{second}\n{second_line}\n");
+
+        let summary =
+            summarize_remote_free_service_telemetry_collection_summary_rollup_check_json_log(&log)?;
+
+        assert_eq!(summary.records, 2);
+        assert_eq!(summary.rollup_hosts_present, 2);
+        assert_eq!(summary.rollup_hosts_missing, 0);
+        assert_eq!(summary.bundle_hosts, 1);
+        assert_eq!(summary.bundle_hosts_missing, 1);
+        assert_eq!(summary.status_valid_bundles, 2);
+        assert_eq!(summary.status_drifted_summaries, 0);
+        assert_eq!(summary.status_missing_artifacts, 0);
+        assert_eq!(summary.status_other_failures, 0);
+        assert_eq!(
+            summary.to_string(),
+            "remote_free_service_telemetry_collection_summary_rollup_check_log=ok records=2 rollup_hosts_present=2 rollup_hosts_missing=0 bundle_hosts=1 bundle_hosts_missing=1 status_valid_bundles=2 status_drifted_summaries=0 status_missing_artifacts=0 status_other_failures=0"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn rejects_rollup_check_json_log_without_records() {
+        let error =
+            summarize_remote_free_service_telemetry_collection_summary_rollup_check_json_log(
+                "cargo build finished\nno json here\n",
+            )
+            .expect_err("missing records");
+
+        assert!(matches!(
+            error,
+            RemoteFreeServiceTelemetryCollectionSummaryRollupError::MissingField(
+                "rollup_check_json_line"
+            )
+        ));
+    }
+
+    #[test]
+    fn rejects_rollup_check_json_log_schema_drift() -> Result<(), Box<dyn std::error::Error>> {
+        let check = sample_rollup_check();
+        let json_line =
+            format_remote_free_service_telemetry_collection_summary_rollup_check_json_line(&check)?;
+        let mut value = serde_json::from_str::<serde_json::Value>(&json_line)?;
+        value["schema"] =
+            json!("locus.remote_free_service.telemetry.collection_summary_rollup_check.v0");
+        let log = format!("{}\n", serde_json::to_string(&value)?);
+
+        let error =
+            summarize_remote_free_service_telemetry_collection_summary_rollup_check_json_log(&log)
+                .expect_err("schema drift");
+
+        assert!(matches!(
+            error,
+            RemoteFreeServiceTelemetryCollectionSummaryRollupError::UnexpectedSchema(_)
         ));
         Ok(())
     }

@@ -16,6 +16,7 @@ use locus_validate::{
     parse_remote_free_service_telemetry_timing_stability_manifest,
     resolve_remote_free_service_telemetry_collection_summary_manifest_path,
     resolve_remote_free_service_telemetry_collection_summary_validation_summary_path,
+    summarize_remote_free_service_telemetry_collection_summary_rollup_check_json_log,
     summarize_remote_free_service_telemetry_timing_stability,
     validate_remote_free_service_telemetry_collection_summary_rollup_artifact,
     verify_remote_free_service_telemetry_collection_summary_artifacts,
@@ -81,6 +82,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let log_text = fs::read_to_string(&log_path)?;
         let check = parse_rollup_check_json_text(&log_text)?;
         println!("{check}");
+        return Ok(());
+    }
+    if summary_path == "--rollup-check-json-summary" {
+        let log_path = args.next().ok_or_else(|| usage_error(&program))?;
+        if args.next().is_some() {
+            return Err(Box::new(usage_error(&program)));
+        }
+        let log_text = fs::read_to_string(&log_path)?;
+        let summary =
+            summarize_remote_free_service_telemetry_collection_summary_rollup_check_json_log(
+                &log_text,
+            )?;
+        println!("{summary}");
         return Ok(());
     }
 
@@ -385,7 +399,7 @@ fn usage_error(program: &str) -> io::Error {
     io::Error::new(
         io::ErrorKind::InvalidInput,
         format!(
-            "usage: {program} <collection-summary.json>\n       {program} --dir <evidence-root> [--write-rollup]\n       {program} --rollup <collection-summary-rollup.json>\n       {program} --rollup-check-json <saved-log.txt>"
+            "usage: {program} <collection-summary.json>\n       {program} --dir <evidence-root> [--write-rollup]\n       {program} --rollup <collection-summary-rollup.json>\n       {program} --rollup-check-json <saved-log.txt>\n       {program} --rollup-check-json-summary <saved-log.txt>"
         ),
     )
 }

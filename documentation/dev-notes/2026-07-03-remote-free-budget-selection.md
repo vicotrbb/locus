@@ -681,6 +681,14 @@ schema drift, missing groups, grouped count drift, and grouped string drift.
 Saved logs from the host-bearing and older no-host-bundle rollups both
 reconstruct the expected check line without rereading the rollup artifact.
 
+Experiment 0252 added a multi-record saved-log summary for rollup check JSON
+records. The summary parser validates each JSON record through the typed
+single-record parser, then aggregates record count, rollup host coverage,
+bundle host coverage, and status coverage. A real combined log from the
+host-bearing and older no-host-bundle rollups reports two records, two rollup
+hosts present, one bundle host present, one bundle host missing, two valid
+bundles, and zero failed statuses.
+
 ## Measured Thresholds
 
 | Path | Shape inputs | Budget | Matched counters |
@@ -1067,6 +1075,7 @@ reconstruct the expected check line without rereading the rollup artifact.
 - `documentation/experiments/0249-remote-free-service-telemetry-rollup-check-json.md`
 - `documentation/experiments/0250-remote-free-service-telemetry-rollup-check-json-groups.md`
 - `documentation/experiments/0251-remote-free-service-telemetry-rollup-check-json-parser.md`
+- `documentation/experiments/0252-remote-free-service-telemetry-rollup-check-log-summary.md`
 
 ## Open Questions
 
