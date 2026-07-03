@@ -9,8 +9,9 @@ use locus_alloc::{
     RemoteFreeQueuedByteDrainConfig, RemoteFreeQueuedByteDriftReport,
     RemoteFreeServiceRetuneCandidate, RemoteFreeServiceRetuneGuardDecision,
     RemoteFreeServiceRetunePolicyApplication, RemoteFreeServiceRetunePolicyApplicator,
-    RemoteFreeServiceRetuneSummary, RemoteFreeServiceRuntimeDirtyOwnerTracker,
-    RemoteFreeServiceRuntimeOwnerId, RemoteFreeTryEnqueueError, RemoteFreeTryEnqueueErrorKind,
+    RemoteFreeServiceRetuneSummary, RemoteFreeServiceRuntimeDirtyOwnerLocalBuffer,
+    RemoteFreeServiceRuntimeDirtyOwnerTracker, RemoteFreeServiceRuntimeOwnerId,
+    RemoteFreeTryEnqueueError, RemoteFreeTryEnqueueErrorKind,
 };
 
 use crate::remote_free_service_harness::{
@@ -421,6 +422,33 @@ pub(crate) fn run_runtime_owner_window_with_dirty_summary_and_block_bytes(
         stats,
         block_bytes,
         |block| sink.try_enqueue(block),
+        || {},
+        |report| {
+            summary.observe_report(report);
+        },
+    );
+
+    summary
+}
+
+pub(crate) fn run_runtime_owner_window_with_local_dirty_summary_and_block_bytes(
+    runtime: &mut RemoteFreeOwnerRuntime<RuntimeTraceBlock>,
+    stats: &mut RuntimeApplicationStats,
+    block_bytes: u64,
+    owner_id: RemoteFreeServiceRuntimeOwnerId,
+    buffer: &mut RemoteFreeServiceRuntimeDirtyOwnerLocalBuffer,
+) -> RemoteFreeServiceRetuneSummary {
+    let mut summary = RemoteFreeServiceRetuneSummary::new();
+    let sink = runtime.sink();
+
+    run_runtime_owner_window_inner_with_enqueue(
+        runtime,
+        stats,
+        block_bytes,
+        |block| sink.try_enqueue(block),
+        || {
+            let _ = buffer.mark_dirty(owner_id);
+        },
         |report| {
             summary.observe_report(report);
         },
@@ -442,6 +470,7 @@ fn run_runtime_owner_window_inner(
         stats,
         block_bytes,
         |block| sink.try_enqueue(block),
+        || {},
         observe_report,
     );
 }
@@ -453,6 +482,7 @@ fn run_runtime_owner_window_inner_with_enqueue(
     mut try_enqueue: impl FnMut(
         RuntimeTraceBlock,
     ) -> Result<(), RemoteFreeTryEnqueueError<RuntimeTraceBlock>>,
+    mut after_successful_enqueue: impl FnMut(),
     mut observe_report: impl FnMut(RemoteFreeQueuedByteDriftReport),
 ) {
     for burst in 0..BURSTS {
@@ -465,6 +495,7 @@ fn run_runtime_owner_window_inner_with_enqueue(
             loop {
                 match try_enqueue(block) {
                     Ok(()) => {
+                        after_successful_enqueue();
                         runtime.record_submit(burst, block_bytes);
                         stats.submitted_count = stats.submitted_count.saturating_add(1);
                         break;

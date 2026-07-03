@@ -84,6 +84,7 @@ pub use remote_free::{
     RemoteFreeServiceRetuneGuardDecision, RemoteFreeServiceRetuneGuardError,
     RemoteFreeServiceRetunePolicyApplication, RemoteFreeServiceRetunePolicyApplicationError,
     RemoteFreeServiceRetunePolicyApplicator, RemoteFreeServiceRetuneSummary,
+    RemoteFreeServiceRuntimeDirtyOwnerFlushStats, RemoteFreeServiceRuntimeDirtyOwnerLocalBuffer,
     RemoteFreeServiceRuntimeDirtyOwnerSnapshot, RemoteFreeServiceRuntimeDirtyOwnerTracker,
     RemoteFreeServiceRuntimeDirtyOwners, RemoteFreeServiceRuntimeDirtySink,
     RemoteFreeServiceRuntimeOwnerId, RemoteFreeServiceRuntimeRetuneCoordinator,

@@ -8,6 +8,7 @@ mod budget;
 mod config;
 mod controller;
 mod coordinator;
+mod dirty_buffer;
 mod dirty_window;
 mod drift;
 mod guard;
@@ -32,6 +33,9 @@ pub use coordinator::{
     RemoteFreeServiceRuntimeOwnerId, RemoteFreeServiceRuntimeRetuneCoordinator,
     RemoteFreeServiceRuntimeRetuneError, RemoteFreeServiceRuntimeRetuneOutcome,
     RemoteFreeServiceRuntimeRetuneOwnerError, RemoteFreeServiceRuntimeRetuneOwners,
+};
+pub use dirty_buffer::{
+    RemoteFreeServiceRuntimeDirtyOwnerFlushStats, RemoteFreeServiceRuntimeDirtyOwnerLocalBuffer,
 };
 pub use dirty_window::{
     RemoteFreeServiceRuntimeDirtyOwnerSnapshot, RemoteFreeServiceRuntimeDirtyOwnerTracker,

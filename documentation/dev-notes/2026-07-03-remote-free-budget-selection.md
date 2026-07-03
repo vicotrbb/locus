@@ -314,6 +314,16 @@ drained blocks, 9,437,440 released bytes, two installs, one confirm, one
 rollback, one mutation-limit decision, four no-change outcomes, and one
 missing-owner check.
 
+Experiment 0210 added `RemoteFreeServiceRuntimeDirtyOwnerLocalBuffer` as a
+per-worker batching path before the shared dirty-owner tracker. The real
+allocation service-window sequence preserved 2048 submitted blocks, 2048
+drained blocks, 9,437,440 released bytes, 12 policy drains, 36 drain rounds,
+46 reports needing retune, two apply decisions, one confirm, one rollback, and
+one mutation-limit decision. The local buffer measured 198.83 to 199.35 us in
+the short run, while the direct dirty-enqueue tracker path measured 209.44 to
+212.01 us in the same sequential benchmark session. Treat Vec-only local
+buffers as the current measured candidate for worker-owned enqueue loops.
+
 ## Measured Thresholds
 
 | Path | Shape inputs | Budget | Matched counters |
@@ -402,6 +412,10 @@ missing-owner check.
     owners dirty directly after successful enqueue attempts. Collect from
     tracker snapshots so newer marks are not cleared by an older successful
     service window.
+28. Use `RemoteFreeServiceRuntimeDirtyOwnerLocalBuffer` when a worker-owned
+    enqueue loop can batch repeated owner marks locally before flushing unique
+    owner IDs into the shared tracker. Keep the local buffer compact and flush
+    before tracked service-window collection.
 
 ## Guardrails
 
@@ -466,6 +480,11 @@ missing-owner check.
 - Do not clear all tracker marks after collecting one snapshot. Clear only the
   captured owner generations so marks that arrive during collection remain
   visible.
+- Do not use a tree-backed local dirty-owner set for tiny per-worker buffers
+  without benchmark evidence. The measured path favors compact Vec-only
+  deduplication for the current owner-window shape.
+- Do not collect a tracked dirty service window before local dirty buffers have
+  been flushed into the shared tracker.
 - Recheck thresholds when KV block size, request arena capacity, burst size,
   request concurrency, or batch size changes.
 - For heterogeneous traces, derive the budget from actual retained item sizes
@@ -512,13 +531,13 @@ missing-owner check.
 - `documentation/experiments/0207-remote-free-runtime-window-collection.md`
 - `documentation/experiments/0208-remote-free-dirty-owner-window-collection.md`
 - `documentation/experiments/0209-remote-free-enqueue-dirty-owner-marks.md`
+- `documentation/experiments/0210-remote-free-local-dirty-mark-buffer.md`
 
 ## Open Questions
 
-- Should dirty enqueue marking use the mutex-backed tracker directly in
-  production, or should high-contention services batch marks through
-  per-thread or per-worker local buffers before merging into the service
-  tracker?
+- What flush cadence should a live service use for local dirty buffers: end of
+  worker burst, end of scheduler turn, queue-pressure threshold, or immediately
+  before service-window collection?
 - Which workload signal should set the retained item window in production:
   scheduler turn age, active request concurrency, KV cache pressure, or memory
   pressure from observability counters?

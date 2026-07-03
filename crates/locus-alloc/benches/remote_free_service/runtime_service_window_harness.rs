@@ -6,20 +6,22 @@ use criterion::{black_box, Criterion};
 use locus_alloc::{
     RemoteFreeDrainPolicy, RemoteFreeOwnerRuntime, RemoteFreeServiceRetuneCandidate,
     RemoteFreeServiceRetuneGuard, RemoteFreeServiceRetunePolicyApplicator,
-    RemoteFreeServiceRetuneSummary, RemoteFreeServiceRuntimeDirtyOwnerTracker,
-    RemoteFreeServiceRuntimeDirtyOwners, RemoteFreeServiceRuntimeOwnerId,
-    RemoteFreeServiceRuntimeRetuneCoordinator, RemoteFreeServiceRuntimeRetuneOwners,
-    RemoteFreeServiceRuntimeWindowObservation, RemoteFreeServiceRuntimeWindowStats,
+    RemoteFreeServiceRetuneSummary, RemoteFreeServiceRuntimeDirtyOwnerLocalBuffer,
+    RemoteFreeServiceRuntimeDirtyOwnerTracker, RemoteFreeServiceRuntimeDirtyOwners,
+    RemoteFreeServiceRuntimeOwnerId, RemoteFreeServiceRuntimeRetuneCoordinator,
+    RemoteFreeServiceRuntimeRetuneOwners, RemoteFreeServiceRuntimeWindowObservation,
+    RemoteFreeServiceRuntimeWindowStats,
 };
 
 use crate::remote_free_service_application_harness::{
     run_runtime_owner_window_with_dirty_summary_and_block_bytes,
+    run_runtime_owner_window_with_local_dirty_summary_and_block_bytes,
     run_runtime_owner_window_with_summary, run_runtime_owner_window_with_summary_and_block_bytes,
     service_config, RuntimeApplicationStats, RuntimeTraceBlock, QUEUE_CAPACITY_GROWTH_FACTOR,
     RUNTIME_INITIAL_QUEUE_CAPACITY,
 };
 use crate::remote_free_service_harness::{
-    format_milli, CounterSummary, BYTES_PER_BLOCK, QUEUE_CAPACITY, SAMPLES,
+    format_milli, CounterSummary, BURSTS, BURST_BLOCKS, BYTES_PER_BLOCK, QUEUE_CAPACITY, SAMPLES,
 };
 
 const SERVICE_WINDOW_STABLE_WINDOWS: u64 = 2;
@@ -44,6 +46,7 @@ enum ServiceWindowRunnerMode {
     CollectedOwnerBorrow,
     DirtyOwnerBorrow,
     DirtyEnqueueMark,
+    DirtyLocalBuffer,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -144,6 +147,29 @@ pub(crate) fn benchmark_runtime_dirty_enqueue_collection_sequence(c: &mut Criter
             bench.iter(|| {
                 let stats =
                     run_runtime_service_window_sequence(ServiceWindowRunnerMode::DirtyEnqueueMark);
+                assert_service_window_stats(&stats);
+                black_box(stats);
+            });
+        },
+    );
+}
+
+pub(crate) fn benchmark_runtime_dirty_local_collection_sequence(c: &mut Criterion) {
+    print_service_window_sample(
+        ServiceWindowRunnerMode::DirtyLocalBuffer,
+        "remote_free_service_runtime_dirty_local_collection_sample",
+    );
+    print_service_window_sample_summary(
+        ServiceWindowRunnerMode::DirtyLocalBuffer,
+        "remote_free_service_runtime_dirty_local_collection_sample_summary",
+    );
+
+    c.bench_function(
+        "remote_free_service_runtime_dirty_local_collection_sequence",
+        |bench| {
+            bench.iter(|| {
+                let stats =
+                    run_runtime_service_window_sequence(ServiceWindowRunnerMode::DirtyLocalBuffer);
                 assert_service_window_stats(&stats);
                 black_box(stats);
             });
@@ -467,6 +493,34 @@ fn observe_window(
             assert!(tracker.is_empty());
             stats
         }
+        ServiceWindowRunnerMode::DirtyLocalBuffer => {
+            let tracker = RemoteFreeServiceRuntimeDirtyOwnerTracker::new();
+            let mut buffer = RemoteFreeServiceRuntimeDirtyOwnerLocalBuffer::new();
+            let summary = run_runtime_owner_window_with_local_dirty_summary_and_block_bytes(
+                owners
+                    .owner_mut(owner_id)
+                    .expect("owner for local dirty buffer"),
+                &mut stats.runtime,
+                block_bytes,
+                owner_id,
+                &mut buffer,
+            );
+            let expected_duplicate_marks = BURSTS.saturating_mul(BURST_BLOCKS).saturating_sub(1);
+            assert_eq!(buffer.owner_ids(), &[owner_id]);
+            assert_eq!(buffer.duplicate_marks(), expected_duplicate_marks);
+
+            let flush = buffer.flush_into(&tracker);
+            assert_eq!(flush.owner_count, 1);
+            assert_eq!(flush.new_tracker_marks, 1);
+            assert_eq!(flush.duplicate_local_marks, expected_duplicate_marks);
+            assert_eq!(tracker.owner_ids(), vec![owner_id]);
+
+            let stats = owners
+                .collect_tracked_dirty_service_window(&tracker, |_, _| Ok::<_, Infallible>(summary))
+                .expect("local dirty service window stats");
+            assert!(tracker.is_empty());
+            stats
+        }
     };
 
     assert_one_window_decision(window_stats, expected_decision);
@@ -522,6 +576,21 @@ fn assert_missing_owner(
         ServiceWindowRunnerMode::DirtyEnqueueMark => {
             let tracker = RemoteFreeServiceRuntimeDirtyOwnerTracker::new();
             assert!(tracker.mark_dirty(missing));
+            let error = owners
+                .collect_tracked_dirty_service_window(&tracker, |_, _| {
+                    Ok::<_, Infallible>(RemoteFreeServiceRetuneSummary::new())
+                })
+                .expect_err("missing owner");
+            assert_eq!(error.owner_id(), missing);
+            assert_eq!(tracker.owner_ids(), vec![missing]);
+        }
+        ServiceWindowRunnerMode::DirtyLocalBuffer => {
+            let tracker = RemoteFreeServiceRuntimeDirtyOwnerTracker::new();
+            let mut buffer = RemoteFreeServiceRuntimeDirtyOwnerLocalBuffer::new();
+            assert!(buffer.mark_dirty(missing));
+            let flush = buffer.flush_into(&tracker);
+            assert_eq!(flush.owner_count, 1);
+            assert_eq!(flush.new_tracker_marks, 1);
             let error = owners
                 .collect_tracked_dirty_service_window(&tracker, |_, _| {
                     Ok::<_, Infallible>(RemoteFreeServiceRetuneSummary::new())
