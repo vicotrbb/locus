@@ -12,6 +12,7 @@ mod drift;
 mod guard;
 mod planner;
 mod runtime;
+mod service_window;
 mod telemetry;
 
 pub use application::{
@@ -47,6 +48,10 @@ pub use runtime::{
     RemoteFreeOwnerRuntime, RemoteFreeOwnerRuntimeApplyOutcome,
     RemoteFreeOwnerRuntimeConfirmOutcome, RemoteFreeOwnerRuntimeError,
     RemoteFreeOwnerRuntimeRollbackOutcome,
+};
+pub use service_window::{
+    RemoteFreeServiceRuntimeWindowError, RemoteFreeServiceRuntimeWindowObservation,
+    RemoteFreeServiceRuntimeWindowStats,
 };
 pub use telemetry::{RemoteFreeRetuneActionCounts, RemoteFreeServiceRetuneSummary};
 

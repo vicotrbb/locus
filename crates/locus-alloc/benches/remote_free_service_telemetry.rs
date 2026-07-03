@@ -22,6 +22,8 @@ mod remote_free_service_runtime_collected_rollback_harness;
 mod remote_free_service_runtime_coordinator_harness;
 #[path = "remote_free_service/runtime_registry_harness.rs"]
 mod remote_free_service_runtime_registry_harness;
+#[path = "remote_free_service/runtime_service_window_harness.rs"]
+mod remote_free_service_runtime_service_window_harness;
 
 fn remote_free_service_telemetry(c: &mut Criterion) {
     remote_free_service_harness::benchmark_service_telemetry(c);
@@ -34,6 +36,9 @@ fn remote_free_service_telemetry(c: &mut Criterion) {
     remote_free_service_runtime_collected_multi_owner_harness::benchmark_runtime_collected_multi_owner_mutation_limit(c);
     remote_free_service_runtime_collected_rollback_harness::benchmark_runtime_collected_rollback(c);
     remote_free_service_runtime_registry_harness::benchmark_runtime_registry_sequence(c);
+    remote_free_service_runtime_service_window_harness::benchmark_runtime_service_window_sequence(
+        c,
+    );
 }
 
 criterion_group!(benches, remote_free_service_telemetry);
