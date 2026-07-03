@@ -842,6 +842,12 @@ for repeated-check rollup drift verdict rollup JSON. The real mixed rollup
 reloads with two records, one matched check, one drifted check, and one
 `records` drift bucket.
 
+Experiment 0279 added repeated-check CLI check aliases for archived
+repeated-check rollup drift verdict rollup JSON. The real mixed rollup matches
+the saved verdict records, while a controlled stale `records=1` rollup reports
+`field=records`, expected `2`, actual `1`, and strict verification rejects it
+with `CountDrift`.
+
 ## Measured Thresholds
 
 | Path | Shape inputs | Budget | Matched counters |
@@ -1255,6 +1261,7 @@ reloads with two records, one matched check, one drifted check, and one
 - `documentation/experiments/0276-remote-free-service-telemetry-rollup-check-log-summary-verdict-rollup-verification-summary-drift-json-rollup-drift-json-rollup-drift-json-parser.md`
 - `documentation/experiments/0277-remote-free-service-telemetry-rollup-check-log-summary-verdict-rollup-verification-summary-drift-json-rollup-drift-json-rollup-drift-json-rollup.md`
 - `documentation/experiments/0278-remote-free-service-telemetry-rollup-check-log-summary-verdict-rollup-verification-summary-drift-json-rollup-drift-json-rollup-drift-json-rollup-parser.md`
+- `documentation/experiments/0279-remote-free-service-telemetry-rollup-check-log-summary-verdict-rollup-verification-summary-drift-json-rollup-drift-json-rollup-drift-json-rollup-drift.md`
 
 ## Open Questions
 
