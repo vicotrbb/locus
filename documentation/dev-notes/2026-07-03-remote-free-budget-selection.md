@@ -759,6 +759,11 @@ records, one matched artifact, one drifted artifact, and one `records` drift
 bucket. The first accumulator shape failed clippy's `too_many_lines` lint, so
 the final implementation splits drift-bucket selection into a small helper.
 
+Experiment 0263 added parsers for saved verifier-summary JSON artifacts. The
+real summary archive reloads as two records, one matched artifact, one drifted
+artifact, and one `records` drift bucket. The parser rejects schema drift,
+missing grouped fields, grouped status drift, and grouped drift-field drift.
+
 ## Measured Thresholds
 
 | Path | Shape inputs | Budget | Matched counters |
@@ -1156,6 +1161,7 @@ the final implementation splits drift-bucket selection into a small helper.
 - `documentation/experiments/0260-remote-free-service-telemetry-rollup-check-log-summary-verdict-rollup-drift-json.md`
 - `documentation/experiments/0261-remote-free-service-telemetry-rollup-check-log-summary-verdict-rollup-drift-json-parser.md`
 - `documentation/experiments/0262-remote-free-service-telemetry-rollup-check-log-summary-verdict-rollup-verification-summary.md`
+- `documentation/experiments/0263-remote-free-service-telemetry-rollup-check-log-summary-verdict-rollup-verification-summary-parser.md`
 
 ## Open Questions
 
