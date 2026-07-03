@@ -17,6 +17,7 @@ use locus_validate::{
     verify_remote_free_service_telemetry_collection_summary_artifacts,
     RemoteFreeServiceTelemetryTimingStabilityRun,
 };
+use serde_json::json;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut args = env::args();
@@ -26,11 +27,26 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let summary_path = args.next().ok_or_else(|| usage_error(&program))?;
     if summary_path == "--dir" {
         let root = args.next().ok_or_else(|| usage_error(&program))?;
+        let write_rollup = match args.next() {
+            Some(arg) if arg == "--write-rollup" => true,
+            Some(_) => return Err(Box::new(usage_error(&program))),
+            None => false,
+        };
         if args.next().is_some() {
             return Err(Box::new(usage_error(&program)));
         }
-        let rollup = validate_summary_directory(Path::new(&root))?;
+        let root = Path::new(&root);
+        let rollup = validate_summary_directory(root)?;
         println!("{rollup}");
+        if write_rollup {
+            let artifact_path = write_directory_rollup_artifact(root, &rollup)?;
+            let byte_count = fs::metadata(&artifact_path)?.len();
+            println!(
+                "remote_free_service_telemetry_collection_summary_rollup_artifact=written path={} bytes={}",
+                artifact_path.display(),
+                byte_count
+            );
+        }
         return Ok(());
     }
 
@@ -169,6 +185,28 @@ fn validate_summary_directory(root: &Path) -> Result<DirectoryRollup, Box<dyn Er
     Ok(rollup)
 }
 
+fn write_directory_rollup_artifact(
+    root: &Path,
+    rollup: &DirectoryRollup,
+) -> Result<PathBuf, Box<dyn Error>> {
+    let artifact = json!({
+        "schema": "locus.remote_free_service.telemetry.collection_summary_rollup.v1",
+        "root": rollup.root.display().to_string(),
+        "summaries": rollup.summaries,
+        "valid_bundles": rollup.valid_bundles,
+        "drifted_summaries": rollup.drifted_summaries,
+        "missing_artifacts": rollup.missing_artifacts,
+        "other_failures": rollup.other_failures,
+        "timing_ranges": rollup.timing_ranges,
+    });
+    let path = root.join("collection-summary-rollup.json");
+    fs::write(
+        &path,
+        format!("{}\n", serde_json::to_string_pretty(&artifact)?),
+    )?;
+    Ok(path)
+}
+
 fn collect_summary_paths(root: &Path, summary_paths: &mut Vec<PathBuf>) -> io::Result<()> {
     for entry in fs::read_dir(root)? {
         let entry = entry?;
@@ -279,14 +317,16 @@ fn usage_error(program: &str) -> io::Error {
     io::Error::new(
         io::ErrorKind::InvalidInput,
         format!(
-            "usage: {program} <collection-summary.json>\n       {program} --dir <evidence-root>"
+            "usage: {program} <collection-summary.json>\n       {program} --dir <evidence-root> [--write-rollup]"
         ),
     )
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{compare_validation_summary, validate_summary_directory};
+    use super::{
+        compare_validation_summary, validate_summary_directory, write_directory_rollup_artifact,
+    };
     use serde_json::json;
     use std::{
         fs,
@@ -435,6 +475,32 @@ mod tests {
         assert_eq!(rollup.missing_artifacts, 1);
         assert_eq!(rollup.other_failures, 0);
         assert_eq!(rollup.timing_ranges, 1);
+        fs::remove_dir_all(root)?;
+        Ok(())
+    }
+
+    #[test]
+    fn writes_directory_rollup_artifact() -> Result<(), Box<dyn std::error::Error>> {
+        let root = temp_dir()?;
+        write_bundle(&root, "valid", false, false)?;
+        let rollup = validate_summary_directory(&root)?;
+
+        let path = write_directory_rollup_artifact(&root, &rollup)?;
+        let artifact = fs::read_to_string(&path)?;
+        let artifact = serde_json::from_str::<serde_json::Value>(&artifact)?;
+
+        assert_eq!(
+            artifact["schema"],
+            "locus.remote_free_service.telemetry.collection_summary_rollup.v1"
+        );
+        assert_eq!(artifact["root"], root.to_string_lossy().as_ref());
+        assert_eq!(artifact["summaries"], 1);
+        assert_eq!(artifact["valid_bundles"], 1);
+        assert_eq!(artifact["drifted_summaries"], 0);
+        assert_eq!(artifact["missing_artifacts"], 0);
+        assert_eq!(artifact["other_failures"], 0);
+        assert_eq!(artifact["timing_ranges"], 1);
+
         fs::remove_dir_all(root)?;
         Ok(())
     }

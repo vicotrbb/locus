@@ -559,6 +559,12 @@ contained one `collection-summary.json`, one valid bundle, zero drifted
 summaries, zero missing artifacts, zero other failures, and one surviving
 timing range.
 
+Experiment 0234 added opt-in `--write-rollup` output for the same directory
+validator. The real evidence root wrote a 288-byte
+`collection-summary-rollup.json` with one summary, one valid bundle, zero
+drifted summaries, zero missing artifacts, zero other failures, and one timing
+range.
+
 ## Measured Thresholds
 
 | Path | Shape inputs | Budget | Matched counters |
