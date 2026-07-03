@@ -94,6 +94,34 @@ struct DirectoryRollup {
     missing_artifacts: usize,
     other_failures: usize,
     timing_ranges: usize,
+    bundles: Vec<BundleRollup>,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+struct BundleRollup {
+    summary_path: PathBuf,
+    run_id: Option<String>,
+    status: BundleValidationStatus,
+    timing_ranges: usize,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+enum BundleValidationStatus {
+    Valid,
+    DriftedSummary,
+    MissingArtifact,
+    OtherFailure,
+}
+
+impl BundleValidationStatus {
+    fn as_str(&self) -> &'static str {
+        match self {
+            Self::Valid => "valid",
+            Self::DriftedSummary => "drifted_summary",
+            Self::MissingArtifact => "missing_artifact",
+            Self::OtherFailure => "other_failure",
+        }
+    }
 }
 
 impl std::fmt::Display for DirectoryRollup {
@@ -163,21 +191,28 @@ fn validate_summary_directory(root: &Path) -> Result<DirectoryRollup, Box<dyn Er
             Ok(report) => {
                 rollup.valid_bundles += 1;
                 rollup.timing_ranges += report.timing_ranges;
+                rollup.bundles.push(BundleRollup {
+                    summary_path,
+                    run_id: Some(report.run_id),
+                    status: BundleValidationStatus::Valid,
+                    timing_ranges: report.timing_ranges,
+                });
             }
             Err(error) => {
                 let message = error.to_string();
-                if message.contains("validation summary drift") {
-                    rollup.drifted_summaries += 1;
-                } else if message.contains("No such file")
-                    || message.contains("missing remote-free service telemetry collection summary")
-                    || message.contains(
-                        "failed to read remote-free service telemetry collection summary artifact",
-                    )
-                {
-                    rollup.missing_artifacts += 1;
-                } else {
-                    rollup.other_failures += 1;
+                let status = classify_validation_error(&message);
+                match status {
+                    BundleValidationStatus::Valid => unreachable!("errors cannot validate"),
+                    BundleValidationStatus::DriftedSummary => rollup.drifted_summaries += 1,
+                    BundleValidationStatus::MissingArtifact => rollup.missing_artifacts += 1,
+                    BundleValidationStatus::OtherFailure => rollup.other_failures += 1,
                 }
+                rollup.bundles.push(BundleRollup {
+                    run_id: read_summary_run_id(&summary_path).ok(),
+                    summary_path,
+                    status,
+                    timing_ranges: 0,
+                });
             }
         }
     }
@@ -185,12 +220,48 @@ fn validate_summary_directory(root: &Path) -> Result<DirectoryRollup, Box<dyn Er
     Ok(rollup)
 }
 
+fn classify_validation_error(message: &str) -> BundleValidationStatus {
+    if message.contains("validation summary drift") {
+        BundleValidationStatus::DriftedSummary
+    } else if message.contains("No such file")
+        || message.contains("missing remote-free service telemetry collection summary")
+        || message
+            .contains("failed to read remote-free service telemetry collection summary artifact")
+    {
+        BundleValidationStatus::MissingArtifact
+    } else {
+        BundleValidationStatus::OtherFailure
+    }
+}
+
+fn read_summary_run_id(summary_path: &Path) -> Result<String, Box<dyn Error>> {
+    let summary_text = fs::read_to_string(summary_path)?;
+    let summary = parse_remote_free_service_telemetry_collection_summary(&summary_text)?;
+    Ok(summary.run_id)
+}
+
 fn write_directory_rollup_artifact(
     root: &Path,
     rollup: &DirectoryRollup,
 ) -> Result<PathBuf, Box<dyn Error>> {
+    let bundles = rollup
+        .bundles
+        .iter()
+        .map(|bundle| {
+            let summary_path = bundle
+                .summary_path
+                .strip_prefix(root)
+                .unwrap_or(&bundle.summary_path);
+            json!({
+                "summary": summary_path.display().to_string(),
+                "run_id": bundle.run_id.as_deref(),
+                "status": bundle.status.as_str(),
+                "timing_ranges": bundle.timing_ranges,
+            })
+        })
+        .collect::<Vec<_>>();
     let artifact = json!({
-        "schema": "locus.remote_free_service.telemetry.collection_summary_rollup.v1",
+        "schema": "locus.remote_free_service.telemetry.collection_summary_rollup.v2",
         "root": rollup.root.display().to_string(),
         "summaries": rollup.summaries,
         "valid_bundles": rollup.valid_bundles,
@@ -198,6 +269,7 @@ fn write_directory_rollup_artifact(
         "missing_artifacts": rollup.missing_artifacts,
         "other_failures": rollup.other_failures,
         "timing_ranges": rollup.timing_ranges,
+        "bundles": bundles,
     });
     let path = root.join("collection-summary-rollup.json");
     fs::write(
@@ -475,6 +547,25 @@ mod tests {
         assert_eq!(rollup.missing_artifacts, 1);
         assert_eq!(rollup.other_failures, 0);
         assert_eq!(rollup.timing_ranges, 1);
+        let bundle_rows = rollup
+            .bundles
+            .iter()
+            .map(|bundle| {
+                (
+                    bundle.run_id.as_deref(),
+                    bundle.status.as_str(),
+                    bundle.timing_ranges,
+                )
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(
+            bundle_rows,
+            vec![
+                (Some("drifted"), "drifted_summary", 0),
+                (Some("missing"), "missing_artifact", 0),
+                (Some("valid"), "valid", 1),
+            ]
+        );
         fs::remove_dir_all(root)?;
         Ok(())
     }
@@ -491,7 +582,7 @@ mod tests {
 
         assert_eq!(
             artifact["schema"],
-            "locus.remote_free_service.telemetry.collection_summary_rollup.v1"
+            "locus.remote_free_service.telemetry.collection_summary_rollup.v2"
         );
         assert_eq!(artifact["root"], root.to_string_lossy().as_ref());
         assert_eq!(artifact["summaries"], 1);
@@ -500,6 +591,17 @@ mod tests {
         assert_eq!(artifact["missing_artifacts"], 0);
         assert_eq!(artifact["other_failures"], 0);
         assert_eq!(artifact["timing_ranges"], 1);
+        assert_eq!(
+            artifact["bundles"].as_array().expect("bundle rows").len(),
+            1
+        );
+        assert_eq!(
+            artifact["bundles"][0]["summary"],
+            "valid/collection-summary.json"
+        );
+        assert_eq!(artifact["bundles"][0]["run_id"], "valid");
+        assert_eq!(artifact["bundles"][0]["status"], "valid");
+        assert_eq!(artifact["bundles"][0]["timing_ranges"], 1);
 
         fs::remove_dir_all(root)?;
         Ok(())

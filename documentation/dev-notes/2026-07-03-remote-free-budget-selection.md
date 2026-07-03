@@ -565,6 +565,11 @@ validator. The real evidence root wrote a 288-byte
 drifted summaries, zero missing artifacts, zero other failures, and one timing
 range.
 
+Experiment 0235 upgraded that rollup artifact to schema v2 with a compact
+per-bundle table. The real evidence root wrote one row for
+`apply-confirm-summary-1783084007-13676`, reported `valid` status, preserved
+one timing range, and stayed at 511 bytes.
+
 ## Measured Thresholds
 
 | Path | Shape inputs | Budget | Matched counters |
