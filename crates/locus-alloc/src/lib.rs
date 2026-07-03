@@ -84,9 +84,10 @@ pub use remote_free::{
     RemoteFreeServiceRetuneGuardDecision, RemoteFreeServiceRetuneGuardError,
     RemoteFreeServiceRetunePolicyApplication, RemoteFreeServiceRetunePolicyApplicationError,
     RemoteFreeServiceRetunePolicyApplicator, RemoteFreeServiceRetuneSummary,
-    RemoteFreeServiceRuntimeRetuneCoordinator, RemoteFreeServiceRuntimeRetuneError,
-    RemoteFreeServiceRuntimeRetuneOutcome, RemoteFreeSink, RemoteFreeTrackedDrain,
-    RemoteFreeTryEnqueueError, RemoteFreeTryEnqueueErrorKind,
+    RemoteFreeServiceRuntimeOwnerId, RemoteFreeServiceRuntimeRetuneCoordinator,
+    RemoteFreeServiceRuntimeRetuneError, RemoteFreeServiceRuntimeRetuneOutcome,
+    RemoteFreeServiceRuntimeRetuneOwnerError, RemoteFreeServiceRuntimeRetuneOwners, RemoteFreeSink,
+    RemoteFreeTrackedDrain, RemoteFreeTryEnqueueError, RemoteFreeTryEnqueueErrorKind,
 };
 
 pub use request_scratch::{

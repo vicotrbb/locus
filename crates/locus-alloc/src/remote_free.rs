@@ -27,8 +27,9 @@ pub use controller::{
     RemoteFreeTrackedDrain,
 };
 pub use coordinator::{
-    RemoteFreeServiceRuntimeRetuneCoordinator, RemoteFreeServiceRuntimeRetuneError,
-    RemoteFreeServiceRuntimeRetuneOutcome,
+    RemoteFreeServiceRuntimeOwnerId, RemoteFreeServiceRuntimeRetuneCoordinator,
+    RemoteFreeServiceRuntimeRetuneError, RemoteFreeServiceRuntimeRetuneOutcome,
+    RemoteFreeServiceRuntimeRetuneOwnerError, RemoteFreeServiceRuntimeRetuneOwners,
 };
 pub use drift::{
     RemoteFreeQueuedByteDriftReport, RemoteFreeQueuedByteRetuneAction,

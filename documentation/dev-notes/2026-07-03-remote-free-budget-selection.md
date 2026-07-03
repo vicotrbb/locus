@@ -270,6 +270,14 @@ submitted blocks, 2048 drained blocks, 9,437,440 released bytes, two installs,
 one confirm, one rollback, one mutation-limit decision, and four runtime
 no-change outcomes.
 
+Experiment 0205 added `RemoteFreeServiceRuntimeRetuneOwners` and
+`RemoteFreeServiceRuntimeOwnerId` as the first reusable owner registry around
+the coordinator. A real allocation benchmark registered three owners, routed
+runtime-collected summaries by owner ID, preserved the same 2048 submitted
+blocks, 2048 drained blocks, 9,437,440 released bytes, two installs, one
+confirm, one rollback, one mutation-limit decision, four no-change outcomes,
+and reported one missing-owner check.
+
 ## Measured Thresholds
 
 | Path | Shape inputs | Budget | Matched counters |
@@ -339,6 +347,10 @@ no-change outcomes.
 22. Use `RemoteFreeServiceRuntimeRetuneCoordinator` as the reusable service
     boundary for translating runtime-collected summaries into owner runtime
     operations. Keep one coordinator per service-level mutation budget.
+23. Register owner runtimes with `RemoteFreeServiceRuntimeRetuneOwners` when
+    multiple owners share one service mutation budget. Route summaries by
+    `RemoteFreeServiceRuntimeOwnerId` instead of passing ad hoc runtime
+    references through each call site.
 
 ## Guardrails
 
@@ -385,6 +397,9 @@ no-change outcomes.
   queued-byte budget.
 - Do not reimplement guard, applicator, and runtime operation branching in each
   caller. Use the coordinator once runtime-collected summaries are available.
+- Do not address multi-owner runtime retune by raw vector indexes in caller
+  code. Register owners and route through stable owner IDs so missing owners
+  are reported explicitly.
 - Recheck thresholds when KV block size, request arena capacity, burst size,
   request concurrency, or batch size changes.
 - For heterogeneous traces, derive the budget from actual retained item sizes
@@ -426,11 +441,12 @@ no-change outcomes.
 - `documentation/experiments/0202-remote-free-runtime-collected-multi-owner-mutation-limit.md`
 - `documentation/experiments/0203-remote-free-runtime-collected-rollback-byte-drift.md`
 - `documentation/experiments/0204-remote-free-runtime-retune-coordinator.md`
+- `documentation/experiments/0205-remote-free-runtime-retune-owner-registry.md`
 
 ## Open Questions
 
-- How should multiple owner runtimes be registered and addressed around
-  `RemoteFreeServiceRuntimeRetuneCoordinator`?
+- How should registered owner runtimes connect to a reusable service window
+  runner that collects summaries and chooses owner IDs?
 - Which workload signal should set the retained item window in production:
   scheduler turn age, active request concurrency, KV cache pressure, or memory
   pressure from observability counters?
