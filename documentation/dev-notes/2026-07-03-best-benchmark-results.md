@@ -20,6 +20,7 @@ These are best observed local microbenchmark results, not final claims about pro
 | KV remote-free large batch | `kv_remote_free_queue_release_batch256_256x4k`: 5.5519 us to 5.7110 us, fastest observed KV remote-free batch sweep point | `documentation/experiments/0059-kv-remote-free-large-batches.md` |
 | Nonblocking remote-free backpressure | `remote_free_try_enqueue_backpressure_256x4k_capacity256_batch64`: 53.173 us to 53.643 us, with repeated pre-sample `full_mean=0.000`; capacity128/batch64 was close at 53.305 us to 53.598 us | `documentation/experiments/0142-remote-free-large-capacity-backpressure.md` |
 | Remote-free mixed trace low-latency release | `remote_free_mixed_trace_256x4k_capacity64_batch64`: 17.803 us to 18.461 us, with max wait 2 bursts and mean wait 1.500 bursts; capacity256/batch64 removed full retries but increased max wait to 8 bursts | `documentation/experiments/0143-remote-free-mixed-trace-latency.md` |
+| Remote-free mixed-size queued-byte policy | `remote_free_mixed_size_trace_capacity256_batch64_max_wait2`: 36.718 us to 37.380 us vs end-drain 39.474 us to 39.847 us, with peak queued bytes reduced from 2,621,440 to 655,360 and `full_count=0` in both policies | `documentation/experiments/0144-remote-free-mixed-size-policy.md` |
 | THP-advised mapped scratch first touch | `mapped_scratch_write_touch_4mib_hugepage_advice`: 27.359 us to 27.781 us vs default 675.72 us to 695.21 us and no-hugepage 682.37 us to 694.57 us | `documentation/experiments/0110-mapped-scratch-thp-write-touch-benchmark.md` |
 
 ## Current Interpretation
@@ -29,6 +30,7 @@ These are best observed local microbenchmark results, not final claims about pro
 - The remote-free results show that batching and owner-side draining are worth keeping in the runtime design, but latency and scheduler policy still need mixed-trace benchmarks.
 - The nonblocking backpressure matrix suggests queue capacity should be tested before drain batch size when trying to reduce `full_count`.
 - The mixed-trace remote-free result shows that larger queue capacity can hide release latency, so capacity should not become a default policy knob without a release-latency or queued-byte guard.
+- The mixed-size queued-byte policy result is the strongest evidence so far that owner drain policy should consider retained bytes, not only queue capacity or producer backpressure.
 - The THP-advised mapped scratch result is the largest single timing delta observed, but it needs repeated runs and page-size proof before it can be treated as stable allocator guidance.
 
 ## Follow-Up Use
