@@ -477,6 +477,17 @@ bytes, three registered owners, and 46 reports needing retune, then measured
 and 60 JSON sample rows. Treat JSON rows as optional evidence output for
 scripts, not as a replacement for the human text rows.
 
+Experiment 0223 added a Rust parser and comparator for remote-free service
+telemetry JSON rows in `locus-validate`, plus the
+`remote_free_service_sample_compare` example command. Two real JSON-enabled
+`remote_free_service_runtime_apply_confirm` benchmark outputs compared stable:
+two baseline samples, two candidate samples, two compared samples, and zero
+drift entries. A controlled candidate copy that changed the first JSON
+`submitted_count` from 768 to 769 reported one drift entry for
+`remote_free_service_runtime_apply_confirm_sample`. Treat this tool as the
+counter-stability gate before trusting timing deltas from saved remote-free
+service telemetry outputs.
+
 ## Measured Thresholds
 
 | Path | Shape inputs | Budget | Matched counters |
@@ -614,6 +625,9 @@ scripts, not as a replacement for the human text rows.
     `remote_free_service_sample_output::print_sample_line` so optional JSON
     rows keep the same benchmark label, sample label, and parsed counters as
     the human text row.
+41. Compare saved JSON-enabled remote-free service telemetry outputs with
+    `cargo run -p locus-validate --example remote_free_service_sample_compare`
+    before interpreting timing deltas between two runs.
 
 ## Guardrails
 
@@ -724,6 +738,9 @@ scripts, not as a replacement for the human text rows.
 - Do not add production JSON dependencies for benchmark-only sample output.
   Keep machine-readable remote-free service telemetry rows benchmark scoped
   unless production code starts consuming the format.
+- Do not trust a remote-free service telemetry timing delta when the JSON
+  sample comparator reports counter drift, missing samples, duplicate samples,
+  malformed JSON rows, or schema mismatches.
 - Recheck thresholds when KV block size, request arena capacity, burst size,
   request concurrency, or batch size changes.
 - For heterogeneous traces, derive the budget from actual retained item sizes
@@ -783,12 +800,13 @@ scripts, not as a replacement for the human text rows.
 - `documentation/experiments/0220-remote-free-service-window-filtered-sample-printing.md`
 - `documentation/experiments/0221-remote-free-service-telemetry-shared-sample-filter.md`
 - `documentation/experiments/0222-remote-free-service-telemetry-json-sample-lines.md`
+- `documentation/experiments/0223-remote-free-service-telemetry-json-compare.md`
 
 ## Open Questions
 
-- Can the JSON sample rows be consumed by a small repository script that
-  compares two benchmark runs and reports counter drift before timing deltas
-  are trusted?
+- Can the comparison tool also parse Criterion timing intervals from the same
+  saved outputs and emit a combined report that refuses timing deltas when
+  counter drift is present?
 - Which workload signal should set the retained item window in production:
   scheduler turn age, active request concurrency, KV cache pressure, or memory
   pressure from observability counters?

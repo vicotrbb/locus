@@ -369,6 +369,7 @@ dependencies = [
  "locus-observe",
  "locus-sys",
  "locus-topology",
+ "serde_json",
 ]
 
 [[package]]

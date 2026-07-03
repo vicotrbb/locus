@@ -11,6 +11,7 @@ locus-alloc = { path = "../locus-alloc" }
 locus-core = { path = "../locus-core" }
 locus-observe = { path = "../locus-observe" }
 locus-sys = { path = "../locus-sys" }
+serde_json = "1.0"
 
 [dev-dependencies]
 locus-topology = { path = "../locus-topology" }
