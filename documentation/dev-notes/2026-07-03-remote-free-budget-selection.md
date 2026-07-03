@@ -714,6 +714,14 @@ summary JSON, compares every typed counter, and is exposed through
 The real combined log matches, while a controlled `records=1` edit is rejected
 with `CountDrift` against expected `records=2`.
 
+Experiment 0256 added a typed verification verdict for saved-log summary JSON
+checks. The strict verifier still fails release gates on drift, while the new
+dashboard mode
+`--rollup-check-json-summary-verify-against-json <saved-rollup-check-log.txt> <saved-summary-log.txt>`
+prints compact verdict JSON with `expected`, `actual`, and `drift` fields. The
+real combined archive reports `status=matched`; a controlled `records=1` edit
+reports `status=drifted` with `drift.field=records`.
+
 ## Measured Thresholds
 
 | Path | Shape inputs | Budget | Matched counters |
@@ -1104,6 +1112,7 @@ with `CountDrift` against expected `records=2`.
 - `documentation/experiments/0253-remote-free-service-telemetry-rollup-check-log-summary-json.md`
 - `documentation/experiments/0254-remote-free-service-telemetry-rollup-check-log-summary-json-parser.md`
 - `documentation/experiments/0255-remote-free-service-telemetry-rollup-check-log-summary-json-drift.md`
+- `documentation/experiments/0256-remote-free-service-telemetry-rollup-check-log-summary-json-verdict.md`
 
 ## Open Questions
 

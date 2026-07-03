@@ -10,8 +10,10 @@ use std::{
 
 use locus_validate::{
     build_remote_free_service_telemetry_collection_summary_directory_rollup,
+    check_remote_free_service_telemetry_collection_summary_rollup_check_log_summary_json_log,
     format_remote_free_service_telemetry_collection_summary_rollup_check_json_line,
     format_remote_free_service_telemetry_collection_summary_rollup_check_log_summary_json_line,
+    format_remote_free_service_telemetry_collection_summary_rollup_check_log_summary_verification_json_line,
     parse_remote_free_service_telemetry_collection_summary,
     parse_remote_free_service_telemetry_collection_summary_rollup_check_json_line,
     parse_remote_free_service_telemetry_collection_summary_rollup_check_log_summary_json_log,
@@ -38,93 +40,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .next()
         .unwrap_or_else(|| "remote_free_service_telemetry_summary_validate".to_owned());
     let summary_path = args.next().ok_or_else(|| usage_error(&program))?;
-    if summary_path == "--dir" {
-        let root = args.next().ok_or_else(|| usage_error(&program))?;
-        let write_rollup = match args.next() {
-            Some(arg) if arg == "--write-rollup" => true,
-            Some(_) => return Err(Box::new(usage_error(&program))),
-            None => false,
-        };
-        if args.next().is_some() {
-            return Err(Box::new(usage_error(&program)));
-        }
-        let root = Path::new(&root);
-        let rollup = validate_summary_directory(root)?;
-        println!("{rollup}");
-        if write_rollup {
-            let artifact_path = write_directory_rollup_artifact(root, &rollup)?;
-            let byte_count = fs::metadata(&artifact_path)?.len();
-            println!(
-                "remote_free_service_telemetry_collection_summary_rollup_artifact=written path={} bytes={}",
-                artifact_path.display(),
-                byte_count
-            );
-        }
-        return Ok(());
-    }
-    if summary_path == "--rollup" {
-        let rollup_path = args.next().ok_or_else(|| usage_error(&program))?;
-        if args.next().is_some() {
-            return Err(Box::new(usage_error(&program)));
-        }
-        let check = validate_remote_free_service_telemetry_collection_summary_rollup_artifact(
-            Path::new(&rollup_path),
-        )?;
-        println!("{check}");
-        println!(
-            "{}",
-            format_remote_free_service_telemetry_collection_summary_rollup_check_json_line(&check)?
-        );
-        return Ok(());
-    }
-    if summary_path == "--rollup-check-json" {
-        let log_path = args.next().ok_or_else(|| usage_error(&program))?;
-        if args.next().is_some() {
-            return Err(Box::new(usage_error(&program)));
-        }
-        let log_text = fs::read_to_string(&log_path)?;
-        let check = parse_rollup_check_json_text(&log_text)?;
-        println!("{check}");
-        return Ok(());
-    }
-    if summary_path == "--rollup-check-json-summary" {
-        let log_path = args.next().ok_or_else(|| usage_error(&program))?;
-        if args.next().is_some() {
-            return Err(Box::new(usage_error(&program)));
-        }
-        let log_text = fs::read_to_string(&log_path)?;
-        let summary =
-            summarize_remote_free_service_telemetry_collection_summary_rollup_check_json_log(
-                &log_text,
-            )?;
-        println!("{summary}");
-        println!(
-            "{}",
-            format_remote_free_service_telemetry_collection_summary_rollup_check_log_summary_json_line(&summary)?
-        );
-        return Ok(());
-    }
-    if summary_path == "--rollup-check-json-summary-verify" {
-        let log_path = args.next().ok_or_else(|| usage_error(&program))?;
-        if args.next().is_some() {
-            return Err(Box::new(usage_error(&program)));
-        }
-        let log_text = fs::read_to_string(&log_path)?;
-        let summary = parse_rollup_check_log_summary_json_text(&log_text)?;
-        println!("{summary}");
-        return Ok(());
-    }
-    if summary_path == "--rollup-check-json-summary-verify-against" {
-        let source_log_path = args.next().ok_or_else(|| usage_error(&program))?;
-        let summary_log_path = args.next().ok_or_else(|| usage_error(&program))?;
-        if args.next().is_some() {
-            return Err(Box::new(usage_error(&program)));
-        }
-        let summary = verify_rollup_check_log_summary_json_against_paths(
-            &source_log_path,
-            &summary_log_path,
-        )?;
-        println!("{summary}");
+
+    if run_mode(&program, &summary_path, &mut args)? {
         return Ok(());
     }
 
@@ -133,6 +50,170 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     validate_and_print_summary_path(&summary_path)
+}
+
+fn run_mode(
+    program: &str,
+    mode: &str,
+    args: &mut impl Iterator<Item = String>,
+) -> Result<bool, Box<dyn std::error::Error>> {
+    match mode {
+        "--dir" => run_dir_mode(program, args)?,
+        "--rollup" => run_rollup_mode(program, args)?,
+        "--rollup-check-json" => run_rollup_check_json_mode(program, args)?,
+        "--rollup-check-json-summary" => run_rollup_check_json_summary_mode(program, args)?,
+        "--rollup-check-json-summary-verify" => {
+            run_rollup_check_json_summary_verify_mode(program, args)?;
+        }
+        "--rollup-check-json-summary-verify-against" => {
+            run_rollup_check_json_summary_verify_against_mode(program, args)?;
+        }
+        "--rollup-check-json-summary-verify-against-json" => {
+            run_rollup_check_json_summary_verify_against_json_mode(program, args)?;
+        }
+        _ => return Ok(false),
+    }
+    Ok(true)
+}
+
+fn run_dir_mode(
+    program: &str,
+    args: &mut impl Iterator<Item = String>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let root = args.next().ok_or_else(|| usage_error(program))?;
+    let write_rollup = match args.next() {
+        Some(arg) if arg == "--write-rollup" => true,
+        Some(_) => return Err(Box::new(usage_error(program))),
+        None => false,
+    };
+    reject_extra_args(program, args)?;
+    let root = Path::new(&root);
+    let rollup = validate_summary_directory(root)?;
+    println!("{rollup}");
+    if write_rollup {
+        let artifact_path = write_directory_rollup_artifact(root, &rollup)?;
+        let byte_count = fs::metadata(&artifact_path)?.len();
+        println!(
+            "remote_free_service_telemetry_collection_summary_rollup_artifact=written path={} bytes={}",
+            artifact_path.display(),
+            byte_count
+        );
+    }
+    Ok(())
+}
+
+fn run_rollup_mode(
+    program: &str,
+    args: &mut impl Iterator<Item = String>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let rollup_path = one_arg(program, args)?;
+    let check = validate_remote_free_service_telemetry_collection_summary_rollup_artifact(
+        Path::new(&rollup_path),
+    )?;
+    println!("{check}");
+    println!(
+        "{}",
+        format_remote_free_service_telemetry_collection_summary_rollup_check_json_line(&check)?
+    );
+    Ok(())
+}
+
+fn run_rollup_check_json_mode(
+    program: &str,
+    args: &mut impl Iterator<Item = String>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let log_path = one_arg(program, args)?;
+    let log_text = fs::read_to_string(&log_path)?;
+    let check = parse_rollup_check_json_text(&log_text)?;
+    println!("{check}");
+    Ok(())
+}
+
+fn run_rollup_check_json_summary_mode(
+    program: &str,
+    args: &mut impl Iterator<Item = String>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let log_path = one_arg(program, args)?;
+    let log_text = fs::read_to_string(&log_path)?;
+    let summary = summarize_remote_free_service_telemetry_collection_summary_rollup_check_json_log(
+        &log_text,
+    )?;
+    println!("{summary}");
+    println!(
+        "{}",
+        format_remote_free_service_telemetry_collection_summary_rollup_check_log_summary_json_line(
+            &summary,
+        )?
+    );
+    Ok(())
+}
+
+fn run_rollup_check_json_summary_verify_mode(
+    program: &str,
+    args: &mut impl Iterator<Item = String>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let log_path = one_arg(program, args)?;
+    let log_text = fs::read_to_string(&log_path)?;
+    let summary = parse_rollup_check_log_summary_json_text(&log_text)?;
+    println!("{summary}");
+    Ok(())
+}
+
+fn run_rollup_check_json_summary_verify_against_mode(
+    program: &str,
+    args: &mut impl Iterator<Item = String>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let (source_log_path, summary_log_path) = two_args(program, args)?;
+    let summary =
+        verify_rollup_check_log_summary_json_against_paths(&source_log_path, &summary_log_path)?;
+    println!("{summary}");
+    Ok(())
+}
+
+fn run_rollup_check_json_summary_verify_against_json_mode(
+    program: &str,
+    args: &mut impl Iterator<Item = String>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let (source_log_path, summary_log_path) = two_args(program, args)?;
+    let report =
+        rollup_check_log_summary_json_verification_report(&source_log_path, &summary_log_path)?;
+    println!("{report}");
+    println!(
+        "{}",
+        format_remote_free_service_telemetry_collection_summary_rollup_check_log_summary_verification_json_line(
+            &report,
+        )?
+    );
+    Ok(())
+}
+
+fn one_arg(
+    program: &str,
+    args: &mut impl Iterator<Item = String>,
+) -> Result<String, Box<dyn std::error::Error>> {
+    let arg = args.next().ok_or_else(|| usage_error(program))?;
+    reject_extra_args(program, args)?;
+    Ok(arg)
+}
+
+fn two_args(
+    program: &str,
+    args: &mut impl Iterator<Item = String>,
+) -> Result<(String, String), Box<dyn std::error::Error>> {
+    let first = args.next().ok_or_else(|| usage_error(program))?;
+    let second = args.next().ok_or_else(|| usage_error(program))?;
+    reject_extra_args(program, args)?;
+    Ok((first, second))
+}
+
+fn reject_extra_args(
+    program: &str,
+    args: &mut impl Iterator<Item = String>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    if args.next().is_some() {
+        return Err(Box::new(usage_error(program)));
+    }
+    Ok(())
 }
 
 fn validate_and_print_summary_path(summary_path: &str) -> Result<(), Box<dyn std::error::Error>> {
@@ -284,6 +365,23 @@ fn verify_rollup_check_log_summary_json_against_paths(
     let summary_log_text = fs::read_to_string(summary_log_path)?;
     Ok(
         verify_remote_free_service_telemetry_collection_summary_rollup_check_log_summary_json_log(
+            &source_log_text,
+            &summary_log_text,
+        )?,
+    )
+}
+
+fn rollup_check_log_summary_json_verification_report(
+    source_log_path: &str,
+    summary_log_path: &str,
+) -> Result<
+    locus_validate::RemoteFreeServiceTelemetryCollectionSummaryRollupCheckLogSummaryVerification,
+    Box<dyn Error>,
+> {
+    let source_log_text = fs::read_to_string(source_log_path)?;
+    let summary_log_text = fs::read_to_string(summary_log_path)?;
+    Ok(
+        check_remote_free_service_telemetry_collection_summary_rollup_check_log_summary_json_log(
             &source_log_text,
             &summary_log_text,
         )?,
@@ -463,7 +561,7 @@ fn usage_error(program: &str) -> io::Error {
     io::Error::new(
         io::ErrorKind::InvalidInput,
         format!(
-            "usage: {program} <collection-summary.json>\n       {program} --dir <evidence-root> [--write-rollup]\n       {program} --rollup <collection-summary-rollup.json>\n       {program} --rollup-check-json <saved-log.txt>\n       {program} --rollup-check-json-summary <saved-log.txt>\n       {program} --rollup-check-json-summary-verify <saved-log.txt>\n       {program} --rollup-check-json-summary-verify-against <saved-rollup-check-log.txt> <saved-summary-log.txt>"
+            "usage: {program} <collection-summary.json>\n       {program} --dir <evidence-root> [--write-rollup]\n       {program} --rollup <collection-summary-rollup.json>\n       {program} --rollup-check-json <saved-log.txt>\n       {program} --rollup-check-json-summary <saved-log.txt>\n       {program} --rollup-check-json-summary-verify <saved-log.txt>\n       {program} --rollup-check-json-summary-verify-against <saved-rollup-check-log.txt> <saved-summary-log.txt>\n       {program} --rollup-check-json-summary-verify-against-json <saved-rollup-check-log.txt> <saved-summary-log.txt>"
         ),
     )
 }
