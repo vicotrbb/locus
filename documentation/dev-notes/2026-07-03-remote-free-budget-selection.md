@@ -706,6 +706,14 @@ combined-log dashboard output reconstructs two records, two rollup hosts
 present, one bundle host present, one bundle host missing, two valid bundles,
 and zero failed statuses without rereading the original release-check records.
 
+Experiment 0255 added drift verification between an archived saved-log summary
+JSON line and the source rollup-check JSON records it claims to summarize. The
+new verifier recomputes the summary from the source log, parses the archived
+summary JSON, compares every typed counter, and is exposed through
+`--rollup-check-json-summary-verify-against <saved-rollup-check-log.txt> <saved-summary-log.txt>`.
+The real combined log matches, while a controlled `records=1` edit is rejected
+with `CountDrift` against expected `records=2`.
+
 ## Measured Thresholds
 
 | Path | Shape inputs | Budget | Matched counters |
@@ -1095,6 +1103,7 @@ and zero failed statuses without rereading the original release-check records.
 - `documentation/experiments/0252-remote-free-service-telemetry-rollup-check-log-summary.md`
 - `documentation/experiments/0253-remote-free-service-telemetry-rollup-check-log-summary-json.md`
 - `documentation/experiments/0254-remote-free-service-telemetry-rollup-check-log-summary-json-parser.md`
+- `documentation/experiments/0255-remote-free-service-telemetry-rollup-check-log-summary-json-drift.md`
 
 ## Open Questions
 

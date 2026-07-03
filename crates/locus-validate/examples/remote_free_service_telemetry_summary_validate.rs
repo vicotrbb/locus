@@ -14,7 +14,7 @@ use locus_validate::{
     format_remote_free_service_telemetry_collection_summary_rollup_check_log_summary_json_line,
     parse_remote_free_service_telemetry_collection_summary,
     parse_remote_free_service_telemetry_collection_summary_rollup_check_json_line,
-    parse_remote_free_service_telemetry_collection_summary_rollup_check_log_summary_json_line,
+    parse_remote_free_service_telemetry_collection_summary_rollup_check_log_summary_json_log,
     parse_remote_free_service_telemetry_timing_stability_manifest,
     resolve_remote_free_service_telemetry_collection_summary_manifest_path,
     resolve_remote_free_service_telemetry_collection_summary_validation_summary_path,
@@ -22,6 +22,7 @@ use locus_validate::{
     summarize_remote_free_service_telemetry_timing_stability,
     validate_remote_free_service_telemetry_collection_summary_rollup_artifact,
     verify_remote_free_service_telemetry_collection_summary_artifacts,
+    verify_remote_free_service_telemetry_collection_summary_rollup_check_log_summary_json_log,
     write_remote_free_service_telemetry_collection_summary_rollup_artifact,
     RemoteFreeServiceTelemetryCollectionSummaryBundleValidation,
     RemoteFreeServiceTelemetryCollectionSummaryHost,
@@ -113,11 +114,28 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         println!("{summary}");
         return Ok(());
     }
+    if summary_path == "--rollup-check-json-summary-verify-against" {
+        let source_log_path = args.next().ok_or_else(|| usage_error(&program))?;
+        let summary_log_path = args.next().ok_or_else(|| usage_error(&program))?;
+        if args.next().is_some() {
+            return Err(Box::new(usage_error(&program)));
+        }
+        let summary = verify_rollup_check_log_summary_json_against_paths(
+            &source_log_path,
+            &summary_log_path,
+        )?;
+        println!("{summary}");
+        return Ok(());
+    }
 
     if args.next().is_some() {
         return Err(Box::new(usage_error(&program)));
     }
 
+    validate_and_print_summary_path(&summary_path)
+}
+
+fn validate_and_print_summary_path(summary_path: &str) -> Result<(), Box<dyn std::error::Error>> {
     let summary_path = PathBuf::from(summary_path);
     let report = validate_summary_path(&summary_path)?;
 
@@ -248,19 +266,28 @@ fn parse_rollup_check_log_summary_json_text(
     locus_validate::RemoteFreeServiceTelemetryCollectionSummaryRollupCheckLogSummary,
     Box<dyn Error>,
 > {
-    for line in input.lines().map(str::trim).filter(|line| !line.is_empty()) {
-        if line
-            .contains("locus.remote_free_service.telemetry.collection_summary_rollup_check_log.v1")
-        {
-            return Ok(
-                parse_remote_free_service_telemetry_collection_summary_rollup_check_log_summary_json_line(line)?,
-            );
-        }
-    }
-    Err(Box::new(io::Error::new(
-        io::ErrorKind::InvalidData,
-        "missing remote-free service telemetry rollup check log summary JSON line",
-    )))
+    Ok(
+        parse_remote_free_service_telemetry_collection_summary_rollup_check_log_summary_json_log(
+            input,
+        )?,
+    )
+}
+
+fn verify_rollup_check_log_summary_json_against_paths(
+    source_log_path: &str,
+    summary_log_path: &str,
+) -> Result<
+    locus_validate::RemoteFreeServiceTelemetryCollectionSummaryRollupCheckLogSummary,
+    Box<dyn Error>,
+> {
+    let source_log_text = fs::read_to_string(source_log_path)?;
+    let summary_log_text = fs::read_to_string(summary_log_path)?;
+    Ok(
+        verify_remote_free_service_telemetry_collection_summary_rollup_check_log_summary_json_log(
+            &source_log_text,
+            &summary_log_text,
+        )?,
+    )
 }
 
 fn validate_summary_directory(
@@ -436,7 +463,7 @@ fn usage_error(program: &str) -> io::Error {
     io::Error::new(
         io::ErrorKind::InvalidInput,
         format!(
-            "usage: {program} <collection-summary.json>\n       {program} --dir <evidence-root> [--write-rollup]\n       {program} --rollup <collection-summary-rollup.json>\n       {program} --rollup-check-json <saved-log.txt>\n       {program} --rollup-check-json-summary <saved-log.txt>\n       {program} --rollup-check-json-summary-verify <saved-log.txt>"
+            "usage: {program} <collection-summary.json>\n       {program} --dir <evidence-root> [--write-rollup]\n       {program} --rollup <collection-summary-rollup.json>\n       {program} --rollup-check-json <saved-log.txt>\n       {program} --rollup-check-json-summary <saved-log.txt>\n       {program} --rollup-check-json-summary-verify <saved-log.txt>\n       {program} --rollup-check-json-summary-verify-against <saved-rollup-check-log.txt> <saved-summary-log.txt>"
         ),
     )
 }
