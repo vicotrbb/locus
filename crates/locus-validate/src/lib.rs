@@ -15,6 +15,7 @@ use locus_alloc::{
 };
 
 mod thp_fault_sample_comparison;
+mod thp_fault_sample_report;
 
 pub use thp_fault_sample_comparison::{
     parse_mapped_scratch_thp_fault_sample_comparison_line,
@@ -23,6 +24,10 @@ pub use thp_fault_sample_comparison::{
     MappedScratchThpFaultSampleComparisonOutput,
     MappedScratchThpFaultSampleComparisonOutputParseError,
     MappedScratchThpFaultSampleComparisonReason, MappedScratchThpFaultSampleComparisonStatus,
+};
+pub use thp_fault_sample_report::{
+    parse_mapped_scratch_thp_fault_sample_report_output, MappedScratchThpFaultSampleReport,
+    MappedScratchThpFaultSampleReportParseError,
 };
 
 /// Host page-locked scratch validation gate status.
