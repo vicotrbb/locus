@@ -27,7 +27,7 @@ These are best observed local microbenchmark results, not final claims about pro
 
 | Area | Best observed validation result | Status | Source |
 | --- | --- | --- | --- |
-| Mapped scratch THP benchmark evidence | Docker `scratch_arena` benchmark emitted page samples, fault samples, and Criterion timing in one log. The combined report classified the log as `ready`, reported `hugepage_observed=no` and `hugepage_adoption=false`, and normalized the three timing intervals to picoseconds | Strong negative evidence for that environment: advice was accepted for the hugepage mode, pages were touched, and the sampled mappings still used base pages | `documentation/experiments/0159-thp-benchmark-timing-report.md` |
+| Mapped scratch THP benchmark evidence | Docker `scratch_arena` benchmark emitted repeated compact report lines with page samples, fault samples, and Criterion timing. The run summary reported `reports=2`, `page_evidence_cohort=consistent`, `hugepage_adoption_reports=0`, and hugepage-vs-default estimate deltas from -755190000 ps to -747175000 ps | Strong negative evidence for that environment: advice was accepted for the hugepage mode, pages were touched, and the sampled mappings still used base pages | `documentation/experiments/0161-thp-report-run-summary.md` |
 | Remote-free controller behavior preservation | `RemoteFreeDrainController` preserved mixed-size policy counters exactly: peak queued bytes 2,621,440 to 655,360, max pending 256 to 64, max wait 8 to 2, and `full_count=0` in both policies | Behavior-preserving runtime API evidence, not a new timing best | `documentation/experiments/0152-mixed-size-remote-free-controller-wiring.md` |
 
 ## Current Interpretation

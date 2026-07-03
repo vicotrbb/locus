@@ -4,6 +4,7 @@ mod mapped_scratch_thp_gate;
 mod pinned_scratch_gate;
 mod pinned_scratch_near_gpu_gate;
 mod thp_benchmark_evidence_report;
+mod thp_benchmark_evidence_run_summary;
 mod thp_fault_sample_comparison;
 mod thp_fault_sample_gate;
 mod thp_fault_sample_report;
@@ -35,6 +36,11 @@ pub use thp_benchmark_evidence_report::{
     MappedScratchThpBenchmarkEvidenceReportParseError, MappedScratchThpBenchmarkEvidenceStatus,
     MappedScratchThpBenchmarkTimings, MappedScratchThpBenchmarkTimingsParseError,
     MappedScratchThpTimingInterval,
+};
+pub use thp_benchmark_evidence_run_summary::{
+    summarize_mapped_scratch_thp_benchmark_evidence_report_lines,
+    MappedScratchThpBenchmarkEvidenceRunCohort, MappedScratchThpBenchmarkEvidenceRunSummary,
+    MappedScratchThpBenchmarkEvidenceRunSummaryParseError,
 };
 pub use thp_fault_sample_comparison::{
     parse_mapped_scratch_thp_fault_sample_comparison_line,
