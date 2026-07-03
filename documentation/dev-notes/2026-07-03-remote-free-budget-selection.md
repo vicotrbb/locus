@@ -1506,6 +1506,9 @@ regex before rerunning with the corrected inspection pattern.
 Experiment 0336 made that saved aggregate rollup recheck cohort rollup
 recheck verdict rollup drift JSON artifact reloadable through the parser-only
 path, preserving the same two-record cohort counters.
+Experiment 0337 then verified that archived aggregate rollup recheck cohort
+rollup recheck verdict rollup drift JSON against saved source verdict records
+and rejected a controlled stale `records=1` archive with `CountDrift`.
 
 ## Open Questions
 
