@@ -1,3 +1,6 @@
+use std::fmt;
+use std::num::NonZeroU64;
+
 use super::{RemoteFreeQueuedByteRetuneAction, RemoteFreeServiceRetuneSummary};
 
 /// Non-mutating service-level remote-free candidate to benchmark next.
@@ -60,11 +63,147 @@ impl RemoteFreeServiceRetuneCandidate {
             }
         }
     }
+
+    const fn is_dry_run_actionable(self) -> bool {
+        matches!(
+            self,
+            Self::IncreaseQueueCapacity
+                | Self::DrainEarlier
+                | Self::IncreaseQueueCapacityAndDrainEarlier
+        )
+    }
 }
+
+/// Non-mutating dry-run planner over consecutive service telemetry windows.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RemoteFreeServiceRetuneDryRunPlanner {
+    required_stable_windows: NonZeroU64,
+    observed_windows: u64,
+    current_candidate: RemoteFreeServiceRetuneCandidate,
+    consecutive_candidate_windows: u64,
+    would_apply_candidate: Option<RemoteFreeServiceRetuneCandidate>,
+}
+
+/// Failure to build a dry-run service retune planner.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RemoteFreeServiceRetuneDryRunPlannerError {
+    /// Stable window count was zero.
+    ZeroRequiredStableWindows,
+}
+
+impl RemoteFreeServiceRetuneDryRunPlanner {
+    /// Creates a dry-run service planner from a non-zero stability window.
+    #[must_use]
+    pub const fn new(required_stable_windows: NonZeroU64) -> Self {
+        Self {
+            required_stable_windows,
+            observed_windows: 0,
+            current_candidate: RemoteFreeServiceRetuneCandidate::CollectTelemetry,
+            consecutive_candidate_windows: 0,
+            would_apply_candidate: None,
+        }
+    }
+
+    /// Creates a dry-run service planner from a raw stability window count.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when `required_stable_windows` is zero.
+    pub fn try_new(
+        required_stable_windows: u64,
+    ) -> Result<Self, RemoteFreeServiceRetuneDryRunPlannerError> {
+        let required_stable_windows = NonZeroU64::new(required_stable_windows)
+            .ok_or(RemoteFreeServiceRetuneDryRunPlannerError::ZeroRequiredStableWindows)?;
+
+        Ok(Self::new(required_stable_windows))
+    }
+
+    /// Observes one service window and returns the selected candidate.
+    pub fn observe_summary(
+        &mut self,
+        summary: RemoteFreeServiceRetuneSummary,
+    ) -> RemoteFreeServiceRetuneCandidate {
+        let candidate = RemoteFreeServiceRetuneCandidate::from_summary(summary);
+        self.observe_candidate(candidate);
+        candidate
+    }
+
+    /// Returns how many consecutive matching windows are required.
+    #[must_use]
+    pub const fn required_stable_windows(self) -> u64 {
+        self.required_stable_windows.get()
+    }
+
+    /// Returns how many service windows have been observed.
+    #[must_use]
+    pub const fn observed_windows(self) -> u64 {
+        self.observed_windows
+    }
+
+    /// Returns the candidate from the latest observed service window.
+    #[must_use]
+    pub const fn current_candidate(self) -> RemoteFreeServiceRetuneCandidate {
+        self.current_candidate
+    }
+
+    /// Returns the current consecutive actionable-candidate streak.
+    #[must_use]
+    pub const fn consecutive_candidate_windows(self) -> u64 {
+        self.consecutive_candidate_windows
+    }
+
+    /// Returns the candidate that would be applied by a future adaptive policy.
+    ///
+    /// This planner never mutates policy. A candidate is returned only when the
+    /// same actionable candidate has appeared for the configured stability
+    /// window.
+    #[must_use]
+    pub const fn would_apply_candidate(self) -> Option<RemoteFreeServiceRetuneCandidate> {
+        self.would_apply_candidate
+    }
+
+    fn observe_candidate(&mut self, candidate: RemoteFreeServiceRetuneCandidate) {
+        self.observed_windows = self.observed_windows.saturating_add(1);
+
+        if !candidate.is_dry_run_actionable() {
+            self.current_candidate = candidate;
+            self.consecutive_candidate_windows = 0;
+            self.would_apply_candidate = None;
+            return;
+        }
+
+        if self.current_candidate == candidate {
+            self.consecutive_candidate_windows =
+                self.consecutive_candidate_windows.saturating_add(1);
+        } else {
+            self.current_candidate = candidate;
+            self.consecutive_candidate_windows = 1;
+        }
+
+        self.would_apply_candidate =
+            if self.consecutive_candidate_windows >= self.required_stable_windows.get() {
+                Some(candidate)
+            } else {
+                None
+            };
+    }
+}
+
+impl fmt::Display for RemoteFreeServiceRetuneDryRunPlannerError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::ZeroRequiredStableWindows => {
+                f.write_str("remote free dry-run stable window count must be non-zero")
+            }
+        }
+    }
+}
+
+impl std::error::Error for RemoteFreeServiceRetuneDryRunPlannerError {}
 
 #[cfg(test)]
 mod tests {
-    use super::RemoteFreeServiceRetuneCandidate;
+    use super::{RemoteFreeServiceRetuneCandidate, RemoteFreeServiceRetuneDryRunPlanner};
     use crate::{
         RemoteFreeDrainObservation, RemoteFreeQueueStats, RemoteFreeQueuedByteDrainConfig,
         RemoteFreeQueuedByteDriftReport, RemoteFreeServiceRetuneSummary,
@@ -189,5 +328,91 @@ mod tests {
             RemoteFreeServiceRetuneCandidate::IncreaseQueueCapacityAndDrainEarlier.as_str(),
             "increase_queue_capacity_and_drain_earlier"
         );
+    }
+
+    #[test]
+    fn dry_run_planner_rejects_zero_stability_window() {
+        assert!(RemoteFreeServiceRetuneDryRunPlanner::try_new(0).is_err());
+    }
+
+    #[test]
+    fn dry_run_planner_requires_consecutive_actionable_windows() {
+        let mut planner = RemoteFreeServiceRetuneDryRunPlanner::try_new(2).expect("planner");
+
+        assert_eq!(planner.required_stable_windows(), 2);
+        assert_eq!(
+            planner.observe_summary(summary_from_reports([report(64, 262_144, 0)])),
+            RemoteFreeServiceRetuneCandidate::KeepConfig
+        );
+        assert_eq!(planner.observed_windows(), 1);
+        assert_eq!(planner.consecutive_candidate_windows(), 0);
+        assert_eq!(planner.would_apply_candidate(), None);
+
+        let drain_earlier = summary_from_reports([report(96, 524_288, 0)]);
+        assert_eq!(
+            planner.observe_summary(drain_earlier),
+            RemoteFreeServiceRetuneCandidate::DrainEarlier
+        );
+        assert_eq!(planner.consecutive_candidate_windows(), 1);
+        assert_eq!(planner.would_apply_candidate(), None);
+
+        assert_eq!(
+            planner.observe_summary(drain_earlier),
+            RemoteFreeServiceRetuneCandidate::DrainEarlier
+        );
+        assert_eq!(planner.consecutive_candidate_windows(), 2);
+        assert_eq!(
+            planner.would_apply_candidate(),
+            Some(RemoteFreeServiceRetuneCandidate::DrainEarlier)
+        );
+    }
+
+    #[test]
+    fn dry_run_planner_resets_streak_on_candidate_change() {
+        let mut planner = RemoteFreeServiceRetuneDryRunPlanner::try_new(2).expect("planner");
+
+        planner.observe_summary(summary_from_reports([report(96, 524_288, 0)]));
+        assert_eq!(planner.consecutive_candidate_windows(), 1);
+
+        planner.observe_summary(summary_from_reports([report(96, 524_288, 3)]));
+        assert_eq!(
+            planner.current_candidate(),
+            RemoteFreeServiceRetuneCandidate::IncreaseQueueCapacityAndDrainEarlier
+        );
+        assert_eq!(planner.consecutive_candidate_windows(), 1);
+        assert_eq!(planner.would_apply_candidate(), None);
+    }
+
+    #[test]
+    fn dry_run_planner_resets_on_clean_telemetry() {
+        let mut planner = RemoteFreeServiceRetuneDryRunPlanner::try_new(2).expect("planner");
+        let drain_earlier = summary_from_reports([report(96, 524_288, 0)]);
+
+        planner.observe_summary(drain_earlier);
+        planner.observe_summary(drain_earlier);
+        assert_eq!(
+            planner.would_apply_candidate(),
+            Some(RemoteFreeServiceRetuneCandidate::DrainEarlier)
+        );
+
+        planner.observe_summary(summary_from_reports([report(64, 262_144, 0)]));
+        assert_eq!(
+            planner.current_candidate(),
+            RemoteFreeServiceRetuneCandidate::KeepConfig
+        );
+        assert_eq!(planner.consecutive_candidate_windows(), 0);
+        assert_eq!(planner.would_apply_candidate(), None);
+    }
+
+    #[test]
+    fn dry_run_planner_resets_on_budget_review_candidate() {
+        let mut planner = RemoteFreeServiceRetuneDryRunPlanner::try_new(2).expect("planner");
+
+        assert_eq!(
+            planner.observe_summary(summary_from_reports([report(32, 524_288, 0)])),
+            RemoteFreeServiceRetuneCandidate::ReviewQueuedByteBudget
+        );
+        assert_eq!(planner.consecutive_candidate_windows(), 0);
+        assert_eq!(planner.would_apply_candidate(), None);
     }
 }

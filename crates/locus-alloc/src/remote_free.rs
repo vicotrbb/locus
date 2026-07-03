@@ -22,7 +22,10 @@ pub use drift::{
     RemoteFreeQueuedByteDriftReport, RemoteFreeQueuedByteRetuneAction,
     RemoteFreeQueuedByteRetuneHint,
 };
-pub use planner::RemoteFreeServiceRetuneCandidate;
+pub use planner::{
+    RemoteFreeServiceRetuneCandidate, RemoteFreeServiceRetuneDryRunPlanner,
+    RemoteFreeServiceRetuneDryRunPlannerError,
+};
 pub use telemetry::{RemoteFreeRetuneActionCounts, RemoteFreeServiceRetuneSummary};
 
 /// Owner-drained queue for batching remote frees back to an owning worker.

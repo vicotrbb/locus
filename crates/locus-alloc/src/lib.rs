@@ -77,6 +77,7 @@ pub use remote_free::{
     RemoteFreeQueuedByteDrainConfig, RemoteFreeQueuedByteDrainConfigError,
     RemoteFreeQueuedByteDriftReport, RemoteFreeQueuedByteRetuneAction,
     RemoteFreeQueuedByteRetuneHint, RemoteFreeRetuneActionCounts, RemoteFreeServiceRetuneCandidate,
+    RemoteFreeServiceRetuneDryRunPlanner, RemoteFreeServiceRetuneDryRunPlannerError,
     RemoteFreeServiceRetuneSummary, RemoteFreeSink, RemoteFreeTrackedDrain,
     RemoteFreeTryEnqueueError, RemoteFreeTryEnqueueErrorKind,
 };

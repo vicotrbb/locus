@@ -177,6 +177,13 @@ bytes over budget 262,144. The explicit capacity-plus-policy candidate
 restored zero drift, 32 `keep_config` reports, max wait 2 bursts, and mean
 wait 1.500 bursts.
 
+Experiment 0193 added `RemoteFreeServiceRetuneDryRunPlanner` as a non-mutating
+planner across service windows. A six-window sequence over real owner-loop
+cases recorded one stable `drain_earlier` would-apply window, one stable
+`increase_queue_capacity_and_drain_earlier` would-apply window, then reset to
+`keep_config` with final streak 0 and no final would-apply candidate after a
+clean window.
+
 ## Measured Thresholds
 
 | Path | Shape inputs | Budget | Matched counters |
@@ -213,6 +220,10 @@ wait 1.500 bursts.
     introducing any adaptive mutation.
 11. Benchmark every planner-selected combined candidate as an explicit static
     case before any dry-run or live adaptive policy.
+12. Use `RemoteFreeServiceRetuneDryRunPlanner` to require repeated actionable
+    service windows before considering live mutation. Treat `would_apply` as
+    evidence for the next guarded benchmark, not as permission to mutate by
+    itself.
 
 ## Guardrails
 
@@ -229,6 +240,9 @@ wait 1.500 bursts.
   observation source until a concrete adaptive candidate survives benchmarks.
 - Do not let the candidate planner mutate policy directly. It selects the next
   benchmark case, not a production action.
+- Do not let dry-run planner output mutate policy directly. It records stable
+  would-apply candidates across windows and still needs a guarded adaptive
+  benchmark before live policy changes.
 - Recheck thresholds when KV block size, request arena capacity, burst size,
   request concurrency, or batch size changes.
 - For heterogeneous traces, derive the budget from actual retained item sizes
@@ -258,11 +272,12 @@ wait 1.500 bursts.
 - `documentation/experiments/0190-remote-free-service-retune-candidate-planner.md`
 - `documentation/experiments/0191-remote-free-planner-candidate-drain-earlier.md`
 - `documentation/experiments/0192-remote-free-planner-candidate-capacity-and-drain.md`
+- `documentation/experiments/0193-remote-free-dry-run-service-planner.md`
 
 ## Open Questions
 
-- Should the next step be a dry-run adaptive planner that records candidate
-  changes across service windows without applying them?
+- Should the next step be a guarded live adaptive policy benchmark, or a
+  longer dry-run benchmark that stresses oscillating service candidates first?
 - Which workload signal should set the retained item window in production:
   scheduler turn age, active request concurrency, KV cache pressure, or memory
   pressure from observability counters?
