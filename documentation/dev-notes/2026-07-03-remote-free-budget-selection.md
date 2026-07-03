@@ -1222,6 +1222,10 @@ artifact reloads as `status=drifted` with `field=records`.
 - Do not rely only on console text for repeated-check dashboard archive drift
   reports. Experiment 0300 showed the matched and controlled stale `records=1`
   archive checks emit compact JSON verdict artifacts.
+- Do not store repeated-check dashboard archive drift verdict JSON without a
+  parser path. Experiment 0301 showed the matched and controlled stale
+  `records=1` JSON artifacts reload as typed reports through the repeated-check
+  CLI parser path.
 - Do not archive remote-free service telemetry output copies without the
   matching manifest and validation summary. Use the collector so copied
   outputs and the counter-gated summary stay together.
@@ -1374,6 +1378,7 @@ artifact reloads as `status=drifted` with `field=records`.
 - `documentation/experiments/0298-remote-free-service-telemetry-rollup-check-log-summary-verdict-rollup-verification-summary-drift-json-rollup-drift-json-rollup-drift-json-rollup-drift-json-rollup-drift-json-rollup-drift-json-rollup-drift-json-rollup-parser.md`
 - `documentation/experiments/0299-remote-free-service-telemetry-rollup-check-log-summary-verdict-rollup-verification-summary-drift-json-rollup-drift-json-rollup-drift-json-rollup-drift-json-rollup-drift-json-rollup-drift-json-rollup-drift-json-rollup-drift.md`
 - `documentation/experiments/0300-remote-free-service-telemetry-rollup-check-log-summary-verdict-rollup-verification-summary-drift-json-rollup-drift-json-rollup-drift-json-rollup-drift-json-rollup-drift-json-rollup-drift-json-rollup-drift-json-rollup-drift-json.md`
+- `documentation/experiments/0301-remote-free-service-telemetry-rollup-check-log-summary-verdict-rollup-verification-summary-drift-json-rollup-drift-json-rollup-drift-json-rollup-drift-json-rollup-drift-json-rollup-drift-json-rollup-drift-json-rollup-drift-json-parser.md`
 
 ## Open Questions
 
