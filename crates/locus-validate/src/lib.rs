@@ -5,14 +5,24 @@ use std::fmt;
 use locus_alloc::{
     parse_mapped_scratch_thp_fault_samples_output, parse_mapped_scratch_thp_probe_output,
     parse_pinned_scratch_near_gpu_probe_output, parse_pinned_scratch_pool_probe_output,
-    MappedScratchHugePageAdvice, MappedScratchThpAdviceStatus,
-    MappedScratchThpFaultSampleComparison, MappedScratchThpFaultSampleStatus,
+    MappedScratchHugePageAdvice, MappedScratchThpAdviceStatus, MappedScratchThpFaultSampleStatus,
     MappedScratchThpFaultSamples, MappedScratchThpFaultSamplesParseError,
     MappedScratchThpObservation, MappedScratchThpProbeOutput,
     MappedScratchThpProbeOutputParseError, PinnedScratchNearGpuProbeOutput,
     PinnedScratchNearGpuProbeOutputParseError, PinnedScratchNearGpuProbeStatus,
     PinnedScratchPoolProbeOutput, PinnedScratchPoolProbeOutputParseError,
     PinnedScratchPoolProbeStatus,
+};
+
+mod thp_fault_sample_comparison;
+
+pub use thp_fault_sample_comparison::{
+    parse_mapped_scratch_thp_fault_sample_comparison_line,
+    parse_mapped_scratch_thp_fault_sample_comparison_output,
+    MappedScratchThpFaultSampleComparisonLineParseError,
+    MappedScratchThpFaultSampleComparisonOutput,
+    MappedScratchThpFaultSampleComparisonOutputParseError,
+    MappedScratchThpFaultSampleComparisonReason, MappedScratchThpFaultSampleComparisonStatus,
 };
 
 /// Host page-locked scratch validation gate status.
@@ -479,72 +489,6 @@ pub struct MappedScratchThpFaultSampleValidationGateVerdict {
     pub reason: MappedScratchThpFaultSampleValidationGateReason,
 }
 
-/// Mapped scratch THP benchmark fault sample comparison line status.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum MappedScratchThpFaultSampleComparisonStatus {
-    /// Fault sample comparison is available.
-    Available,
-    /// Fault sample comparison is unavailable.
-    Unavailable,
-}
-
-impl MappedScratchThpFaultSampleComparisonStatus {
-    /// Returns a stable machine-readable status string.
-    #[must_use]
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Self::Available => "available",
-            Self::Unavailable => "unavailable",
-        }
-    }
-}
-
-impl fmt::Display for MappedScratchThpFaultSampleComparisonStatus {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(self.as_str())
-    }
-}
-
-/// Reason for the mapped scratch THP benchmark fault sample comparison status.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum MappedScratchThpFaultSampleComparisonReason {
-    /// Comparison is available.
-    Ready,
-    /// Process fault counters were unavailable in at least one required sample.
-    FaultCountersUnavailable,
-    /// Samples were marked ready, but the defensive comparison could not be built.
-    ComparisonUnavailable,
-}
-
-impl MappedScratchThpFaultSampleComparisonReason {
-    /// Returns a stable machine-readable reason string.
-    #[must_use]
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Self::Ready => "ready",
-            Self::FaultCountersUnavailable => "fault_counters_unavailable",
-            Self::ComparisonUnavailable => "comparison_unavailable",
-        }
-    }
-}
-
-impl fmt::Display for MappedScratchThpFaultSampleComparisonReason {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(self.as_str())
-    }
-}
-
-/// Displayable mapped scratch THP benchmark fault sample comparison line.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct MappedScratchThpFaultSampleComparisonOutput {
-    /// Final comparison status.
-    pub status: MappedScratchThpFaultSampleComparisonStatus,
-    /// Reason for the comparison status.
-    pub reason: MappedScratchThpFaultSampleComparisonReason,
-    /// Computed comparison, present when status is available.
-    pub comparison: Option<MappedScratchThpFaultSampleComparison>,
-}
-
 impl fmt::Display for PinnedScratchValidationGate {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
@@ -622,31 +566,6 @@ impl fmt::Display for MappedScratchThpFaultSampleValidationGateVerdict {
             "mapped_scratch_thp_fault_sample_validation_gate={} reason={}",
             self.status, self.reason
         )
-    }
-}
-
-impl fmt::Display for MappedScratchThpFaultSampleComparisonOutput {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(
-            f,
-            "mapped_scratch_thp_fault_sample_comparison={} reason={}",
-            self.status, self.reason
-        )?;
-
-        if let Some(comparison) = self.comparison {
-            write!(
-                f,
-                " default_minor_faults_delta={} hugepage_minor_faults_delta={} no_hugepage_minor_faults_delta={} hugepage_vs_default_minor_faults_delta={} hugepage_vs_no_hugepage_minor_faults_delta={} major_faults_observed={}",
-                comparison.default_minor_faults_delta,
-                comparison.hugepage_minor_faults_delta,
-                comparison.no_hugepage_minor_faults_delta,
-                comparison.hugepage_vs_default_minor_faults_delta,
-                comparison.hugepage_vs_no_hugepage_minor_faults_delta,
-                comparison.major_faults_observed
-            )?;
-        }
-
-        Ok(())
     }
 }
 
@@ -1403,33 +1322,6 @@ impl MappedScratchThpFaultSampleValidationGate {
     pub fn is_ready(&self) -> bool {
         self.status == MappedScratchThpFaultSampleValidationGateStatus::Ready
     }
-
-    /// Builds the stable comparison output line for this gate.
-    #[must_use]
-    pub fn comparison_output(&self) -> MappedScratchThpFaultSampleComparisonOutput {
-        if let Some(comparison) = self.samples.comparison() {
-            return MappedScratchThpFaultSampleComparisonOutput {
-                status: MappedScratchThpFaultSampleComparisonStatus::Available,
-                reason: MappedScratchThpFaultSampleComparisonReason::Ready,
-                comparison: Some(comparison),
-            };
-        }
-
-        let reason = match self.reason {
-            MappedScratchThpFaultSampleValidationGateReason::Ready => {
-                MappedScratchThpFaultSampleComparisonReason::ComparisonUnavailable
-            }
-            MappedScratchThpFaultSampleValidationGateReason::FaultCountersUnavailable => {
-                MappedScratchThpFaultSampleComparisonReason::FaultCountersUnavailable
-            }
-        };
-
-        MappedScratchThpFaultSampleComparisonOutput {
-            status: MappedScratchThpFaultSampleComparisonStatus::Unavailable,
-            reason,
-            comparison: None,
-        }
-    }
 }
 
 /// Parses pinned scratch pool probe output and returns the validation gate.
@@ -1991,12 +1883,16 @@ mod pinned_scratch_tests {
         evaluate_mapped_scratch_thp_validation_output,
         evaluate_pinned_scratch_near_gpu_validation_output,
         evaluate_pinned_scratch_validation_output,
+        parse_mapped_scratch_thp_fault_sample_comparison_line,
+        parse_mapped_scratch_thp_fault_sample_comparison_output,
         parse_mapped_scratch_thp_fault_sample_validation_gate_line,
         parse_mapped_scratch_thp_fault_sample_validation_gate_output,
         parse_mapped_scratch_thp_validation_gate_line,
         parse_mapped_scratch_thp_validation_gate_output,
         parse_pinned_scratch_near_gpu_validation_gate_line,
         parse_pinned_scratch_validation_gate_line, parse_pinned_scratch_validation_gate_output,
+        MappedScratchThpFaultSampleComparisonLineParseError,
+        MappedScratchThpFaultSampleComparisonOutputParseError,
         MappedScratchThpFaultSampleComparisonReason, MappedScratchThpFaultSampleComparisonStatus,
         MappedScratchThpFaultSampleValidationGateLineParseError,
         MappedScratchThpFaultSampleValidationGateOutputParseError,
@@ -2215,6 +2111,166 @@ fault_sample=no_hugepage status=available iterations=8 minor_faults_delta=16400 
             "mapped_scratch_thp_fault_sample_comparison=unavailable reason=fault_counters_unavailable"
         );
         assert!(!gate.is_ready());
+    }
+
+    #[test]
+    fn parses_mapped_scratch_thp_fault_sample_comparison_lines() {
+        let available = parse_mapped_scratch_thp_fault_sample_comparison_line(
+            "mapped_scratch_thp_fault_sample_comparison=available reason=ready default_minor_faults_delta=16400 hugepage_minor_faults_delta=8224 no_hugepage_minor_faults_delta=16400 hugepage_vs_default_minor_faults_delta=-8176 hugepage_vs_no_hugepage_minor_faults_delta=-8176 major_faults_observed=false",
+        )
+        .expect("available comparison");
+
+        assert_eq!(
+            available.status,
+            MappedScratchThpFaultSampleComparisonStatus::Available
+        );
+        assert_eq!(
+            available.reason,
+            MappedScratchThpFaultSampleComparisonReason::Ready
+        );
+        let comparison = available.comparison.expect("comparison");
+        assert_eq!(comparison.default_minor_faults_delta, 16400);
+        assert_eq!(comparison.hugepage_minor_faults_delta, 8224);
+        assert_eq!(comparison.no_hugepage_minor_faults_delta, 16400);
+        assert_eq!(comparison.hugepage_vs_default_minor_faults_delta, -8176);
+        assert_eq!(comparison.hugepage_vs_no_hugepage_minor_faults_delta, -8176);
+        assert!(!comparison.major_faults_observed);
+        assert_eq!(
+            available.to_string(),
+            "mapped_scratch_thp_fault_sample_comparison=available reason=ready default_minor_faults_delta=16400 hugepage_minor_faults_delta=8224 no_hugepage_minor_faults_delta=16400 hugepage_vs_default_minor_faults_delta=-8176 hugepage_vs_no_hugepage_minor_faults_delta=-8176 major_faults_observed=false"
+        );
+
+        let unavailable = parse_mapped_scratch_thp_fault_sample_comparison_line(
+            "mapped_scratch_thp_fault_sample_comparison=unavailable reason=fault_counters_unavailable",
+        )
+        .expect("unavailable comparison");
+
+        assert_eq!(
+            unavailable.status,
+            MappedScratchThpFaultSampleComparisonStatus::Unavailable
+        );
+        assert_eq!(
+            unavailable.reason,
+            MappedScratchThpFaultSampleComparisonReason::FaultCountersUnavailable
+        );
+        assert_eq!(unavailable.comparison, None);
+        assert_eq!(
+            unavailable.to_string(),
+            "mapped_scratch_thp_fault_sample_comparison=unavailable reason=fault_counters_unavailable"
+        );
+    }
+
+    #[test]
+    fn rejects_invalid_mapped_scratch_thp_fault_sample_comparison_lines() {
+        assert_eq!(
+            parse_mapped_scratch_thp_fault_sample_comparison_line("reason=ready")
+                .expect_err("missing status"),
+            MappedScratchThpFaultSampleComparisonLineParseError::MissingStatus
+        );
+        assert_eq!(
+            parse_mapped_scratch_thp_fault_sample_comparison_line(
+                "mapped_scratch_thp_fault_sample_comparison=available"
+            )
+            .expect_err("missing reason"),
+            MappedScratchThpFaultSampleComparisonLineParseError::MissingReason
+        );
+        assert_eq!(
+            parse_mapped_scratch_thp_fault_sample_comparison_line(
+                "mapped_scratch_thp_fault_sample_comparison=maybe reason=ready"
+            )
+            .expect_err("unknown status"),
+            MappedScratchThpFaultSampleComparisonLineParseError::UnknownStatus("maybe".to_owned())
+        );
+        assert_eq!(
+            parse_mapped_scratch_thp_fault_sample_comparison_line(
+                "mapped_scratch_thp_fault_sample_comparison=available reason=maybe"
+            )
+            .expect_err("unknown reason"),
+            MappedScratchThpFaultSampleComparisonLineParseError::UnknownReason("maybe".to_owned())
+        );
+        assert_eq!(
+            parse_mapped_scratch_thp_fault_sample_comparison_line(
+                "mapped_scratch_thp_fault_sample_comparison=available reason=ready default_minor_faults_delta=abc"
+            )
+            .expect_err("bad number"),
+            MappedScratchThpFaultSampleComparisonLineParseError::InvalidNumber {
+                field: "default_minor_faults_delta",
+                value: "abc".to_owned(),
+            }
+        );
+        assert_eq!(
+            parse_mapped_scratch_thp_fault_sample_comparison_line(
+                "mapped_scratch_thp_fault_sample_comparison=available reason=ready default_minor_faults_delta=16400 hugepage_minor_faults_delta=8224 no_hugepage_minor_faults_delta=16400 hugepage_vs_default_minor_faults_delta=-8176 hugepage_vs_no_hugepage_minor_faults_delta=-8176 major_faults_observed=maybe"
+            )
+            .expect_err("bad bool"),
+            MappedScratchThpFaultSampleComparisonLineParseError::InvalidBool {
+                field: "major_faults_observed",
+                value: "maybe".to_owned(),
+            }
+        );
+        assert_eq!(
+            parse_mapped_scratch_thp_fault_sample_comparison_line(
+                "mapped_scratch_thp_fault_sample_comparison=available reason=ready default_minor_faults_delta=16400 hugepage_minor_faults_delta=8224 no_hugepage_minor_faults_delta=16400 hugepage_vs_default_minor_faults_delta=-8176 hugepage_vs_no_hugepage_minor_faults_delta=-8176"
+            )
+            .expect_err("missing major faults"),
+            MappedScratchThpFaultSampleComparisonLineParseError::MissingField(
+                "major_faults_observed"
+            )
+        );
+        assert_eq!(
+            parse_mapped_scratch_thp_fault_sample_comparison_line(
+                "mapped_scratch_thp_fault_sample_comparison=unavailable reason=fault_counters_unavailable default_minor_faults_delta=1"
+            )
+            .expect_err("unexpected unavailable field"),
+            MappedScratchThpFaultSampleComparisonLineParseError::UnexpectedField {
+                status: MappedScratchThpFaultSampleComparisonStatus::Unavailable,
+                field: "default_minor_faults_delta",
+            }
+        );
+        assert_eq!(
+            parse_mapped_scratch_thp_fault_sample_comparison_line(
+                "mapped_scratch_thp_fault_sample_comparison=unavailable reason=ready"
+            )
+            .expect_err("inconsistent unavailable"),
+            MappedScratchThpFaultSampleComparisonLineParseError::InconsistentComparison {
+                status: MappedScratchThpFaultSampleComparisonStatus::Unavailable,
+                reason: MappedScratchThpFaultSampleComparisonReason::Ready,
+                comparison_present: false,
+            }
+        );
+        assert_eq!(
+            parse_mapped_scratch_thp_fault_sample_comparison_line(
+                "mapped_scratch_thp_fault_sample_comparison=available reason=ready reason=ready"
+            )
+            .expect_err("duplicate reason"),
+            MappedScratchThpFaultSampleComparisonLineParseError::DuplicateField("reason")
+        );
+        assert_eq!(
+            parse_mapped_scratch_thp_fault_sample_comparison_line(
+                "mapped_scratch_thp_fault_sample_comparison=unavailable reason=fault_counters_unavailable extra=true"
+            )
+            .expect_err("unknown token"),
+            MappedScratchThpFaultSampleComparisonLineParseError::InvalidToken(
+                "extra=true".to_owned()
+            )
+        );
+    }
+
+    #[test]
+    fn parses_mapped_scratch_thp_fault_sample_comparison_from_output() {
+        let output = "\
+mapped_scratch_thp_fault_sample_validation_gate=ready reason=ready
+mapped_scratch_thp_fault_sample_comparison=available reason=ready default_minor_faults_delta=16400 hugepage_minor_faults_delta=8224 no_hugepage_minor_faults_delta=16400 hugepage_vs_default_minor_faults_delta=-8176 hugepage_vs_no_hugepage_minor_faults_delta=-8176 major_faults_observed=false
+";
+
+        let comparison =
+            parse_mapped_scratch_thp_fault_sample_comparison_output(output).expect("comparison");
+
+        assert_eq!(
+            comparison.status,
+            MappedScratchThpFaultSampleComparisonStatus::Available
+        );
+        assert!(comparison.comparison.is_some());
     }
 
     #[test]
@@ -2995,6 +3051,35 @@ mapped_scratch_thp_fault_sample_validation_gate=ready reason=ready
             .expect_err("bad line"),
             MappedScratchThpFaultSampleValidationGateOutputParseError::Line(
                 MappedScratchThpFaultSampleValidationGateLineParseError::UnknownStatus(
+                    "maybe".to_owned()
+                )
+            )
+        );
+    }
+
+    #[test]
+    fn rejects_invalid_mapped_scratch_thp_fault_sample_comparison_output() {
+        assert_eq!(
+            parse_mapped_scratch_thp_fault_sample_comparison_output(
+                "mapped_scratch_thp_fault_sample_validation_gate=ready reason=ready\n"
+            )
+            .expect_err("missing comparison"),
+            MappedScratchThpFaultSampleComparisonOutputParseError::MissingComparisonLine
+        );
+        assert_eq!(
+            parse_mapped_scratch_thp_fault_sample_comparison_output(
+                "mapped_scratch_thp_fault_sample_comparison=unavailable reason=fault_counters_unavailable\nmapped_scratch_thp_fault_sample_comparison=unavailable reason=comparison_unavailable\n"
+            )
+            .expect_err("duplicate comparison"),
+            MappedScratchThpFaultSampleComparisonOutputParseError::DuplicateComparisonLine
+        );
+        assert_eq!(
+            parse_mapped_scratch_thp_fault_sample_comparison_output(
+                "mapped_scratch_thp_fault_sample_comparison=maybe reason=ready\n"
+            )
+            .expect_err("bad comparison"),
+            MappedScratchThpFaultSampleComparisonOutputParseError::Line(
+                MappedScratchThpFaultSampleComparisonLineParseError::UnknownStatus(
                     "maybe".to_owned()
                 )
             )
