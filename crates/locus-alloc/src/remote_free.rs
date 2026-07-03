@@ -10,6 +10,7 @@ mod controller;
 mod drift;
 mod guard;
 mod planner;
+mod runtime;
 mod telemetry;
 
 pub use application::{
@@ -35,6 +36,10 @@ pub use guard::{
 pub use planner::{
     RemoteFreeServiceRetuneCandidate, RemoteFreeServiceRetuneDryRunPlanner,
     RemoteFreeServiceRetuneDryRunPlannerError,
+};
+pub use runtime::{
+    RemoteFreeOwnerRuntime, RemoteFreeOwnerRuntimeApplyOutcome, RemoteFreeOwnerRuntimeError,
+    RemoteFreeOwnerRuntimeRollbackOutcome,
 };
 pub use telemetry::{RemoteFreeRetuneActionCounts, RemoteFreeServiceRetuneSummary};
 

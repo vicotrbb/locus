@@ -12,8 +12,8 @@ use locus_alloc::{
 
 pub(crate) const OWNERS: usize = 4;
 pub(crate) const BLOCKS_PER_OWNER: u64 = 256;
-const BURSTS: u64 = 8;
-const BURST_BLOCKS: u64 = 32;
+pub(crate) const BURSTS: u64 = 8;
+pub(crate) const BURST_BLOCKS: u64 = 32;
 pub(crate) const BYTES_PER_BLOCK: u64 = 4096;
 pub(crate) const QUEUE_CAPACITY: usize = 256;
 pub(crate) const BATCH_LIMIT: usize = 64;

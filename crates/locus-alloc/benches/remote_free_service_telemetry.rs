@@ -13,6 +13,7 @@ mod remote_free_service_harness;
 
 fn remote_free_service_telemetry(c: &mut Criterion) {
     remote_free_service_harness::benchmark_service_telemetry(c);
+    remote_free_service_application_harness::benchmark_runtime_application(c);
     remote_free_service_dry_run_harness::benchmark_dry_run_sequence(c);
     remote_free_service_guarded_harness::benchmark_guarded_sequences(c);
 }

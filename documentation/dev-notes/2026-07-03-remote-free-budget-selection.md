@@ -216,6 +216,13 @@ before running the real allocation service cases. Confirming, rollback, and
 mutation-limit counters stayed unchanged, including 37,748,736 released bytes
 in the mutation-limit sequence.
 
+Experiment 0198 added `RemoteFreeOwnerRuntime` as the first owner-side wrapper
+that can install typed application plans and roll back to the previous config
+at empty queue/controller boundaries. A real allocation benchmark installed
+capacity 256, rolled back to capacity 128, and preserved 768 submitted blocks,
+768 drained blocks, 3,145,728 released bytes, 12 policy drains, one install,
+one rollback, max wait 2 bursts, and mean wait 1.500 bursts.
+
 ## Measured Thresholds
 
 | Path | Shape inputs | Budget | Matched counters |
@@ -265,6 +272,9 @@ in the mutation-limit sequence.
 15. Use `RemoteFreeServiceRetunePolicyApplicator` to translate guarded apply
     decisions into validated configs. Do not let callers apply raw telemetry
     candidates directly.
+16. Install or roll back configs through `RemoteFreeOwnerRuntime` only at empty
+    owner boundaries. Do not migrate pending remote-free work across queue
+    reconstruction without a separate measured design.
 
 ## Guardrails
 
@@ -294,6 +304,8 @@ in the mutation-limit sequence.
   candidate.
 - Do not let service telemetry or raw candidates mutate live policy directly.
   Guard decisions must pass through the typed policy applicator.
+- Do not rebuild a live owner queue while queue or controller pending work is
+  non-empty. Runtime install and rollback are empty-boundary operations.
 - Recheck thresholds when KV block size, request arena capacity, burst size,
   request concurrency, or batch size changes.
 - For heterogeneous traces, derive the budget from actual retained item sizes
@@ -328,11 +340,13 @@ in the mutation-limit sequence.
 - `documentation/experiments/0195-remote-free-guarded-retune-plan.md`
 - `documentation/experiments/0196-remote-free-guarded-mutation-limit.md`
 - `documentation/experiments/0197-remote-free-guarded-policy-application.md`
+- `documentation/experiments/0198-remote-free-owner-runtime-rollback.md`
 
 ## Open Questions
 
-- What owner runtime wrapper should install applied configs while preserving
-  rollback state across queue reconstruction boundaries?
+- How should the guarded service sequence connect to `RemoteFreeOwnerRuntime`
+  so apply, confirm, rollback, and mutation-limit decisions are measured
+  through one runtime-owned path?
 - Which workload signal should set the retained item window in production:
   scheduler turn age, active request concurrency, KV cache pressure, or memory
   pressure from observability counters?
