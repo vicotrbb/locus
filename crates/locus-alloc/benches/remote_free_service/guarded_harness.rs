@@ -12,6 +12,7 @@ use crate::remote_free_service_harness::{
     ServiceTelemetryStats, BLOCKS_PER_OWNER, BYTES_PER_BLOCK, OWNERS, SAMPLES,
 };
 use crate::remote_free_service_sample_filter::should_print_sample;
+use crate::remote_free_service_sample_output::print_sample_line;
 
 const GUARDED_STABLE_WINDOWS: u64 = 2;
 const GUARDED_MAX_MUTATIONS: u64 = 2;
@@ -99,7 +100,9 @@ fn print_guarded_sequence_sample(kind: GuardedSequenceKind) {
     assert_guarded_sequence(kind, stats);
     let label = kind.sample_label();
 
-    println!(
+    print_sample_line(
+        kind.bench_label(),
+        format_args!(
         "{label} windows={} stable_windows={GUARDED_STABLE_WINDOWS} max_mutations={GUARDED_MAX_MUTATIONS} submitted_count={} drained_count={} released_bytes={} policy_drains={} observed_reports={} reports_needing_retune={} max_pending_over_target={} max_queued_bytes_over_budget={} queue_backpressure_reports={} hold_decisions={} apply_decisions={} confirmed_decisions={} rollback_decisions={} mutation_limit_decisions={} drain_earlier_apply_decisions={} combined_apply_decisions={} max_wait_bursts={} mean_wait_bursts={} final_pending_candidate={} final_applied_mutations={} final_confirmed_mutations={} final_rollbacks={}",
         stats.service_windows,
         stats.submitted_count,
@@ -124,7 +127,7 @@ fn print_guarded_sequence_sample(kind: GuardedSequenceKind) {
         stats.final_applied_mutations,
         stats.final_confirmed_mutations,
         stats.final_rollbacks
-    );
+    ));
 }
 
 fn print_guarded_sequence_sample_summary(kind: GuardedSequenceKind) {
@@ -166,7 +169,9 @@ fn print_guarded_sequence_sample_summary(kind: GuardedSequenceKind) {
     }
 
     let label = kind.summary_label();
-    println!(
+    print_sample_line(
+        kind.bench_label(),
+        format_args!(
         "{label} windows={} stable_windows={GUARDED_STABLE_WINDOWS} max_mutations={GUARDED_MAX_MUTATIONS} samples={SAMPLES} reports_needing_retune_min={} reports_needing_retune_max={} reports_needing_retune_mean={} max_pending_over_target_min={} max_pending_over_target_max={} max_pending_over_target_mean={} max_queued_bytes_over_budget_min={} max_queued_bytes_over_budget_max={} max_queued_bytes_over_budget_mean={} queue_backpressure_reports_min={} queue_backpressure_reports_max={} queue_backpressure_reports_mean={} apply_decisions_min={} apply_decisions_max={} apply_decisions_mean={} confirmed_decisions_min={} confirmed_decisions_max={} confirmed_decisions_mean={} rollback_decisions_min={} rollback_decisions_max={} rollback_decisions_mean={} max_wait_min={} max_wait_max={} max_wait_mean={} mean_wait_min={} mean_wait_max={} mean_wait_mean={} final_pending_candidate={} final_applied_mutations={} final_confirmed_mutations={} final_rollbacks={}",
         kind.expected_windows(),
         reports_needing_retune.min,
@@ -200,7 +205,7 @@ fn print_guarded_sequence_sample_summary(kind: GuardedSequenceKind) {
         final_applied_mutations,
         final_confirmed_mutations,
         final_rollbacks
-    );
+    ));
 }
 
 fn run_guarded_sequence(kind: GuardedSequenceKind) -> GuardedSequenceStats {

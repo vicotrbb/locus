@@ -21,6 +21,7 @@ use crate::remote_free_service_harness::{
     BYTES_PER_BLOCK, QUEUE_CAPACITY, SAMPLES, TARGET_PENDING_BLOCKS,
 };
 use crate::remote_free_service_sample_filter::should_print_sample;
+use crate::remote_free_service_sample_output::print_sample_line;
 
 pub(crate) const QUEUE_CAPACITY_GROWTH_FACTOR: usize = 2;
 const RUNTIME_WINDOWS: u64 = 3;
@@ -229,7 +230,9 @@ fn print_runtime_application_sample() {
     let stats = run_runtime_application_sequence();
     assert_runtime_application_stats(stats);
 
-    println!(
+    print_sample_line(
+        RUNTIME_APPLY_ROLLBACK_BENCHMARK,
+        format_args!(
         "{RUNTIME_APPLY_ROLLBACK_SAMPLE} windows={RUNTIME_WINDOWS} initial_queue_capacity={RUNTIME_INITIAL_QUEUE_CAPACITY} installed_queue_capacity={QUEUE_CAPACITY} final_queue_capacity={} submitted_count={} drained_count={} released_bytes={} policy_drains={} drain_rounds={} install_count={} rollback_count={} max_wait_bursts={} mean_wait_bursts={} final_previous_config_present={}",
         stats.final_queue_capacity,
         stats.submitted_count,
@@ -242,7 +245,7 @@ fn print_runtime_application_sample() {
         stats.max_wait_bursts,
         format_milli(stats.mean_wait_milli()),
         stats.final_previous_config_present,
-    );
+    ));
 }
 
 fn print_runtime_confirm_sample() {
@@ -256,7 +259,9 @@ fn print_runtime_confirm_sample() {
     let stats = run_runtime_confirm_sequence();
     assert_runtime_confirm_stats(stats);
 
-    println!(
+    print_sample_line(
+        RUNTIME_APPLY_CONFIRM_BENCHMARK,
+        format_args!(
         "{RUNTIME_APPLY_CONFIRM_SAMPLE} windows={RUNTIME_WINDOWS} initial_queue_capacity={RUNTIME_INITIAL_QUEUE_CAPACITY} installed_queue_capacity={QUEUE_CAPACITY} final_queue_capacity={} submitted_count={} drained_count={} released_bytes={} policy_drains={} drain_rounds={} install_count={} confirm_count={} rollback_count={} max_wait_bursts={} mean_wait_bursts={} final_previous_config_present={}",
         stats.final_queue_capacity,
         stats.submitted_count,
@@ -270,7 +275,7 @@ fn print_runtime_confirm_sample() {
         stats.max_wait_bursts,
         format_milli(stats.mean_wait_milli()),
         stats.final_previous_config_present,
-    );
+    ));
 }
 
 fn print_runtime_application_sample_summary() {
@@ -296,7 +301,9 @@ fn print_runtime_application_sample_summary() {
         mean_wait.observe(stats.mean_wait_milli());
     }
 
-    println!(
+    print_sample_line(
+        RUNTIME_APPLY_ROLLBACK_BENCHMARK,
+        format_args!(
         "{RUNTIME_APPLY_ROLLBACK_SAMPLE_SUMMARY} windows={RUNTIME_WINDOWS} samples={SAMPLES} policy_drains_min={} policy_drains_max={} policy_drains_mean={} drain_rounds_min={} drain_rounds_max={} drain_rounds_mean={} max_wait_min={} max_wait_max={} max_wait_mean={} mean_wait_min={} mean_wait_max={} mean_wait_mean={}",
         policy_drains.min,
         policy_drains.max,
@@ -310,7 +317,7 @@ fn print_runtime_application_sample_summary() {
         format_milli(mean_wait.min),
         format_milli(mean_wait.max),
         format_milli(mean_wait.mean_milli(SAMPLES) / 1000),
-    );
+    ));
 }
 
 fn print_runtime_confirm_sample_summary() {
@@ -336,7 +343,9 @@ fn print_runtime_confirm_sample_summary() {
         mean_wait.observe(stats.mean_wait_milli());
     }
 
-    println!(
+    print_sample_line(
+        RUNTIME_APPLY_CONFIRM_BENCHMARK,
+        format_args!(
         "{RUNTIME_APPLY_CONFIRM_SAMPLE_SUMMARY} windows={RUNTIME_WINDOWS} samples={SAMPLES} policy_drains_min={} policy_drains_max={} policy_drains_mean={} drain_rounds_min={} drain_rounds_max={} drain_rounds_mean={} max_wait_min={} max_wait_max={} max_wait_mean={} mean_wait_min={} mean_wait_max={} mean_wait_mean={}",
         policy_drains.min,
         policy_drains.max,
@@ -350,7 +359,7 @@ fn print_runtime_confirm_sample_summary() {
         format_milli(mean_wait.min),
         format_milli(mean_wait.max),
         format_milli(mean_wait.mean_milli(SAMPLES) / 1000),
-    );
+    ));
 }
 
 fn run_runtime_application_sequence() -> RuntimeApplicationStats {

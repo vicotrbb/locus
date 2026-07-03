@@ -11,6 +11,7 @@ use locus_alloc::{
 };
 
 use crate::remote_free_service_sample_filter::should_print_sample;
+use crate::remote_free_service_sample_output::print_sample_line;
 
 pub(crate) const OWNERS: usize = 4;
 pub(crate) const BLOCKS_PER_OWNER: u64 = 256;
@@ -285,7 +286,9 @@ fn print_service_sample(case: ServiceTelemetryCase) {
     let counts = stats.summary.action_counts();
     let candidate = RemoteFreeServiceRetuneCandidate::from_summary(stats.summary);
 
-    println!(
+    print_sample_line(
+        &benchmark_label,
+        format_args!(
         "{sample_label} owners={OWNERS} blocks_per_owner={BLOCKS_PER_OWNER} bursts={BURSTS} burst_blocks={BURST_BLOCKS} default_capacity={QUEUE_CAPACITY} batch_limit={BATCH_LIMIT} submitted_count={} drained_count={} released_bytes={} policy_drains={} drain_rounds={} max_wait_bursts={} mean_wait_bursts={} observed_reports={} reports_needing_retune={} max_pending_over_target={} max_queued_bytes_over_budget={} queue_backpressure_reports={} keep_config_reports={} drain_earlier_reports={} increase_capacity_and_drain_reports={} retune_candidate={}",
         stats.submitted_count,
         stats.drained_count,
@@ -303,7 +306,7 @@ fn print_service_sample(case: ServiceTelemetryCase) {
         counts.count(RemoteFreeQueuedByteRetuneAction::DrainEarlier),
         counts.count(RemoteFreeQueuedByteRetuneAction::IncreaseQueueCapacityAndDrainEarlier),
         candidate.as_str()
-    );
+    ));
 }
 
 fn print_service_sample_summary(case: ServiceTelemetryCase) {
@@ -342,7 +345,9 @@ fn print_service_sample_summary(case: ServiceTelemetryCase) {
         retune_candidate = RemoteFreeServiceRetuneCandidate::from_summary(stats.summary);
     }
 
-    println!(
+    print_sample_line(
+        &benchmark_label,
+        format_args!(
         "{sample_label} owners={OWNERS} blocks_per_owner={BLOCKS_PER_OWNER} bursts={BURSTS} burst_blocks={BURST_BLOCKS} default_capacity={QUEUE_CAPACITY} batch_limit={BATCH_LIMIT} retune_candidate={} samples={SAMPLES} reports_needing_retune_min={} reports_needing_retune_max={} reports_needing_retune_mean={} max_pending_over_target_min={} max_pending_over_target_max={} max_pending_over_target_mean={} max_queued_bytes_over_budget_min={} max_queued_bytes_over_budget_max={} max_queued_bytes_over_budget_mean={} keep_config_reports_min={} keep_config_reports_max={} keep_config_reports_mean={} drain_earlier_reports_min={} drain_earlier_reports_max={} drain_earlier_reports_mean={} increase_capacity_and_drain_reports_min={} increase_capacity_and_drain_reports_max={} increase_capacity_and_drain_reports_mean={} max_wait_min={} max_wait_max={} max_wait_mean={} mean_wait_min={} mean_wait_max={} mean_wait_mean={}",
         retune_candidate.as_str(),
         reports_needing_retune.min,
@@ -369,7 +374,7 @@ fn print_service_sample_summary(case: ServiceTelemetryCase) {
         format_milli(mean_wait.min),
         format_milli(mean_wait.max),
         format_milli(mean_wait.mean_milli(SAMPLES) / 1000)
-    );
+    ));
 }
 
 pub(crate) fn run_service_case(case: ServiceTelemetryCase) -> ServiceTelemetryStats {

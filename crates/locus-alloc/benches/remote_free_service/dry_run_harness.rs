@@ -8,6 +8,7 @@ use crate::remote_free_service_harness::{
     ServiceTelemetryStats, BLOCKS_PER_OWNER, BYTES_PER_BLOCK, OWNERS, SAMPLES,
 };
 use crate::remote_free_service_sample_filter::should_print_sample;
+use crate::remote_free_service_sample_output::print_sample_line;
 
 const DRY_RUN_STABLE_WINDOWS: u64 = 2;
 
@@ -75,7 +76,9 @@ fn print_dry_run_sequence_sample(kind: DryRunSequenceKind) {
     assert_dry_run_sequence(kind, stats);
     let label = kind.sample_label();
 
-    println!(
+    print_sample_line(
+        kind.bench_label(),
+        format_args!(
         "{label} windows={} stable_windows={DRY_RUN_STABLE_WINDOWS} submitted_count={} drained_count={} released_bytes={} policy_drains={} observed_reports={} reports_needing_retune={} max_pending_over_target={} max_queued_bytes_over_budget={} queue_backpressure_reports={} keep_config_candidate_windows={} drain_earlier_candidate_windows={} combined_candidate_windows={} would_apply_drain_earlier_windows={} would_apply_combined_windows={} max_wait_bursts={} mean_wait_bursts={} final_candidate={} final_streak={} final_would_apply={}",
         stats.service_windows,
         stats.submitted_count,
@@ -97,7 +100,7 @@ fn print_dry_run_sequence_sample(kind: DryRunSequenceKind) {
         stats.final_candidate.as_str(),
         stats.final_streak,
         option_candidate_label(stats.final_would_apply)
-    );
+    ));
 }
 
 fn print_dry_run_sequence_sample_summary(kind: DryRunSequenceKind) {
@@ -135,7 +138,9 @@ fn print_dry_run_sequence_sample_summary(kind: DryRunSequenceKind) {
     }
 
     let label = kind.summary_label();
-    println!(
+    print_sample_line(
+        kind.bench_label(),
+        format_args!(
         "{label} windows=6 stable_windows={DRY_RUN_STABLE_WINDOWS} samples={SAMPLES} reports_needing_retune_min={} reports_needing_retune_max={} reports_needing_retune_mean={} max_pending_over_target_min={} max_pending_over_target_max={} max_pending_over_target_mean={} max_queued_bytes_over_budget_min={} max_queued_bytes_over_budget_max={} max_queued_bytes_over_budget_mean={} queue_backpressure_reports_min={} queue_backpressure_reports_max={} queue_backpressure_reports_mean={} would_apply_drain_earlier_windows_min={} would_apply_drain_earlier_windows_max={} would_apply_drain_earlier_windows_mean={} would_apply_combined_windows_min={} would_apply_combined_windows_max={} would_apply_combined_windows_mean={} max_wait_min={} max_wait_max={} max_wait_mean={} mean_wait_min={} mean_wait_max={} mean_wait_mean={} final_candidate={} final_streak={} final_would_apply={}",
         reports_needing_retune.min,
         reports_needing_retune.max,
@@ -164,7 +169,7 @@ fn print_dry_run_sequence_sample_summary(kind: DryRunSequenceKind) {
         final_candidate.as_str(),
         final_streak,
         option_candidate_label(final_would_apply)
-    );
+    ));
 }
 
 fn run_dry_run_sequence(kind: DryRunSequenceKind) -> DryRunSequenceStats {

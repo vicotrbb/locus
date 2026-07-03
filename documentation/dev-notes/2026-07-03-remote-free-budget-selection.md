@@ -461,6 +461,22 @@ max wait 2 bursts, and mean wait 1.500 bursts, then measured 56.476 to
 56.660 us. Treat `should_print_sample` as the target-wide sample filtering
 surface for this benchmark.
 
+Experiment 0222 added optional JSON sample lines to the
+`remote_free_service_telemetry` benchmark target through
+`remote_free_service/sample_output.rs`. Default focused output stayed
+text-only for `remote_free_service_runtime_apply_confirm`, preserving 768
+submitted blocks, 768 drained blocks, 3,145,728 released bytes, one confirm,
+zero rollbacks, and measuring 57.853 to 57.928 us. With
+`LOCUS_REMOTE_FREE_SERVICE_TELEMETRY_JSON=1`, the same focused run emitted two
+text rows and two parsed JSON rows, preserved those counters as typed fields,
+and measured 57.706 to 57.798 us. The JSON-enabled validated local
+dirty-buffer group run emitted two text rows and two parsed JSON rows,
+preserved 2048 submitted blocks, 2048 drained blocks, 9,437,440 released
+bytes, three registered owners, and 46 reports needing retune, then measured
+195.46 to 195.93 us. A JSON-enabled `--list` run produced 60 text sample rows
+and 60 JSON sample rows. Treat JSON rows as optional evidence output for
+scripts, not as a replacement for the human text rows.
+
 ## Measured Thresholds
 
 | Path | Shape inputs | Budget | Matched counters |
@@ -594,6 +610,10 @@ surface for this benchmark.
 39. Put future `remote_free_service_telemetry` sample printers behind
     `remote_free_service_sample_filter::should_print_sample`, passing both the
     sample label and the Criterion benchmark label.
+40. Route future `remote_free_service_telemetry` sample rows through
+    `remote_free_service_sample_output::print_sample_line` so optional JSON
+    rows keep the same benchmark label, sample label, and parsed counters as
+    the human text row.
 
 ## Guardrails
 
@@ -701,6 +721,9 @@ surface for this benchmark.
 - Do not add local Criterion argument parsing to individual remote-free
   service telemetry harness modules. Use the shared sample filter so focused
   benchmark output stays target-wide and filter-clean.
+- Do not add production JSON dependencies for benchmark-only sample output.
+  Keep machine-readable remote-free service telemetry rows benchmark scoped
+  unless production code starts consuming the format.
 - Recheck thresholds when KV block size, request arena capacity, burst size,
   request concurrency, or batch size changes.
 - For heterogeneous traces, derive the budget from actual retained item sizes
@@ -759,12 +782,13 @@ surface for this benchmark.
 - `documentation/experiments/0219-remote-free-local-dirty-group-benchmark-descriptors.md`
 - `documentation/experiments/0220-remote-free-service-window-filtered-sample-printing.md`
 - `documentation/experiments/0221-remote-free-service-telemetry-shared-sample-filter.md`
+- `documentation/experiments/0222-remote-free-service-telemetry-json-sample-lines.md`
 
 ## Open Questions
 
-- Can remote-free service telemetry samples be emitted as optional
-  machine-readable JSON lines so future experiments can compare counters and
-  timings without relying on ad hoc text filters?
+- Can the JSON sample rows be consumed by a small repository script that
+  compares two benchmark runs and reports counter drift before timing deltas
+  are trusted?
 - Which workload signal should set the retained item window in production:
   scheduler turn age, active request concurrency, KV cache pressure, or memory
   pressure from observability counters?

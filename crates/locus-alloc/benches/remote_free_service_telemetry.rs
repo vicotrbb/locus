@@ -28,6 +28,8 @@ mod remote_free_service_runtime_registry_harness;
 mod remote_free_service_runtime_service_window_harness;
 #[path = "remote_free_service/sample_filter.rs"]
 mod remote_free_service_sample_filter;
+#[path = "remote_free_service/sample_output.rs"]
+mod remote_free_service_sample_output;
 
 fn remote_free_service_telemetry(c: &mut Criterion) {
     remote_free_service_harness::benchmark_service_telemetry(c);

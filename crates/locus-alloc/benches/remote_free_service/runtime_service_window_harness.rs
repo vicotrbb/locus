@@ -31,6 +31,7 @@ use crate::remote_free_service_runtime_local_dirty_group_harness::{
     collect_runtime_local_dirty_group_window, RuntimeLocalDirtyGroupCollectionMode,
 };
 use crate::remote_free_service_sample_filter::should_print_sample;
+use crate::remote_free_service_sample_output::print_sample_line;
 
 const SERVICE_WINDOW_STABLE_WINDOWS: u64 = 2;
 const SERVICE_WINDOW_MAX_MUTATIONS: u64 = 2;
@@ -334,14 +335,19 @@ pub(crate) fn benchmark_runtime_dirty_local_threshold_collection_sequence(c: &mu
 }
 
 fn print_service_window_sample(mode: ServiceWindowRunnerMode, sample_name: &str) {
-    if !should_print_service_window_sample(sample_name) {
+    let Some(benchmark_name) = service_window_sample_benchmark_name(sample_name) else {
+        return;
+    };
+    if !should_print_sample(sample_name, &benchmark_name) {
         return;
     }
 
     let stats = run_runtime_service_window_sequence(mode);
     assert_service_window_stats(&stats);
 
-    println!(
+    print_sample_line(
+        &benchmark_name,
+        format_args!(
         "{sample_name} owners={SERVICE_WINDOW_OWNERS} windows={SERVICE_WINDOW_WINDOWS} stable_windows={SERVICE_WINDOW_STABLE_WINDOWS} max_mutations={SERVICE_WINDOW_MAX_MUTATIONS} rollback_validation_bytes={SERVICE_WINDOW_ROLLBACK_VALIDATION_BYTES} submitted_count={} drained_count={} released_bytes={} policy_drains={} drain_rounds={} registered_owners={} service_window_observations={} observed_reports={} reports_needing_retune={} max_pending_over_target={} max_queued_bytes_over_budget={} queue_backpressure_reports={} hold_decisions={} apply_decisions={} confirmed_decisions={} rollback_decisions={} mutation_limit_decisions={} runtime_install_count={} runtime_confirm_count={} runtime_rollback_count={} runtime_no_change_outcomes={} missing_owner_checks={} max_wait_bursts={} mean_wait_bursts={} final_queue_capacity={} final_previous_config_present={} final_guard_pending_candidate={} final_guard_applied_mutations={} final_guard_confirmed_mutations={} final_guard_rollbacks={}",
         stats.runtime.submitted_count,
         stats.runtime.drained_count,
@@ -373,11 +379,14 @@ fn print_service_window_sample(mode: ServiceWindowRunnerMode, sample_name: &str)
         stats.final_guard_applied_mutations,
         stats.final_guard_confirmed_mutations,
         stats.final_guard_rollbacks,
-    );
+    ));
 }
 
 fn print_service_window_sample_summary(mode: ServiceWindowRunnerMode, sample_name: &str) {
-    if !should_print_service_window_sample(sample_name) {
+    let Some(benchmark_name) = service_window_sample_benchmark_name(sample_name) else {
+        return;
+    };
+    if !should_print_sample(sample_name, &benchmark_name) {
         return;
     }
 
@@ -406,7 +415,9 @@ fn print_service_window_sample_summary(mode: ServiceWindowRunnerMode, sample_nam
         mean_wait.observe(stats.runtime.mean_wait_milli());
     }
 
-    println!(
+    print_sample_line(
+        &benchmark_name,
+        format_args!(
         "{sample_name} owners={SERVICE_WINDOW_OWNERS} windows={SERVICE_WINDOW_WINDOWS} samples={SAMPLES} policy_drains_min={} policy_drains_max={} policy_drains_mean={} drain_rounds_min={} drain_rounds_max={} drain_rounds_mean={} reports_needing_retune_min={} reports_needing_retune_max={} reports_needing_retune_mean={} apply_decisions_min={} apply_decisions_max={} apply_decisions_mean={} confirmed_decisions_min={} confirmed_decisions_max={} confirmed_decisions_mean={} rollback_decisions_min={} rollback_decisions_max={} rollback_decisions_mean={} mutation_limit_decisions_min={} mutation_limit_decisions_max={} mutation_limit_decisions_mean={} max_wait_min={} max_wait_max={} max_wait_mean={} mean_wait_min={} mean_wait_max={} mean_wait_mean={}",
         policy_drains.min,
         policy_drains.max,
@@ -435,12 +446,7 @@ fn print_service_window_sample_summary(mode: ServiceWindowRunnerMode, sample_nam
         format_milli(mean_wait.min),
         format_milli(mean_wait.max),
         format_milli(mean_wait.mean_milli(SAMPLES) / 1000),
-    );
-}
-
-fn should_print_service_window_sample(sample_name: &str) -> bool {
-    service_window_sample_benchmark_name(sample_name)
-        .is_some_and(|benchmark_name| should_print_sample(sample_name, &benchmark_name))
+    ));
 }
 
 fn service_window_sample_benchmark_name(sample_name: &str) -> Option<String> {
