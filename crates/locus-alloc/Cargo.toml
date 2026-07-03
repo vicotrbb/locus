@@ -48,5 +48,9 @@ harness = false
 name = "kv_remote_free_policy"
 harness = false
 
+[[bench]]
+name = "request_remote_free_policy"
+harness = false
+
 [lints]
 workspace = true

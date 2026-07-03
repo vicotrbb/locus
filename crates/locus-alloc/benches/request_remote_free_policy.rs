@@ -1,0 +1,369 @@
+#![allow(missing_docs)]
+
+use std::{alloc::Layout, num::NonZeroU64, sync::mpsc::sync_channel, thread};
+
+use criterion::{black_box, criterion_group, criterion_main, Criterion};
+use locus_alloc::{
+    RemoteFreeDrainObservation, RemoteFreeDrainPolicy, RemoteFreeDrainTracker, RemoteFreeQueue,
+    RequestScratchPool,
+};
+use locus_core::{NodeId, RequestHome, RequestId};
+
+const REQUESTS_U64: u64 = 16;
+const BURSTS: u64 = 4;
+const BURST_REQUESTS: usize = 4;
+const BURST_REQUESTS_U64: u64 = 4;
+const ARENA_CAPACITY: usize = 32 * 1024;
+const ARENA_CAPACITY_U64: u64 = 32 * 1024;
+const REQUEST_ALLOCS: usize = 64;
+const ALLOC_SIZE: usize = 256;
+const ALLOC_ALIGN: usize = 64;
+const QUEUE_CAPACITY: usize = 16;
+const BATCH_LIMIT: usize = 8;
+const TOTAL_TRACKED_BYTES: u64 = REQUESTS_U64 * ARENA_CAPACITY_U64;
+
+enum RemoteCompletionCommand {
+    Run(Vec<RequestId>),
+    Stop,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct RequestPolicyCase {
+    label: &'static str,
+    drain_policy: RemoteFreeDrainPolicy,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct RequestPolicyStats {
+    submitted_count: u64,
+    drained_count: u64,
+    full_count: u64,
+    policy_drains: u64,
+    drain_rounds: u64,
+    max_pending_count: u64,
+    queued_bytes: u64,
+    max_queued_bytes: u64,
+    released_bytes: u64,
+    max_wait_bursts: u64,
+    total_wait_bursts: u64,
+}
+
+impl RequestPolicyCase {
+    fn end_drain() -> Self {
+        Self {
+            label: "end_drain",
+            drain_policy: RemoteFreeDrainPolicy::new(),
+        }
+    }
+
+    fn max_wait2() -> Self {
+        Self {
+            label: "max_wait2",
+            drain_policy: RemoteFreeDrainPolicy::new()
+                .with_max_pending_age(NonZeroU64::new(2).expect("non-zero")),
+        }
+    }
+
+    fn should_drain(self, observation: RemoteFreeDrainObservation) -> bool {
+        self.drain_policy.should_drain(observation)
+    }
+}
+
+impl RequestPolicyStats {
+    fn new() -> Self {
+        Self {
+            submitted_count: 0,
+            drained_count: 0,
+            full_count: 0,
+            policy_drains: 0,
+            drain_rounds: 0,
+            max_pending_count: 0,
+            queued_bytes: 0,
+            max_queued_bytes: 0,
+            released_bytes: 0,
+            max_wait_bursts: 0,
+            total_wait_bursts: 0,
+        }
+    }
+
+    fn mean_wait_milli(self) -> u64 {
+        if self.drained_count == 0 {
+            return 0;
+        }
+
+        self.total_wait_bursts.saturating_mul(1000) / self.drained_count
+    }
+}
+
+fn request_remote_free_tracker_end_drain(c: &mut Criterion) {
+    let case = RequestPolicyCase::end_drain();
+    print_request_policy_sample(case);
+    request_remote_free_tracker_benchmark(
+        c,
+        "request_remote_free_tracker_capacity16_batch8_end_drain_16x64x256b",
+        case,
+    );
+}
+
+fn request_remote_free_tracker_max_wait2(c: &mut Criterion) {
+    let case = RequestPolicyCase::max_wait2();
+    print_request_policy_sample(case);
+    request_remote_free_tracker_benchmark(
+        c,
+        "request_remote_free_tracker_capacity16_batch8_max_wait2_16x64x256b",
+        case,
+    );
+}
+
+fn request_remote_free_tracker_benchmark(
+    c: &mut Criterion,
+    name: &'static str,
+    case: RequestPolicyCase,
+) {
+    c.bench_function(name, |bench| {
+        let homes = request_homes();
+        let layout = request_layout();
+        let mut pool = RequestScratchPool::new();
+        let mut queue = RemoteFreeQueue::new(QUEUE_CAPACITY, BATCH_LIMIT).expect("queue");
+        let (command_sender, ack_receiver, remote_completion) = spawn_remote_completion(&queue);
+
+        bench.iter(|| {
+            let stats = run_request_policy_iteration(
+                &homes,
+                layout,
+                &mut pool,
+                &mut queue,
+                &command_sender,
+                &ack_receiver,
+                case,
+            );
+            assert_eq!(stats.submitted_count, REQUESTS_U64);
+            assert_eq!(stats.drained_count, REQUESTS_U64);
+            assert_eq!(stats.queued_bytes, 0);
+            assert_eq!(stats.released_bytes, TOTAL_TRACKED_BYTES);
+            assert_eq!(pool.pool_stats().active_requests, 0);
+            black_box(stats);
+        });
+
+        command_sender
+            .send(RemoteCompletionCommand::Stop)
+            .expect("send stop");
+        remote_completion.join().expect("remote completion thread");
+    });
+}
+
+fn print_request_policy_sample(case: RequestPolicyCase) {
+    let homes = request_homes();
+    let layout = request_layout();
+    let mut pool = RequestScratchPool::new();
+    let mut queue = RemoteFreeQueue::new(QUEUE_CAPACITY, BATCH_LIMIT).expect("queue");
+    let (command_sender, ack_receiver, remote_completion) = spawn_remote_completion(&queue);
+
+    let stats = run_request_policy_iteration(
+        &homes,
+        layout,
+        &mut pool,
+        &mut queue,
+        &command_sender,
+        &ack_receiver,
+        case,
+    );
+    let label = case.label;
+    println!(
+        "request_remote_free_policy_sample={label} requests={REQUESTS_U64} bursts={BURSTS} burst_requests={BURST_REQUESTS_U64} capacity={QUEUE_CAPACITY} batch_limit={BATCH_LIMIT} submitted_count={} drained_count={} full_count={} policy_drains={} drain_rounds={} max_pending_count={} max_queued_bytes={} released_bytes={} max_wait_bursts={} mean_wait_bursts={}",
+        stats.submitted_count,
+        stats.drained_count,
+        stats.full_count,
+        stats.policy_drains,
+        stats.drain_rounds,
+        stats.max_pending_count,
+        stats.max_queued_bytes,
+        stats.released_bytes,
+        stats.max_wait_bursts,
+        format_milli(stats.mean_wait_milli())
+    );
+
+    assert_eq!(stats.submitted_count, REQUESTS_U64);
+    assert_eq!(stats.drained_count, REQUESTS_U64);
+    assert_eq!(stats.queued_bytes, 0);
+    assert_eq!(stats.released_bytes, TOTAL_TRACKED_BYTES);
+    assert_eq!(pool.pool_stats().active_requests, 0);
+
+    command_sender
+        .send(RemoteCompletionCommand::Stop)
+        .expect("send stop");
+    remote_completion.join().expect("remote completion thread");
+}
+
+fn request_homes() -> Vec<RequestHome> {
+    (0..REQUESTS_U64)
+        .map(|request| RequestHome {
+            request_id: RequestId(request),
+            node: Some(alternating_node(request)),
+            reason: "bench",
+        })
+        .collect()
+}
+
+fn alternating_node(request: u64) -> NodeId {
+    if request % 2 == 0 {
+        NodeId(0)
+    } else {
+        NodeId(1)
+    }
+}
+
+fn request_layout() -> Layout {
+    Layout::from_size_align(ALLOC_SIZE, ALLOC_ALIGN).expect("layout")
+}
+
+fn spawn_remote_completion(
+    queue: &RemoteFreeQueue<RequestId>,
+) -> (
+    std::sync::mpsc::SyncSender<RemoteCompletionCommand>,
+    std::sync::mpsc::Receiver<usize>,
+    thread::JoinHandle<()>,
+) {
+    let sink = queue.sink();
+    let (command_sender, command_receiver) = sync_channel::<RemoteCompletionCommand>(1);
+    let (ack_sender, ack_receiver) = sync_channel::<usize>(1);
+
+    let remote_completion = thread::spawn(move || {
+        while let Ok(command) = command_receiver.recv() {
+            match command {
+                RemoteCompletionCommand::Run(requests) => {
+                    let submitted = requests.len();
+                    for request_id in requests {
+                        sink.enqueue(request_id).expect("enqueue request");
+                    }
+                    ack_sender.send(submitted).expect("ack submitted");
+                }
+                RemoteCompletionCommand::Stop => break,
+            }
+        }
+    });
+
+    (command_sender, ack_receiver, remote_completion)
+}
+
+fn run_request_policy_iteration(
+    homes: &[RequestHome],
+    layout: Layout,
+    pool: &mut RequestScratchPool,
+    queue: &mut RemoteFreeQueue<RequestId>,
+    command_sender: &std::sync::mpsc::SyncSender<RemoteCompletionCommand>,
+    ack_receiver: &std::sync::mpsc::Receiver<usize>,
+    case: RequestPolicyCase,
+) -> RequestPolicyStats {
+    let mut tracker = RemoteFreeDrainTracker::new();
+    let mut stats = RequestPolicyStats::new();
+
+    for burst in 0..BURSTS {
+        let burst_start = usize::try_from(burst).expect("burst fits usize") * BURST_REQUESTS;
+        let burst_end = burst_start + BURST_REQUESTS;
+        let mut requests = Vec::with_capacity(BURST_REQUESTS);
+
+        for home in &homes[burst_start..burst_end] {
+            pool.open_request(home, ARENA_CAPACITY)
+                .expect("open request");
+            for _ in 0..REQUEST_ALLOCS {
+                let allocation = pool
+                    .alloc_bytes(home.request_id, layout)
+                    .expect("allocation");
+                black_box(allocation.as_mut_ptr());
+            }
+            requests.push(home.request_id);
+        }
+
+        command_sender
+            .send(RemoteCompletionCommand::Run(requests))
+            .expect("send requests");
+        let submitted = ack_receiver.recv().expect("ack submitted");
+        assert_eq!(submitted, BURST_REQUESTS);
+
+        for _ in 0..submitted {
+            tracker.record_submit(burst, ARENA_CAPACITY_U64);
+            stats.submitted_count = stats.submitted_count.saturating_add(1);
+        }
+        stats.queued_bytes = tracker.queued_bytes();
+        stats.max_queued_bytes = stats.max_queued_bytes.max(stats.queued_bytes);
+        stats.max_pending_count = stats.max_pending_count.max(tracker.pending_count());
+
+        let completed_bursts = burst.saturating_add(1);
+        let observation = request_policy_observation(queue, &stats, &tracker, completed_bursts);
+        if case.should_drain(observation)
+            && drain_request_policy_batch(queue, pool, &mut tracker, completed_bursts, &mut stats)
+                > 0
+        {
+            stats.policy_drains = stats.policy_drains.saturating_add(1);
+        }
+    }
+
+    while stats.drained_count < stats.submitted_count {
+        if drain_request_policy_batch(queue, pool, &mut tracker, BURSTS, &mut stats) == 0 {
+            thread::yield_now();
+        }
+    }
+
+    let queue_stats = queue.stats();
+    assert_eq!(queue_stats.pending_count, 0);
+    assert_eq!(queue_stats.disconnected_count, 0);
+    assert!(tracker.is_empty());
+    stats.full_count = queue_stats.full_count;
+    stats
+}
+
+fn request_policy_observation(
+    queue: &RemoteFreeQueue<RequestId>,
+    stats: &RequestPolicyStats,
+    tracker: &RemoteFreeDrainTracker,
+    current_burst: u64,
+) -> RemoteFreeDrainObservation {
+    let queue_stats = queue.stats();
+    let observation = tracker.observation(current_burst);
+
+    assert_eq!(observation.pending_count, queue_stats.pending_count);
+    assert_eq!(observation.queued_bytes, stats.queued_bytes);
+
+    observation
+}
+
+fn drain_request_policy_batch(
+    queue: &mut RemoteFreeQueue<RequestId>,
+    pool: &mut RequestScratchPool,
+    tracker: &mut RemoteFreeDrainTracker,
+    current_burst: u64,
+    stats: &mut RequestPolicyStats,
+) -> usize {
+    let drained = queue.drain_batch(|request_id| {
+        let drain_record = tracker
+            .record_drain(ARENA_CAPACITY_U64)
+            .expect("tracked drain");
+        black_box(pool.close_request(request_id).expect("close request"));
+        let wait_bursts = current_burst.saturating_sub(drain_record.submit_turn);
+        stats.queued_bytes = tracker.queued_bytes();
+        stats.released_bytes = stats
+            .released_bytes
+            .saturating_add(drain_record.released_bytes);
+        stats.max_wait_bursts = stats.max_wait_bursts.max(wait_bursts);
+        stats.total_wait_bursts = stats.total_wait_bursts.saturating_add(wait_bursts);
+        stats.drained_count = stats.drained_count.saturating_add(1);
+    });
+
+    if drained.drained > 0 {
+        stats.drain_rounds = stats.drain_rounds.saturating_add(1);
+    }
+
+    drained.drained
+}
+
+fn format_milli(value: u64) -> String {
+    format!("{}.{:03}", value / 1000, value % 1000)
+}
+
+criterion_group!(
+    benches,
+    request_remote_free_tracker_end_drain,
+    request_remote_free_tracker_max_wait2
+);
+criterion_main!(benches);
