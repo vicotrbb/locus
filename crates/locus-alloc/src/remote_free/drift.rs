@@ -37,6 +37,26 @@ pub enum RemoteFreeQueuedByteRetuneHint {
     ReviewMultipleSignals,
 }
 
+/// First action to benchmark after a queued-byte drift observation.
+///
+/// This is diagnostic only. It does not mutate queue capacity, drain cadence,
+/// or queued-byte budgets.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RemoteFreeQueuedByteRetuneAction {
+    /// Keep the current config.
+    KeepConfig,
+    /// Benchmark a larger queue capacity while preserving the target window.
+    IncreaseQueueCapacity,
+    /// Benchmark earlier owner-side drains using the current retained-byte
+    /// window.
+    DrainEarlier,
+    /// Recheck the queued-byte budget or workload size shape before changing
+    /// queue capacity or drain cadence.
+    ReviewQueuedByteBudget,
+    /// Benchmark a larger queue capacity paired with earlier owner-side drains.
+    IncreaseQueueCapacityAndDrainEarlier,
+}
+
 impl RemoteFreeQueuedByteDriftReport {
     /// Builds a report from a controller status snapshot.
     #[must_use]
@@ -155,6 +175,28 @@ impl RemoteFreeQueuedByteDriftReport {
             _ => RemoteFreeQueuedByteRetuneHint::ReviewMultipleSignals,
         }
     }
+
+    /// Returns the first retune action that should be benchmarked.
+    ///
+    /// This derives an action from the same drift signals as `retune_hint`,
+    /// but keeps capacity, drain cadence, and budget review distinct enough for
+    /// runtime callers to pick the next validation experiment.
+    #[must_use]
+    pub const fn retune_action(self) -> RemoteFreeQueuedByteRetuneAction {
+        let pending = self.has_pending_item_drift();
+        let bytes = self.has_queued_byte_drift();
+        let backpressure = self.has_queue_backpressure();
+
+        match (pending, bytes, backpressure) {
+            (false, false, false) => RemoteFreeQueuedByteRetuneAction::KeepConfig,
+            (false, false, true) => RemoteFreeQueuedByteRetuneAction::IncreaseQueueCapacity,
+            (true, false | true, false) => RemoteFreeQueuedByteRetuneAction::DrainEarlier,
+            (false, true, false | true) => RemoteFreeQueuedByteRetuneAction::ReviewQueuedByteBudget,
+            (true, false | true, true) => {
+                RemoteFreeQueuedByteRetuneAction::IncreaseQueueCapacityAndDrainEarlier
+            }
+        }
+    }
 }
 
 impl RemoteFreeQueuedByteRetuneHint {
@@ -171,9 +213,28 @@ impl RemoteFreeQueuedByteRetuneHint {
     }
 }
 
+impl RemoteFreeQueuedByteRetuneAction {
+    /// Returns a stable label for logs and benchmark output.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::KeepConfig => "keep_config",
+            Self::IncreaseQueueCapacity => "increase_queue_capacity",
+            Self::DrainEarlier => "drain_earlier",
+            Self::ReviewQueuedByteBudget => "review_queued_byte_budget",
+            Self::IncreaseQueueCapacityAndDrainEarlier => {
+                "increase_queue_capacity_and_drain_earlier"
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{RemoteFreeQueuedByteDriftReport, RemoteFreeQueuedByteRetuneHint};
+    use super::{
+        RemoteFreeQueuedByteDriftReport, RemoteFreeQueuedByteRetuneAction,
+        RemoteFreeQueuedByteRetuneHint,
+    };
     use crate::{
         RemoteFreeDrainControllerStatus, RemoteFreeDrainDecision, RemoteFreeDrainObservation,
         RemoteFreeQueueStats, RemoteFreeQueuedByteDrainConfig,
@@ -219,6 +280,10 @@ mod tests {
             report.retune_hint(),
             RemoteFreeQueuedByteRetuneHint::KeepConfig
         );
+        assert_eq!(
+            report.retune_action(),
+            RemoteFreeQueuedByteRetuneAction::KeepConfig
+        );
     }
 
     #[test]
@@ -242,6 +307,10 @@ mod tests {
             pending_only.retune_hint(),
             RemoteFreeQueuedByteRetuneHint::ReviewDrainCadence
         );
+        assert_eq!(
+            pending_only.retune_action(),
+            RemoteFreeQueuedByteRetuneAction::DrainEarlier
+        );
 
         assert_eq!(bytes_only.pending_items_over_target(), 0);
         assert_eq!(bytes_only.queued_bytes_over_budget(), 37_856);
@@ -250,6 +319,10 @@ mod tests {
         assert_eq!(
             bytes_only.retune_hint(),
             RemoteFreeQueuedByteRetuneHint::ReviewQueuedByteBudget
+        );
+        assert_eq!(
+            bytes_only.retune_action(),
+            RemoteFreeQueuedByteRetuneAction::ReviewQueuedByteBudget
         );
     }
 
@@ -267,6 +340,10 @@ mod tests {
         assert_eq!(
             report.retune_hint(),
             RemoteFreeQueuedByteRetuneHint::IncreaseQueueCapacity
+        );
+        assert_eq!(
+            report.retune_action(),
+            RemoteFreeQueuedByteRetuneAction::IncreaseQueueCapacity
         );
     }
 
@@ -287,6 +364,42 @@ mod tests {
         assert_eq!(
             report.retune_hint(),
             RemoteFreeQueuedByteRetuneHint::ReviewMultipleSignals
+        );
+        assert_eq!(
+            report.retune_action(),
+            RemoteFreeQueuedByteRetuneAction::IncreaseQueueCapacityAndDrainEarlier
+        );
+    }
+
+    #[test]
+    fn queued_byte_retune_action_maps_multi_signal_drift() {
+        let pending_and_bytes = RemoteFreeQueuedByteDriftReport::from_observation(
+            config(),
+            queue_stats(0),
+            RemoteFreeDrainObservation::new(96, 300_000, 1),
+        );
+        let bytes_and_backpressure = RemoteFreeQueuedByteDriftReport::from_observation(
+            config(),
+            queue_stats(2),
+            RemoteFreeDrainObservation::new(32, 300_000, 1),
+        );
+
+        assert_eq!(
+            pending_and_bytes.retune_hint(),
+            RemoteFreeQueuedByteRetuneHint::ReviewMultipleSignals
+        );
+        assert_eq!(
+            pending_and_bytes.retune_action(),
+            RemoteFreeQueuedByteRetuneAction::DrainEarlier
+        );
+
+        assert_eq!(
+            bytes_and_backpressure.retune_hint(),
+            RemoteFreeQueuedByteRetuneHint::ReviewMultipleSignals
+        );
+        assert_eq!(
+            bytes_and_backpressure.retune_action(),
+            RemoteFreeQueuedByteRetuneAction::ReviewQueuedByteBudget
         );
     }
 
@@ -311,6 +424,30 @@ mod tests {
         assert_eq!(
             RemoteFreeQueuedByteRetuneHint::ReviewMultipleSignals.as_str(),
             "review_multiple_signals"
+        );
+    }
+
+    #[test]
+    fn queued_byte_retune_action_exposes_stable_labels() {
+        assert_eq!(
+            RemoteFreeQueuedByteRetuneAction::KeepConfig.as_str(),
+            "keep_config"
+        );
+        assert_eq!(
+            RemoteFreeQueuedByteRetuneAction::IncreaseQueueCapacity.as_str(),
+            "increase_queue_capacity"
+        );
+        assert_eq!(
+            RemoteFreeQueuedByteRetuneAction::DrainEarlier.as_str(),
+            "drain_earlier"
+        );
+        assert_eq!(
+            RemoteFreeQueuedByteRetuneAction::ReviewQueuedByteBudget.as_str(),
+            "review_queued_byte_budget"
+        );
+        assert_eq!(
+            RemoteFreeQueuedByteRetuneAction::IncreaseQueueCapacityAndDrainEarlier.as_str(),
+            "increase_queue_capacity_and_drain_earlier"
         );
     }
 }

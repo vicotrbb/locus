@@ -92,6 +92,20 @@ diagnostic response:
 The hint is still diagnostic. Benchmark the candidate change before changing
 production policy.
 
+`RemoteFreeQueuedByteDriftReport::retune_action()` recommends the first action
+to benchmark:
+
+| Action | Meaning |
+| --- | --- |
+| `keep_config` | no action needed |
+| `increase_queue_capacity` | add producer slack while preserving the configured retained window |
+| `drain_earlier` | move owner drains earlier to restore the retained item and byte window |
+| `review_queued_byte_budget` | recheck workload size shape or byte budget before changing cadence |
+| `increase_queue_capacity_and_drain_earlier` | add producer slack and preserve the retained window with earlier owner drains |
+
+The action is also diagnostic and non-mutating. It should select the next
+benchmark candidate, not change production policy by itself.
+
 Experiment 0181 tested `increase_queue_capacity` as a pure capacity action on
 the 256-block remote-free trace. Capacity 256 removed `full_count`, but also
 raised max pending items from 64 to 256, retained queued bytes from 262,144 to
@@ -111,6 +125,13 @@ kept `full_count=0` while preserving the heterogeneous 64-item, 655,360-byte,
 max wait 2 burst, and mean wait 1.500 burst window. Treat the action as valid
 for the current uniform and heterogeneous traces, but still validate new trace
 shapes before changing production policy.
+
+Experiment 0184 moved the learned action mapping into
+`RemoteFreeQueuedByteRetuneAction` and validated it against both uniform and
+mixed-size capacity retune benchmarks. Capacity 128 without policy drains
+reported `increase_queue_capacity_and_drain_earlier`, capacity 256 without
+policy drains reported `drain_earlier`, and policy-drain cases reported
+`keep_config`.
 
 ## Measured Thresholds
 
@@ -168,12 +189,12 @@ shapes before changing production policy.
 - `documentation/experiments/0181-remote-free-capacity-retune-action.md`
 - `documentation/experiments/0182-remote-free-earlier-drain-retune-action.md`
 - `documentation/experiments/0183-remote-free-mixed-size-retune-action.md`
+- `documentation/experiments/0184-remote-free-retune-action-helper.md`
 
 ## Open Questions
 
-- Which adaptive action should follow a non-zero drift report: earlier drains,
-  larger queue capacity, larger drain batch size, or a different retained-byte
-  budget?
+- Which production owner-loop surfaces should log `retune_action` first:
+  examples, KV block handles, request arenas, or service-level telemetry?
 - Which workload signal should set the retained item window in production:
   scheduler turn age, active request concurrency, KV cache pressure, or memory
   pressure from observability counters?

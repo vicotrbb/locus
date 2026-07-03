@@ -6,7 +6,8 @@ use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use locus_alloc::{
     RemoteFreeDrainController, RemoteFreeDrainPolicy, RemoteFreeQueue,
     RemoteFreeQueuedByteDrainConfig, RemoteFreeQueuedByteDriftReport,
-    RemoteFreeQueuedByteRetuneHint, RemoteFreeTryEnqueueErrorKind,
+    RemoteFreeQueuedByteRetuneAction, RemoteFreeQueuedByteRetuneHint,
+    RemoteFreeTryEnqueueErrorKind,
 };
 
 const BLOCKS: u64 = 256;
@@ -38,6 +39,7 @@ struct ExpectedCapacityStats {
     max_wait_bursts: u64,
     mean_wait_milli: u64,
     retune_hint: RemoteFreeQueuedByteRetuneHint,
+    retune_action: RemoteFreeQueuedByteRetuneAction,
 }
 
 #[derive(Debug)]
@@ -64,6 +66,7 @@ struct CapacityStats {
     total_wait_bursts: u64,
     queue_backpressure_observed: u64,
     retune_hint: RemoteFreeQueuedByteRetuneHint,
+    retune_action: RemoteFreeQueuedByteRetuneAction,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -99,6 +102,7 @@ fn baseline_capacity64() -> CapacityCase {
             max_wait_bursts: 2,
             mean_wait_milli: 1500,
             retune_hint: RemoteFreeQueuedByteRetuneHint::IncreaseQueueCapacity,
+            retune_action: RemoteFreeQueuedByteRetuneAction::IncreaseQueueCapacity,
         },
     }
 }
@@ -121,6 +125,7 @@ fn candidate_capacity128() -> CapacityCase {
             max_wait_bursts: 4,
             mean_wait_milli: 3000,
             retune_hint: RemoteFreeQueuedByteRetuneHint::ReviewMultipleSignals,
+            retune_action: RemoteFreeQueuedByteRetuneAction::IncreaseQueueCapacityAndDrainEarlier,
         },
     }
 }
@@ -143,6 +148,7 @@ fn candidate_capacity256() -> CapacityCase {
             max_wait_bursts: 8,
             mean_wait_milli: 4500,
             retune_hint: RemoteFreeQueuedByteRetuneHint::ReviewMultipleSignals,
+            retune_action: RemoteFreeQueuedByteRetuneAction::DrainEarlier,
         },
     }
 }
@@ -165,6 +171,7 @@ fn policy_capacity128() -> CapacityCase {
             max_wait_bursts: 2,
             mean_wait_milli: 1500,
             retune_hint: RemoteFreeQueuedByteRetuneHint::KeepConfig,
+            retune_action: RemoteFreeQueuedByteRetuneAction::KeepConfig,
         },
     }
 }
@@ -187,6 +194,7 @@ fn policy_capacity256() -> CapacityCase {
             max_wait_bursts: 2,
             mean_wait_milli: 1500,
             retune_hint: RemoteFreeQueuedByteRetuneHint::KeepConfig,
+            retune_action: RemoteFreeQueuedByteRetuneAction::KeepConfig,
         },
     }
 }
@@ -220,6 +228,7 @@ impl CapacityStats {
             total_wait_bursts: 0,
             queue_backpressure_observed: 0,
             retune_hint: RemoteFreeQueuedByteRetuneHint::KeepConfig,
+            retune_action: RemoteFreeQueuedByteRetuneAction::KeepConfig,
         }
     }
 
@@ -240,6 +249,7 @@ impl CapacityStats {
             self.queue_backpressure_observed = 1;
         }
         self.retune_hint = report.retune_hint();
+        self.retune_action = report.retune_action();
     }
 
     fn mean_wait_milli(self) -> u64 {
@@ -333,10 +343,11 @@ fn print_capacity_case_summary(case: CapacityCase) {
 
     let label = case.label;
     println!(
-        "remote_free_capacity_retune_sample_summary={label} blocks={BLOCKS} bursts={BURSTS} burst_blocks={BURST_BLOCKS} capacity={} batch_limit={BATCH_LIMIT} drain_with_policy={} retune_hint={} samples={SAMPLES} full_min={} full_max={} full_mean={} forced_drains_min={} forced_drains_max={} forced_drains_mean={} policy_drains_min={} policy_drains_max={} policy_drains_mean={} drain_rounds_min={} drain_rounds_max={} drain_rounds_mean={} max_pending_min={} max_pending_max={} max_pending_mean={} max_queued_bytes_min={} max_queued_bytes_max={} max_queued_bytes_mean={} max_pending_over_target_min={} max_pending_over_target_max={} max_pending_over_target_mean={} max_queued_bytes_over_budget_min={} max_queued_bytes_over_budget_max={} max_queued_bytes_over_budget_mean={} max_wait_min={} max_wait_max={} max_wait_mean={} mean_wait_min={} mean_wait_max={} mean_wait_mean={}",
+        "remote_free_capacity_retune_sample_summary={label} blocks={BLOCKS} bursts={BURSTS} burst_blocks={BURST_BLOCKS} capacity={} batch_limit={BATCH_LIMIT} drain_with_policy={} retune_hint={} retune_action={} samples={SAMPLES} full_min={} full_max={} full_mean={} forced_drains_min={} forced_drains_max={} forced_drains_mean={} policy_drains_min={} policy_drains_max={} policy_drains_mean={} drain_rounds_min={} drain_rounds_max={} drain_rounds_mean={} max_pending_min={} max_pending_max={} max_pending_mean={} max_queued_bytes_min={} max_queued_bytes_max={} max_queued_bytes_mean={} max_pending_over_target_min={} max_pending_over_target_max={} max_pending_over_target_mean={} max_queued_bytes_over_budget_min={} max_queued_bytes_over_budget_max={} max_queued_bytes_over_budget_mean={} max_wait_min={} max_wait_max={} max_wait_mean={} mean_wait_min={} mean_wait_max={} mean_wait_mean={}",
         case.capacity,
         u64::from(case.drain_with_policy),
         case.expected.retune_hint.as_str(),
+        case.expected.retune_action.as_str(),
         full.min,
         full.max,
         format_milli(full.mean_milli(SAMPLES)),
@@ -492,6 +503,7 @@ fn assert_capacity_case(case: CapacityCase, stats: CapacityStats) {
     assert_eq!(stats.max_wait_bursts, case.expected.max_wait_bursts);
     assert_eq!(stats.mean_wait_milli(), case.expected.mean_wait_milli);
     assert_eq!(stats.retune_hint, case.expected.retune_hint);
+    assert_eq!(stats.retune_action, case.expected.retune_action);
 }
 
 fn format_milli(value: u64) -> String {
