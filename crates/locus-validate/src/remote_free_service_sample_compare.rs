@@ -1,4 +1,7 @@
-use std::{collections::BTreeMap, fmt};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    fmt,
+};
 
 use serde_json::Value;
 
@@ -88,6 +91,95 @@ pub struct RemoteFreeServiceTelemetrySampleCompareReport {
     pub compared_samples: usize,
     /// Drift entries.
     pub drifts: Vec<RemoteFreeServiceTelemetrySampleDrift>,
+}
+
+/// Criterion timing interval for one remote-free service telemetry benchmark.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RemoteFreeServiceTelemetryTimingInterval {
+    /// Lower bound in picoseconds.
+    pub lower_ps: u128,
+    /// Point estimate in picoseconds.
+    pub estimate_ps: u128,
+    /// Upper bound in picoseconds.
+    pub upper_ps: u128,
+}
+
+/// Timing delta for one benchmark after counter comparison passed.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RemoteFreeServiceTelemetryTimingDelta {
+    /// Criterion benchmark label.
+    pub benchmark: String,
+    /// Baseline point estimate in picoseconds.
+    pub baseline_estimate_ps: u128,
+    /// Candidate point estimate in picoseconds.
+    pub candidate_estimate_ps: u128,
+    /// Candidate minus baseline point estimate in picoseconds.
+    pub estimate_delta_ps: i128,
+}
+
+impl fmt::Display for RemoteFreeServiceTelemetryTimingDelta {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "remote_free_service_telemetry_timing_delta benchmark={} baseline_estimate_ps={} candidate_estimate_ps={} estimate_delta_ps={}",
+            self.benchmark,
+            self.baseline_estimate_ps,
+            self.candidate_estimate_ps,
+            self.estimate_delta_ps
+        )
+    }
+}
+
+/// Combined counter and timing comparison status.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RemoteFreeServiceTelemetrySampleTimingCompareStatus {
+    /// Sample counters matched and timing deltas were emitted.
+    Stable,
+    /// Sample counters drifted, so timing deltas were suppressed.
+    CounterDrift,
+}
+
+impl RemoteFreeServiceTelemetrySampleTimingCompareStatus {
+    /// Returns a stable machine-readable status string.
+    #[must_use]
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Stable => "stable",
+            Self::CounterDrift => "counter_drift",
+        }
+    }
+}
+
+impl fmt::Display for RemoteFreeServiceTelemetrySampleTimingCompareStatus {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+/// Combined counter and timing comparison report.
+#[derive(Debug, Clone, PartialEq)]
+pub struct RemoteFreeServiceTelemetrySampleTimingCompareReport {
+    /// Combined comparison status.
+    pub status: RemoteFreeServiceTelemetrySampleTimingCompareStatus,
+    /// Sample counter comparison report.
+    pub samples: RemoteFreeServiceTelemetrySampleCompareReport,
+    /// Timing deltas. Empty when counters drift.
+    pub timing_deltas: Vec<RemoteFreeServiceTelemetryTimingDelta>,
+}
+
+impl fmt::Display for RemoteFreeServiceTelemetrySampleTimingCompareReport {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "remote_free_service_telemetry_sample_timing_compare={} baseline_samples={} candidate_samples={} compared_samples={} drift_entries={} timing_entries={}",
+            self.status,
+            self.samples.baseline_samples,
+            self.samples.candidate_samples,
+            self.samples.compared_samples,
+            self.samples.drifts.len(),
+            self.timing_deltas.len()
+        )
+    }
 }
 
 impl RemoteFreeServiceTelemetrySampleCompareReport {
@@ -191,6 +283,103 @@ impl std::error::Error for RemoteFreeServiceTelemetrySampleParseError {
     }
 }
 
+/// Error returned when parsing remote-free service telemetry Criterion timings.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum RemoteFreeServiceTelemetryTimingParseError {
+    /// A required benchmark timing interval is missing.
+    MissingBenchmark(String),
+    /// A benchmark timing interval appeared more than once.
+    DuplicateBenchmark(String),
+    /// A timing line did not contain a bracketed interval.
+    MissingInterval(String),
+    /// A timing interval had an unexpected field count.
+    InvalidInterval(String),
+    /// A timing value was malformed.
+    InvalidValue(String),
+    /// A timing unit is not supported.
+    UnknownUnit(String),
+    /// A numeric conversion overflowed.
+    Overflow(String),
+    /// A timing delta overflowed signed representation.
+    DeltaOverflow(String),
+}
+
+impl fmt::Display for RemoteFreeServiceTelemetryTimingParseError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::MissingBenchmark(benchmark) => {
+                write!(
+                    f,
+                    "missing remote-free service telemetry timing: {benchmark}"
+                )
+            }
+            Self::DuplicateBenchmark(benchmark) => {
+                write!(
+                    f,
+                    "duplicate remote-free service telemetry timing: {benchmark}"
+                )
+            }
+            Self::MissingInterval(line) => {
+                write!(f, "missing Criterion timing interval: {line}")
+            }
+            Self::InvalidInterval(line) => {
+                write!(f, "invalid Criterion timing interval: {line}")
+            }
+            Self::InvalidValue(value) => {
+                write!(f, "invalid Criterion timing value: {value}")
+            }
+            Self::UnknownUnit(unit) => {
+                write!(f, "unknown Criterion timing unit: {unit}")
+            }
+            Self::Overflow(value) => {
+                write!(f, "Criterion timing value overflowed: {value}")
+            }
+            Self::DeltaOverflow(benchmark) => {
+                write!(
+                    f,
+                    "remote-free service telemetry timing delta overflowed: {benchmark}"
+                )
+            }
+        }
+    }
+}
+
+impl std::error::Error for RemoteFreeServiceTelemetryTimingParseError {}
+
+/// Error returned when comparing remote-free service telemetry samples and
+/// timings.
+#[derive(Debug)]
+pub enum RemoteFreeServiceTelemetrySampleTimingCompareError {
+    /// Sample row parsing failed.
+    Samples(RemoteFreeServiceTelemetrySampleParseError),
+    /// Criterion timing parsing failed.
+    Timings(RemoteFreeServiceTelemetryTimingParseError),
+}
+
+impl fmt::Display for RemoteFreeServiceTelemetrySampleTimingCompareError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Samples(source) => write!(
+                f,
+                "invalid remote-free service telemetry sample comparison: {source}"
+            ),
+            Self::Timings(source) => write!(
+                f,
+                "invalid remote-free service telemetry timing comparison: {source}"
+            ),
+        }
+    }
+}
+
+impl std::error::Error for RemoteFreeServiceTelemetrySampleTimingCompareError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Samples(source) => Some(source),
+            Self::Timings(source) => Some(source),
+        }
+    }
+}
+
 /// Parses remote-free service telemetry JSON sample rows from benchmark output.
 ///
 /// # Errors
@@ -253,6 +442,102 @@ pub fn compare_remote_free_service_telemetry_sample_outputs(
     Ok(compare_remote_free_service_telemetry_samples(
         &baseline, &candidate,
     ))
+}
+
+/// Compares remote-free service telemetry JSON sample rows and Criterion
+/// timing intervals from two saved benchmark outputs.
+///
+/// # Errors
+///
+/// Returns an error when sample rows cannot be parsed or when required timing
+/// intervals are missing, duplicated, or malformed. Timing intervals are only
+/// required when sample counters are stable.
+pub fn compare_remote_free_service_telemetry_sample_outputs_with_timings(
+    baseline_output: &str,
+    candidate_output: &str,
+) -> Result<
+    RemoteFreeServiceTelemetrySampleTimingCompareReport,
+    RemoteFreeServiceTelemetrySampleTimingCompareError,
+> {
+    let baseline = parse_remote_free_service_telemetry_sample_rows(baseline_output)
+        .map_err(RemoteFreeServiceTelemetrySampleTimingCompareError::Samples)?;
+    let candidate = parse_remote_free_service_telemetry_sample_rows(candidate_output)
+        .map_err(RemoteFreeServiceTelemetrySampleTimingCompareError::Samples)?;
+    let samples = compare_remote_free_service_telemetry_samples(&baseline, &candidate);
+
+    if !samples.is_stable() {
+        return Ok(RemoteFreeServiceTelemetrySampleTimingCompareReport {
+            status: RemoteFreeServiceTelemetrySampleTimingCompareStatus::CounterDrift,
+            samples,
+            timing_deltas: Vec::new(),
+        });
+    }
+
+    let benchmarks = sample_benchmarks(&baseline);
+    let baseline_timings =
+        parse_remote_free_service_telemetry_timings(baseline_output, &benchmarks)
+            .map_err(RemoteFreeServiceTelemetrySampleTimingCompareError::Timings)?;
+    let candidate_timings =
+        parse_remote_free_service_telemetry_timings(candidate_output, &benchmarks)
+            .map_err(RemoteFreeServiceTelemetrySampleTimingCompareError::Timings)?;
+    let timing_deltas = compare_timing_intervals(&baseline_timings, &candidate_timings)
+        .map_err(RemoteFreeServiceTelemetrySampleTimingCompareError::Timings)?;
+
+    Ok(RemoteFreeServiceTelemetrySampleTimingCompareReport {
+        status: RemoteFreeServiceTelemetrySampleTimingCompareStatus::Stable,
+        samples,
+        timing_deltas,
+    })
+}
+
+/// Parses Criterion timing intervals for remote-free service telemetry
+/// benchmark labels.
+///
+/// # Errors
+///
+/// Returns an error when a required benchmark timing interval is missing,
+/// duplicated, or malformed.
+pub fn parse_remote_free_service_telemetry_timings(
+    output: &str,
+    benchmarks: &BTreeSet<String>,
+) -> Result<
+    BTreeMap<String, RemoteFreeServiceTelemetryTimingInterval>,
+    RemoteFreeServiceTelemetryTimingParseError,
+> {
+    let mut timings = BTreeMap::new();
+    let mut current = None;
+
+    for line in output.lines().map(str::trim) {
+        if benchmarks.contains(line) {
+            current = Some(line.to_owned());
+            continue;
+        }
+
+        let Some(benchmark) = current.as_ref() else {
+            continue;
+        };
+        if !line.starts_with("time:") {
+            continue;
+        }
+
+        let interval = parse_criterion_timing_interval(line)?;
+        if timings.insert(benchmark.clone(), interval).is_some() {
+            return Err(
+                RemoteFreeServiceTelemetryTimingParseError::DuplicateBenchmark(benchmark.clone()),
+            );
+        }
+        current = None;
+    }
+
+    for benchmark in benchmarks {
+        if !timings.contains_key(benchmark) {
+            return Err(
+                RemoteFreeServiceTelemetryTimingParseError::MissingBenchmark(benchmark.clone()),
+            );
+        }
+    }
+
+    Ok(timings)
 }
 
 fn parse_sample_row_value(
@@ -350,6 +635,141 @@ fn compare_remote_free_service_telemetry_samples(
     }
 }
 
+fn sample_benchmarks(
+    rows: &BTreeMap<RemoteFreeServiceTelemetrySampleKey, RemoteFreeServiceTelemetrySampleRow>,
+) -> BTreeSet<String> {
+    rows.keys()
+        .map(|key| key.benchmark.clone())
+        .collect::<BTreeSet<_>>()
+}
+
+fn parse_criterion_timing_interval(
+    line: &str,
+) -> Result<RemoteFreeServiceTelemetryTimingInterval, RemoteFreeServiceTelemetryTimingParseError> {
+    let start = line.find('[').ok_or_else(|| {
+        RemoteFreeServiceTelemetryTimingParseError::MissingInterval(line.to_owned())
+    })?;
+    let end = line.find(']').ok_or_else(|| {
+        RemoteFreeServiceTelemetryTimingParseError::MissingInterval(line.to_owned())
+    })?;
+    if end <= start {
+        return Err(RemoteFreeServiceTelemetryTimingParseError::InvalidInterval(
+            line.to_owned(),
+        ));
+    }
+
+    let tokens = line[start + 1..end].split_whitespace().collect::<Vec<_>>();
+    if tokens.len() != 6 {
+        return Err(RemoteFreeServiceTelemetryTimingParseError::InvalidInterval(
+            line.to_owned(),
+        ));
+    }
+
+    Ok(RemoteFreeServiceTelemetryTimingInterval {
+        lower_ps: parse_timing_value_ps(tokens[0], tokens[1])?,
+        estimate_ps: parse_timing_value_ps(tokens[2], tokens[3])?,
+        upper_ps: parse_timing_value_ps(tokens[4], tokens[5])?,
+    })
+}
+
+fn parse_timing_value_ps(
+    value: &str,
+    unit: &str,
+) -> Result<u128, RemoteFreeServiceTelemetryTimingParseError> {
+    let scale_ps = match unit {
+        "ps" => 1,
+        "ns" => 1_000,
+        "us" | "\u{00b5}s" => 1_000_000,
+        "ms" => 1_000_000_000,
+        "s" => 1_000_000_000_000,
+        _ => {
+            return Err(RemoteFreeServiceTelemetryTimingParseError::UnknownUnit(
+                unit.to_owned(),
+            ));
+        }
+    };
+
+    parse_decimal_scaled(value, scale_ps)
+}
+
+fn parse_decimal_scaled(
+    value: &str,
+    scale: u128,
+) -> Result<u128, RemoteFreeServiceTelemetryTimingParseError> {
+    let (whole, fractional) = value.split_once('.').unwrap_or((value, ""));
+    if whole.is_empty()
+        || !whole.chars().all(|value| value.is_ascii_digit())
+        || !fractional.chars().all(|value| value.is_ascii_digit())
+    {
+        return Err(RemoteFreeServiceTelemetryTimingParseError::InvalidValue(
+            value.to_owned(),
+        ));
+    }
+
+    let whole = whole
+        .parse::<u128>()
+        .map_err(|_| RemoteFreeServiceTelemetryTimingParseError::InvalidValue(value.to_owned()))?;
+    let whole_scaled = whole
+        .checked_mul(scale)
+        .ok_or_else(|| RemoteFreeServiceTelemetryTimingParseError::Overflow(value.to_owned()))?;
+
+    if fractional.is_empty() {
+        return Ok(whole_scaled);
+    }
+
+    let fractional_value = fractional
+        .parse::<u128>()
+        .map_err(|_| RemoteFreeServiceTelemetryTimingParseError::InvalidValue(value.to_owned()))?;
+    let divisor = 10_u128
+        .checked_pow(
+            u32::try_from(fractional.len()).map_err(|_| {
+                RemoteFreeServiceTelemetryTimingParseError::Overflow(value.to_owned())
+            })?,
+        )
+        .ok_or_else(|| RemoteFreeServiceTelemetryTimingParseError::Overflow(value.to_owned()))?;
+    let fractional_scaled = fractional_value
+        .checked_mul(scale)
+        .ok_or_else(|| RemoteFreeServiceTelemetryTimingParseError::Overflow(value.to_owned()))?
+        / divisor;
+
+    whole_scaled
+        .checked_add(fractional_scaled)
+        .ok_or_else(|| RemoteFreeServiceTelemetryTimingParseError::Overflow(value.to_owned()))
+}
+
+fn compare_timing_intervals(
+    baseline: &BTreeMap<String, RemoteFreeServiceTelemetryTimingInterval>,
+    candidate: &BTreeMap<String, RemoteFreeServiceTelemetryTimingInterval>,
+) -> Result<Vec<RemoteFreeServiceTelemetryTimingDelta>, RemoteFreeServiceTelemetryTimingParseError>
+{
+    let mut deltas = Vec::new();
+    for (benchmark, baseline_interval) in baseline {
+        let candidate_interval = candidate.get(benchmark).ok_or_else(|| {
+            RemoteFreeServiceTelemetryTimingParseError::MissingBenchmark(benchmark.clone())
+        })?;
+        let baseline_estimate = i128::try_from(baseline_interval.estimate_ps).map_err(|_| {
+            RemoteFreeServiceTelemetryTimingParseError::DeltaOverflow(benchmark.clone())
+        })?;
+        let candidate_estimate = i128::try_from(candidate_interval.estimate_ps).map_err(|_| {
+            RemoteFreeServiceTelemetryTimingParseError::DeltaOverflow(benchmark.clone())
+        })?;
+        let estimate_delta_ps = candidate_estimate
+            .checked_sub(baseline_estimate)
+            .ok_or_else(|| {
+                RemoteFreeServiceTelemetryTimingParseError::DeltaOverflow(benchmark.clone())
+            })?;
+
+        deltas.push(RemoteFreeServiceTelemetryTimingDelta {
+            benchmark: benchmark.clone(),
+            baseline_estimate_ps: baseline_interval.estimate_ps,
+            candidate_estimate_ps: candidate_interval.estimate_ps,
+            estimate_delta_ps,
+        });
+    }
+
+    Ok(deltas)
+}
+
 fn compare_fields(
     key: &RemoteFreeServiceTelemetrySampleKey,
     baseline: &BTreeMap<String, Value>,
@@ -423,15 +843,27 @@ fn value_label(value: &Value) -> String {
 mod tests {
     use super::{
         compare_remote_free_service_telemetry_sample_outputs,
+        compare_remote_free_service_telemetry_sample_outputs_with_timings,
         parse_remote_free_service_telemetry_sample_rows,
-        RemoteFreeServiceTelemetrySampleCompareStatus, RemoteFreeServiceTelemetrySampleParseError,
+        parse_remote_free_service_telemetry_timings, RemoteFreeServiceTelemetrySampleCompareStatus,
+        RemoteFreeServiceTelemetrySampleParseError,
+        RemoteFreeServiceTelemetrySampleTimingCompareStatus,
+        RemoteFreeServiceTelemetryTimingParseError,
     };
+    use std::collections::BTreeSet;
 
     const APPLY_CONFIRM_SAMPLE: &str = r#"{"schema":"locus.remote_free_service.telemetry.sample.v1","benchmark":"remote_free_service_runtime_apply_confirm","sample":"remote_free_service_runtime_apply_confirm_sample","line":"remote_free_service_runtime_apply_confirm_sample submitted_count=768 final_previous_config_present=false","fields":{"submitted_count":768,"drained_count":768,"released_bytes":3145728,"confirm_count":1,"rollback_count":0,"final_previous_config_present":false}}"#;
     const APPLY_CONFIRM_SUMMARY: &str = r#"{"schema":"locus.remote_free_service.telemetry.sample.v1","benchmark":"remote_free_service_runtime_apply_confirm","sample":"remote_free_service_runtime_apply_confirm_sample_summary","line":"remote_free_service_runtime_apply_confirm_sample_summary samples=8 policy_drains_mean=12.000","fields":{"samples":8,"policy_drains_mean":12.000}}"#;
 
     fn sample_output() -> String {
         format!("{APPLY_CONFIRM_SAMPLE}\n{APPLY_CONFIRM_SUMMARY}\n")
+    }
+
+    fn timed_output(estimate: &str) -> String {
+        format!(
+            "{}remote_free_service_runtime_apply_confirm\n                        time:   [56.500 us {estimate} us 56.700 us]\n",
+            sample_output()
+        )
     }
 
     #[test]
@@ -552,6 +984,103 @@ mod tests {
         assert!(matches!(
             error,
             RemoteFreeServiceTelemetrySampleParseError::UnexpectedSchema { .. }
+        ));
+    }
+
+    #[test]
+    fn parses_criterion_timings_for_sample_benchmarks() {
+        let benchmarks = BTreeSet::from(["remote_free_service_runtime_apply_confirm".to_owned()]);
+        let timings =
+            parse_remote_free_service_telemetry_timings(&timed_output("56.600"), &benchmarks)
+                .expect("timings");
+
+        let interval = timings
+            .get("remote_free_service_runtime_apply_confirm")
+            .expect("interval");
+        assert_eq!(interval.lower_ps, 56_500_000);
+        assert_eq!(interval.estimate_ps, 56_600_000);
+        assert_eq!(interval.upper_ps, 56_700_000);
+    }
+
+    #[test]
+    fn compares_stable_samples_with_timing_delta() {
+        let baseline = timed_output("56.600");
+        let candidate = timed_output("57.125");
+        let report = compare_remote_free_service_telemetry_sample_outputs_with_timings(
+            &baseline, &candidate,
+        )
+        .expect("report");
+
+        assert_eq!(
+            report.status,
+            RemoteFreeServiceTelemetrySampleTimingCompareStatus::Stable
+        );
+        assert_eq!(report.samples.drifts.len(), 0);
+        assert_eq!(report.timing_deltas.len(), 1);
+        assert_eq!(report.timing_deltas[0].baseline_estimate_ps, 56_600_000);
+        assert_eq!(report.timing_deltas[0].candidate_estimate_ps, 57_125_000);
+        assert_eq!(report.timing_deltas[0].estimate_delta_ps, 525_000);
+        assert_eq!(
+            report.to_string(),
+            "remote_free_service_telemetry_sample_timing_compare=stable baseline_samples=2 candidate_samples=2 compared_samples=2 drift_entries=0 timing_entries=1"
+        );
+        assert_eq!(
+            report.timing_deltas[0].to_string(),
+            "remote_free_service_telemetry_timing_delta benchmark=remote_free_service_runtime_apply_confirm baseline_estimate_ps=56600000 candidate_estimate_ps=57125000 estimate_delta_ps=525000"
+        );
+    }
+
+    #[test]
+    fn suppresses_timing_delta_when_counters_drift() {
+        let baseline = timed_output("56.600");
+        let candidate =
+            timed_output("57.125").replace("\"submitted_count\":768", "\"submitted_count\":769");
+        let report = compare_remote_free_service_telemetry_sample_outputs_with_timings(
+            &baseline, &candidate,
+        )
+        .expect("report");
+
+        assert_eq!(
+            report.status,
+            RemoteFreeServiceTelemetrySampleTimingCompareStatus::CounterDrift
+        );
+        assert_eq!(report.samples.drifts.len(), 1);
+        assert!(report.timing_deltas.is_empty());
+        assert_eq!(
+            report.to_string(),
+            "remote_free_service_telemetry_sample_timing_compare=counter_drift baseline_samples=2 candidate_samples=2 compared_samples=2 drift_entries=1 timing_entries=0"
+        );
+    }
+
+    #[test]
+    fn rejects_missing_timing_for_stable_samples() {
+        let error = compare_remote_free_service_telemetry_sample_outputs_with_timings(
+            &sample_output(),
+            &sample_output(),
+        )
+        .expect_err("missing timing");
+
+        assert!(matches!(
+            error,
+            super::RemoteFreeServiceTelemetrySampleTimingCompareError::Timings(
+                RemoteFreeServiceTelemetryTimingParseError::MissingBenchmark(_)
+            )
+        ));
+    }
+
+    #[test]
+    fn rejects_unknown_timing_unit() {
+        let benchmarks = BTreeSet::from(["remote_free_service_runtime_apply_confirm".to_owned()]);
+        let output = format!(
+            "{}remote_free_service_runtime_apply_confirm\n                        time:   [1 zz 2 zz 3 zz]\n",
+            sample_output()
+        );
+        let error =
+            parse_remote_free_service_telemetry_timings(&output, &benchmarks).expect_err("unit");
+
+        assert!(matches!(
+            error,
+            RemoteFreeServiceTelemetryTimingParseError::UnknownUnit(_)
         ));
     }
 }

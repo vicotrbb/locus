@@ -3,7 +3,7 @@
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     use std::{env, fs};
 
-    use locus_validate::compare_remote_free_service_telemetry_sample_outputs;
+    use locus_validate::compare_remote_free_service_telemetry_sample_outputs_with_timings;
 
     let mut args = env::args();
     let program = args
@@ -17,12 +17,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let baseline_output = fs::read_to_string(baseline_path)?;
     let candidate_output = fs::read_to_string(candidate_path)?;
-    let report =
-        compare_remote_free_service_telemetry_sample_outputs(&baseline_output, &candidate_output)?;
+    let report = compare_remote_free_service_telemetry_sample_outputs_with_timings(
+        &baseline_output,
+        &candidate_output,
+    )?;
 
     println!("{report}");
-    for drift in report.drifts {
+    for drift in report.samples.drifts {
         println!("{drift}");
+    }
+    for delta in report.timing_deltas {
+        println!("{delta}");
     }
 
     Ok(())

@@ -488,6 +488,15 @@ drift entries. A controlled candidate copy that changed the first JSON
 counter-stability gate before trusting timing deltas from saved remote-free
 service telemetry outputs.
 
+Experiment 0224 extended the same comparison tool with Criterion timing
+parsing. Two real JSON-enabled `remote_free_service_runtime_apply_confirm`
+outputs compared stable and emitted one timing delta: baseline estimate
+56,595,000 ps, candidate estimate 56,867,000 ps, and estimate delta 272,000
+ps. The controlled drift output that changed `submitted_count` from 768 to
+769 reported `counter_drift`, one drift entry, and zero timing entries. Treat
+the combined report as the review surface: timing deltas are meaningful only
+when `drift_entries=0`.
+
 ## Measured Thresholds
 
 | Path | Shape inputs | Budget | Matched counters |
@@ -628,6 +637,10 @@ service telemetry outputs.
 41. Compare saved JSON-enabled remote-free service telemetry outputs with
     `cargo run -p locus-validate --example remote_free_service_sample_compare`
     before interpreting timing deltas between two runs.
+42. Use the combined sample timing compare output as the remote-free service
+    telemetry review surface. Interpret `remote_free_service_telemetry_timing_delta`
+    lines only when `remote_free_service_telemetry_sample_timing_compare`
+    reports `stable`.
 
 ## Guardrails
 
@@ -741,6 +754,9 @@ service telemetry outputs.
 - Do not trust a remote-free service telemetry timing delta when the JSON
   sample comparator reports counter drift, missing samples, duplicate samples,
   malformed JSON rows, or schema mismatches.
+- Do not manually compare Criterion timing intervals from saved remote-free
+  service telemetry outputs before checking the combined report status. The
+  validator intentionally suppresses timing deltas when counters drift.
 - Recheck thresholds when KV block size, request arena capacity, burst size,
   request concurrency, or batch size changes.
 - For heterogeneous traces, derive the budget from actual retained item sizes
@@ -801,12 +817,13 @@ service telemetry outputs.
 - `documentation/experiments/0221-remote-free-service-telemetry-shared-sample-filter.md`
 - `documentation/experiments/0222-remote-free-service-telemetry-json-sample-lines.md`
 - `documentation/experiments/0223-remote-free-service-telemetry-json-compare.md`
+- `documentation/experiments/0224-remote-free-service-telemetry-timing-compare.md`
 
 ## Open Questions
 
-- Can the comparison tool also parse Criterion timing intervals from the same
-  saved outputs and emit a combined report that refuses timing deltas when
-  counter drift is present?
+- Can repeated remote-free service telemetry benchmark runs be summarized into
+  a small stability report that separates counter-stable timing ranges from
+  runs that must be discarded due to counter drift?
 - Which workload signal should set the retained item window in production:
   scheduler turn age, active request concurrency, KV cache pressure, or memory
   pressure from observability counters?

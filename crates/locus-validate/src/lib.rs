@@ -33,10 +33,15 @@ pub use pinned_scratch_near_gpu_gate::{
 };
 pub use remote_free_service_sample_compare::{
     compare_remote_free_service_telemetry_sample_outputs,
-    parse_remote_free_service_telemetry_sample_rows, RemoteFreeServiceTelemetrySampleCompareReport,
-    RemoteFreeServiceTelemetrySampleCompareStatus, RemoteFreeServiceTelemetrySampleDrift,
-    RemoteFreeServiceTelemetrySampleKey, RemoteFreeServiceTelemetrySampleParseError,
-    RemoteFreeServiceTelemetrySampleRow,
+    compare_remote_free_service_telemetry_sample_outputs_with_timings,
+    parse_remote_free_service_telemetry_sample_rows, parse_remote_free_service_telemetry_timings,
+    RemoteFreeServiceTelemetrySampleCompareReport, RemoteFreeServiceTelemetrySampleCompareStatus,
+    RemoteFreeServiceTelemetrySampleDrift, RemoteFreeServiceTelemetrySampleKey,
+    RemoteFreeServiceTelemetrySampleParseError, RemoteFreeServiceTelemetrySampleRow,
+    RemoteFreeServiceTelemetrySampleTimingCompareError,
+    RemoteFreeServiceTelemetrySampleTimingCompareReport,
+    RemoteFreeServiceTelemetrySampleTimingCompareStatus, RemoteFreeServiceTelemetryTimingDelta,
+    RemoteFreeServiceTelemetryTimingInterval, RemoteFreeServiceTelemetryTimingParseError,
 };
 pub use thp_benchmark_evidence_report::{
     parse_mapped_scratch_thp_benchmark_evidence_report_output,
