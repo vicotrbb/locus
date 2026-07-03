@@ -61,6 +61,7 @@ Captured probe output can be classified with:
 cargo run -p locus-validate --example pinned_scratch_validation_gate -- pinned-scratch.out
 cargo run -p locus-validate --example pinned_scratch_near_gpu_validation_gate -- near-gpu-pinned-scratch.out
 cargo run -p locus-validate --example mapped_scratch_thp_validation_gate -- mapped-scratch-thp.out
+cargo run -p locus-validate --example mapped_scratch_thp_fault_sample_validation_gate -- mapped-scratch-thp-bench.out
 ```
 
 Captured outputs from `mbind_region`, `locality_environment`, and `mapped_scratch_bind` can be combined with:

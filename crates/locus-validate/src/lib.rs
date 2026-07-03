@@ -3,9 +3,11 @@
 use std::fmt;
 
 use locus_alloc::{
-    parse_mapped_scratch_thp_probe_output, parse_pinned_scratch_near_gpu_probe_output,
-    parse_pinned_scratch_pool_probe_output, MappedScratchHugePageAdvice,
-    MappedScratchThpAdviceStatus, MappedScratchThpObservation, MappedScratchThpProbeOutput,
+    parse_mapped_scratch_thp_fault_samples_output, parse_mapped_scratch_thp_probe_output,
+    parse_pinned_scratch_near_gpu_probe_output, parse_pinned_scratch_pool_probe_output,
+    MappedScratchHugePageAdvice, MappedScratchThpAdviceStatus, MappedScratchThpFaultSampleStatus,
+    MappedScratchThpFaultSamples, MappedScratchThpFaultSamplesParseError,
+    MappedScratchThpObservation, MappedScratchThpProbeOutput,
     MappedScratchThpProbeOutputParseError, PinnedScratchNearGpuProbeOutput,
     PinnedScratchNearGpuProbeOutputParseError, PinnedScratchNearGpuProbeStatus,
     PinnedScratchPoolProbeOutput, PinnedScratchPoolProbeOutputParseError,
@@ -384,6 +386,69 @@ pub struct MappedScratchThpValidationGateVerdict {
     pub reason: MappedScratchThpValidationGateReason,
 }
 
+/// Mapped scratch THP benchmark fault sample validation gate status.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MappedScratchThpFaultSampleValidationGateStatus {
+    /// The benchmark log contains a complete available fault sample set.
+    Ready,
+    /// The sample set was complete but process fault counters were unavailable.
+    Unavailable,
+}
+
+impl MappedScratchThpFaultSampleValidationGateStatus {
+    /// Returns a stable machine-readable status string.
+    #[must_use]
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Ready => "ready",
+            Self::Unavailable => "unavailable",
+        }
+    }
+}
+
+impl fmt::Display for MappedScratchThpFaultSampleValidationGateStatus {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+/// Reason for the mapped scratch THP benchmark fault sample gate status.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MappedScratchThpFaultSampleValidationGateReason {
+    /// All required samples are present and available.
+    Ready,
+    /// One or more samples reported unavailable process fault counters.
+    FaultCountersUnavailable,
+}
+
+impl MappedScratchThpFaultSampleValidationGateReason {
+    /// Returns a stable machine-readable reason string.
+    #[must_use]
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Ready => "ready",
+            Self::FaultCountersUnavailable => "fault_counters_unavailable",
+        }
+    }
+}
+
+impl fmt::Display for MappedScratchThpFaultSampleValidationGateReason {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+/// Parsed mapped scratch THP benchmark fault sample validation gate.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct MappedScratchThpFaultSampleValidationGate {
+    /// Final gate status.
+    pub status: MappedScratchThpFaultSampleValidationGateStatus,
+    /// Reason for the status.
+    pub reason: MappedScratchThpFaultSampleValidationGateReason,
+    /// Parsed benchmark fault samples.
+    pub samples: MappedScratchThpFaultSamples,
+}
+
 impl fmt::Display for PinnedScratchValidationGate {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
@@ -439,6 +504,16 @@ impl fmt::Display for MappedScratchThpValidationGateVerdict {
         write!(
             f,
             "mapped_scratch_thp_validation_gate={} reason={}",
+            self.status, self.reason
+        )
+    }
+}
+
+impl fmt::Display for MappedScratchThpFaultSampleValidationGate {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "mapped_scratch_thp_fault_sample_validation_gate={} reason={}",
             self.status, self.reason
         )
     }
@@ -858,6 +933,13 @@ pub enum MappedScratchThpValidationGateParseError {
     Probe(MappedScratchThpProbeOutputParseError),
 }
 
+/// Error returned when evaluating mapped scratch THP benchmark fault samples.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum MappedScratchThpFaultSampleValidationGateParseError {
+    /// Benchmark fault sample output was missing or malformed.
+    Samples(MappedScratchThpFaultSamplesParseError),
+}
+
 impl fmt::Display for PinnedScratchValidationGateParseError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
@@ -904,6 +986,27 @@ impl std::error::Error for MappedScratchThpValidationGateParseError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
             Self::Probe(source) => Some(source),
+        }
+    }
+}
+
+impl fmt::Display for MappedScratchThpFaultSampleValidationGateParseError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Samples(source) => {
+                write!(
+                    f,
+                    "invalid mapped scratch THP fault sample output: {source}"
+                )
+            }
+        }
+    }
+}
+
+impl std::error::Error for MappedScratchThpFaultSampleValidationGateParseError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Samples(source) => Some(source),
         }
     }
 }
@@ -1008,6 +1111,34 @@ impl MappedScratchThpValidationGate {
     }
 }
 
+impl MappedScratchThpFaultSampleValidationGate {
+    /// Builds a gate from parsed mapped scratch THP benchmark fault samples.
+    #[must_use]
+    pub fn from_samples(samples: MappedScratchThpFaultSamples) -> Self {
+        let reason = mapped_scratch_thp_fault_sample_gate_reason(&samples);
+        let status = match reason {
+            MappedScratchThpFaultSampleValidationGateReason::Ready => {
+                MappedScratchThpFaultSampleValidationGateStatus::Ready
+            }
+            MappedScratchThpFaultSampleValidationGateReason::FaultCountersUnavailable => {
+                MappedScratchThpFaultSampleValidationGateStatus::Unavailable
+            }
+        };
+
+        Self {
+            status,
+            reason,
+            samples,
+        }
+    }
+
+    /// Returns true only when all required fault samples are available.
+    #[must_use]
+    pub fn is_ready(&self) -> bool {
+        self.status == MappedScratchThpFaultSampleValidationGateStatus::Ready
+    }
+}
+
 /// Parses pinned scratch pool probe output and returns the validation gate.
 ///
 /// # Errors
@@ -1048,6 +1179,25 @@ pub fn evaluate_mapped_scratch_thp_validation_output(
     let probe = parse_mapped_scratch_thp_probe_output(output)
         .map_err(MappedScratchThpValidationGateParseError::Probe)?;
     Ok(MappedScratchThpValidationGate::from_probe(probe))
+}
+
+/// Parses mapped scratch THP benchmark output and returns the fault sample gate.
+///
+/// # Errors
+///
+/// Returns an error when the output is missing required fault sample lines or
+/// contains malformed stable fault sample lines.
+pub fn evaluate_mapped_scratch_thp_fault_sample_validation_output(
+    output: &str,
+) -> Result<
+    MappedScratchThpFaultSampleValidationGate,
+    MappedScratchThpFaultSampleValidationGateParseError,
+> {
+    let samples = parse_mapped_scratch_thp_fault_samples_output(output)
+        .map_err(MappedScratchThpFaultSampleValidationGateParseError::Samples)?;
+    Ok(MappedScratchThpFaultSampleValidationGate::from_samples(
+        samples,
+    ))
 }
 
 /// Parses a pinned scratch validation gate verdict line.
@@ -1394,6 +1544,24 @@ fn mapped_scratch_thp_gate_reason(
     }
 }
 
+fn mapped_scratch_thp_fault_sample_gate_reason(
+    samples: &MappedScratchThpFaultSamples,
+) -> MappedScratchThpFaultSampleValidationGateReason {
+    let statuses = [
+        samples.default.status,
+        samples.hugepage.status,
+        samples.no_hugepage.status,
+    ];
+    if statuses
+        .iter()
+        .all(|status| *status == MappedScratchThpFaultSampleStatus::Available)
+    {
+        MappedScratchThpFaultSampleValidationGateReason::Ready
+    } else {
+        MappedScratchThpFaultSampleValidationGateReason::FaultCountersUnavailable
+    }
+}
+
 fn near_gpu_unavailable_gate_reason(
     reason: Option<&str>,
 ) -> PinnedScratchNearGpuValidationGateReason {
@@ -1417,12 +1585,16 @@ fn near_gpu_unavailable_gate_reason(
 #[cfg(test)]
 mod pinned_scratch_tests {
     use super::{
+        evaluate_mapped_scratch_thp_fault_sample_validation_output,
         evaluate_mapped_scratch_thp_validation_output,
         evaluate_pinned_scratch_near_gpu_validation_output,
         evaluate_pinned_scratch_validation_output, parse_mapped_scratch_thp_validation_gate_line,
         parse_mapped_scratch_thp_validation_gate_output,
         parse_pinned_scratch_near_gpu_validation_gate_line,
         parse_pinned_scratch_validation_gate_line, parse_pinned_scratch_validation_gate_output,
+        MappedScratchThpFaultSampleValidationGateParseError,
+        MappedScratchThpFaultSampleValidationGateReason,
+        MappedScratchThpFaultSampleValidationGateStatus,
         MappedScratchThpValidationGateLineParseError,
         MappedScratchThpValidationGateOutputParseError, MappedScratchThpValidationGateParseError,
         MappedScratchThpValidationGateReason, MappedScratchThpValidationGateStatus,
@@ -1492,6 +1664,20 @@ numa_maps=unavailable
 thp_observed=unknown reason=numa_maps_unavailable
 ";
 
+    const THP_FAULT_SAMPLE_READY_OUTPUT: &str = "\
+Gnuplot not found, using plotters backend
+fault_sample=default status=available iterations=8 minor_faults_delta=16400 child_minor_faults_delta=0 major_faults_delta=0 child_major_faults_delta=0
+fault_sample=hugepage status=available iterations=8 minor_faults_delta=8224 child_minor_faults_delta=0 major_faults_delta=0 child_major_faults_delta=0
+fault_sample=no_hugepage status=available iterations=8 minor_faults_delta=16400 child_minor_faults_delta=0 major_faults_delta=0 child_major_faults_delta=0
+Benchmarking mapped_scratch_write_touch_4mib_default
+";
+
+    const THP_FAULT_SAMPLE_UNAVAILABLE_OUTPUT: &str = "\
+fault_sample=default status=available iterations=8 minor_faults_delta=16400 child_minor_faults_delta=0 major_faults_delta=0 child_major_faults_delta=0
+fault_sample=hugepage status=unavailable
+fault_sample=no_hugepage status=available iterations=8 minor_faults_delta=16400 child_minor_faults_delta=0 major_faults_delta=0 child_major_faults_delta=0
+";
+
     #[test]
     fn reports_ready_pinned_scratch_gate_from_probe_output() {
         let gate = evaluate_pinned_scratch_validation_output(READY_OUTPUT).expect("gate");
@@ -1550,6 +1736,63 @@ thp_observed=unknown reason=numa_maps_unavailable
             "mapped_scratch_thp_validation_gate=unavailable reason=observation_unavailable"
         );
         assert!(!gate.is_ready());
+    }
+
+    #[test]
+    fn reports_ready_mapped_scratch_thp_fault_sample_gate_from_benchmark_output() {
+        let gate = evaluate_mapped_scratch_thp_fault_sample_validation_output(
+            THP_FAULT_SAMPLE_READY_OUTPUT,
+        )
+        .expect("gate");
+
+        assert_eq!(
+            gate.status,
+            MappedScratchThpFaultSampleValidationGateStatus::Ready
+        );
+        assert_eq!(
+            gate.reason,
+            MappedScratchThpFaultSampleValidationGateReason::Ready
+        );
+        assert_eq!(
+            gate.to_string(),
+            "mapped_scratch_thp_fault_sample_validation_gate=ready reason=ready"
+        );
+        assert!(gate.is_ready());
+    }
+
+    #[test]
+    fn reports_unavailable_mapped_scratch_thp_fault_sample_gate() {
+        let gate = evaluate_mapped_scratch_thp_fault_sample_validation_output(
+            THP_FAULT_SAMPLE_UNAVAILABLE_OUTPUT,
+        )
+        .expect("gate");
+
+        assert_eq!(
+            gate.status,
+            MappedScratchThpFaultSampleValidationGateStatus::Unavailable
+        );
+        assert_eq!(
+            gate.reason,
+            MappedScratchThpFaultSampleValidationGateReason::FaultCountersUnavailable
+        );
+        assert_eq!(
+            gate.to_string(),
+            "mapped_scratch_thp_fault_sample_validation_gate=unavailable reason=fault_counters_unavailable"
+        );
+        assert!(!gate.is_ready());
+    }
+
+    #[test]
+    fn reports_mapped_scratch_thp_fault_sample_parse_errors() {
+        let error = evaluate_mapped_scratch_thp_fault_sample_validation_output(
+            "fault_sample=default status=unavailable\n",
+        )
+        .expect_err("missing samples");
+
+        assert!(matches!(
+            error,
+            MappedScratchThpFaultSampleValidationGateParseError::Samples(_)
+        ));
     }
 
     #[test]
