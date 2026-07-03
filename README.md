@@ -54,6 +54,7 @@ Captured `pinned_scratch_pool` output can be classified with:
 
 ```sh
 cargo run -p locus-validate --example pinned_scratch_validation_gate -- pinned-scratch.out
+cargo run -p locus-validate --example pinned_scratch_near_gpu_validation_gate -- near-gpu-pinned-scratch.out
 ```
 
 Captured outputs from `mbind_region`, `locality_environment`, and `mapped_scratch_bind` can be combined with:
