@@ -571,6 +571,17 @@ mapped_scratch_write_touch_4mib_no_hugepage_advice
                         time:   [804.15 \u{00b5}s 813.29 \u{00b5}s 818.20 \u{00b5}s]
 ";
 
+    const ASCII_UNIT_TIMINGS: &str = "\
+mapped_scratch_write_touch_4mib_default
+                        time:   [12 ps 34 ns 5 us]
+
+mapped_scratch_write_touch_4mib_hugepage_advice
+                        time:   [1.5 ms 2.0 ms 3.25 ms]
+
+mapped_scratch_write_touch_4mib_no_hugepage_advice
+                        time:   [1 s 1.25 s 2 s]
+";
+
     #[test]
     fn parses_ready_base_page_report() {
         let output = format!("{READY_BASE_PAGE_REPORT}{CRITERION_TIMINGS}");
@@ -665,6 +676,87 @@ fault_sample=no_hugepage status=unavailable
             report.reason,
             MappedScratchThpBenchmarkEvidenceReason::FaultSamplesUnavailable
         );
+    }
+
+    #[test]
+    fn parses_timing_units_to_picoseconds() {
+        let output = format!("{READY_BASE_PAGE_REPORT}{ASCII_UNIT_TIMINGS}");
+        let report =
+            parse_mapped_scratch_thp_benchmark_evidence_report_output(&output).expect("report");
+
+        assert_eq!(report.timings.default.lower_ps, 12);
+        assert_eq!(report.timings.default.estimate_ps, 34_000);
+        assert_eq!(report.timings.default.upper_ps, 5_000_000);
+        assert_eq!(report.timings.hugepage.lower_ps, 1_500_000_000);
+        assert_eq!(report.timings.hugepage.estimate_ps, 2_000_000_000);
+        assert_eq!(report.timings.hugepage.upper_ps, 3_250_000_000);
+        assert_eq!(report.timings.no_hugepage.lower_ps, 1_000_000_000_000);
+        assert_eq!(report.timings.no_hugepage.estimate_ps, 1_250_000_000_000);
+        assert_eq!(report.timings.no_hugepage.upper_ps, 2_000_000_000_000);
+    }
+
+    #[test]
+    fn rejects_missing_timing_block() {
+        let output = format!(
+            "{}{}",
+            READY_BASE_PAGE_REPORT,
+            "\
+mapped_scratch_write_touch_4mib_default
+                        time:   [878.54 us 1.0696 ms 1.4043 ms]
+
+mapped_scratch_write_touch_4mib_hugepage_advice
+                        time:   [31.610 us 31.839 us 32.391 us]
+"
+        );
+        let error =
+            parse_mapped_scratch_thp_benchmark_evidence_report_output(&output).expect_err("error");
+
+        assert!(error
+            .to_string()
+            .contains("mapped_scratch_write_touch_4mib_no_hugepage_advice"));
+    }
+
+    #[test]
+    fn rejects_duplicate_timing_block() {
+        let output = format!(
+            "{}{}{}",
+            READY_BASE_PAGE_REPORT,
+            CRITERION_TIMINGS,
+            "\
+mapped_scratch_write_touch_4mib_default
+                        time:   [900 us 1 ms 2 ms]
+"
+        );
+        let error =
+            parse_mapped_scratch_thp_benchmark_evidence_report_output(&output).expect_err("error");
+
+        assert!(error.to_string().contains("duplicate"));
+        assert!(error
+            .to_string()
+            .contains("mapped_scratch_write_touch_4mib_default"));
+    }
+
+    #[test]
+    fn rejects_unknown_timing_unit() {
+        let output = format!(
+            "{}{}",
+            READY_BASE_PAGE_REPORT,
+            "\
+mapped_scratch_write_touch_4mib_default
+                        time:   [878.54 ticks 1.0696 ms 1.4043 ms]
+
+mapped_scratch_write_touch_4mib_hugepage_advice
+                        time:   [31.610 us 31.839 us 32.391 us]
+
+mapped_scratch_write_touch_4mib_no_hugepage_advice
+                        time:   [804.15 us 813.29 us 818.20 us]
+"
+        );
+        let error =
+            parse_mapped_scratch_thp_benchmark_evidence_report_output(&output).expect_err("error");
+
+        assert!(error.to_string().contains("unknown Criterion timing unit"));
+        assert!(error.to_string().contains("ticks"));
     }
 
     #[test]
