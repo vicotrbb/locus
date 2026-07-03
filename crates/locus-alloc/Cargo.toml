@@ -64,5 +64,9 @@ harness = false
 name = "request_remote_free_policy"
 harness = false
 
+[[bench]]
+name = "remote_free_service_telemetry"
+harness = false
+
 [lints]
 workspace = true

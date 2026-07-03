@@ -153,6 +153,12 @@ validated uniform, mixed-size, owner-loop, KV, and request surfaces from
 Experiments 0184 through 0187. Treat it as a regression tripwire for diagnostic
 action semantics, not as a replacement for real allocation benchmarks.
 
+Experiment 0189 added `RemoteFreeServiceRetuneSummary` as service-level
+telemetry across multiple owner loops. A four-owner fixed-policy benchmark
+reported 32 `keep_config` reports, while a service with one end-drain owner
+reported six `drain_earlier` reports, 192 pending items over target, and
+786,432 queued bytes over budget without mutating policy.
+
 ## Measured Thresholds
 
 | Path | Shape inputs | Budget | Matched counters |
@@ -179,6 +185,9 @@ action semantics, not as a replacement for real allocation benchmarks.
 7. When a queued-byte config is available, record
    `RemoteFreeQueuedByteDriftReport` output at owner control points so drift
    from the configured window is visible before adding adaptive policy logic.
+8. Aggregate owner-loop reports with `RemoteFreeServiceRetuneSummary` when a
+   service-level decision needs to distinguish isolated owner drift from
+   service-wide clean policy.
 
 ## Guardrails
 
@@ -191,6 +200,8 @@ action semantics, not as a replacement for real allocation benchmarks.
   evidence is counter validation from microbenchmarks and examples.
 - Do not use the retune-action evidence matrix as proof that an adaptive policy
   is safe. Adaptive changes still need workload-specific allocation benchmarks.
+- Do not let service-level telemetry mutate policy directly. It is an
+  observation source until a concrete adaptive candidate survives benchmarks.
 - Recheck thresholds when KV block size, request arena capacity, burst size,
   request concurrency, or batch size changes.
 - For heterogeneous traces, derive the budget from actual retained item sizes
@@ -216,10 +227,12 @@ action semantics, not as a replacement for real allocation benchmarks.
 - `documentation/experiments/0186-kv-remote-free-retune-action.md`
 - `documentation/experiments/0187-request-remote-free-retune-action.md`
 - `documentation/experiments/0188-remote-free-retune-action-evidence-matrix.md`
+- `documentation/experiments/0189-remote-free-service-retune-telemetry.md`
 
 ## Open Questions
 
-- Should service-level telemetry be the next `retune_action` surface?
+- Which non-mutating adaptive candidate planner should consume service-level
+  telemetry first?
 - Which workload signal should set the retained item window in production:
   scheduler turn age, active request concurrency, KV cache pressure, or memory
   pressure from observability counters?
