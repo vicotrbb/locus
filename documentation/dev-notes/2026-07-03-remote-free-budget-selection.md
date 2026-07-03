@@ -1490,6 +1490,9 @@ suffix before rerunning with the accepted aggregate mode.
 Experiment 0331 made that saved aggregate rollup recheck cohort rollup
 recheck verdict rollup JSON artifact reloadable through the parser-only path,
 preserving the same two-record cohort counters.
+Experiment 0332 then verified that archived aggregate rollup recheck cohort
+rollup recheck verdict rollup JSON against saved source verdict records and
+rejected a controlled stale `records=1` archive with `CountDrift`.
 
 ## Open Questions
 
