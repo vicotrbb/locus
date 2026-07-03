@@ -105,6 +105,13 @@ preserving the 64-item, 262,144-byte, max wait 2 burst, and mean wait 1.500
 burst window. Treat earlier owner-side drains as the first adaptive action
 when retained-memory and release-latency targets must remain fixed.
 
+Experiment 0183 repeated that capacity-plus-policy action on the mixed-size
+allocation trace. Capacity 128 and capacity 256 with queued-byte drains both
+kept `full_count=0` while preserving the heterogeneous 64-item, 655,360-byte,
+max wait 2 burst, and mean wait 1.500 burst window. Treat the action as valid
+for the current uniform and heterogeneous traces, but still validate new trace
+shapes before changing production policy.
+
 ## Measured Thresholds
 
 | Path | Shape inputs | Budget | Matched counters |
@@ -160,6 +167,7 @@ when retained-memory and release-latency targets must remain fixed.
 - `documentation/experiments/0180-remote-free-drift-retune-hint.md`
 - `documentation/experiments/0181-remote-free-capacity-retune-action.md`
 - `documentation/experiments/0182-remote-free-earlier-drain-retune-action.md`
+- `documentation/experiments/0183-remote-free-mixed-size-retune-action.md`
 
 ## Open Questions
 

@@ -53,6 +53,10 @@ name = "remote_free_capacity_retune"
 harness = false
 
 [[bench]]
+name = "remote_free_mixed_size_capacity_retune"
+harness = false
+
+[[bench]]
 name = "kv_remote_free_policy"
 harness = false
 
