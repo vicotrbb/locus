@@ -775,6 +775,12 @@ The real archive emits `status=matched` with `drift=null`, while a controlled
 stale `records=1` summary emits `status=drifted` with `drift.field=records`,
 expected `2`, and actual `1`.
 
+Experiment 0266 added parsers for verifier-summary drift verdict JSON. The
+real matched artifact reloads as `status=matched`, while the controlled stale
+`records=1` artifact reloads as `status=drifted` with `field=records`,
+expected `2`, and actual `1`. The parser rejects status drift, drift payload
+drift, and nested grouped summary drift.
+
 ## Measured Thresholds
 
 | Path | Shape inputs | Budget | Matched counters |
@@ -1175,6 +1181,7 @@ expected `2`, and actual `1`.
 - `documentation/experiments/0263-remote-free-service-telemetry-rollup-check-log-summary-verdict-rollup-verification-summary-parser.md`
 - `documentation/experiments/0264-remote-free-service-telemetry-rollup-check-log-summary-verdict-rollup-verification-summary-drift.md`
 - `documentation/experiments/0265-remote-free-service-telemetry-rollup-check-log-summary-verdict-rollup-verification-summary-drift-json.md`
+- `documentation/experiments/0266-remote-free-service-telemetry-rollup-check-log-summary-verdict-rollup-verification-summary-drift-json-parser.md`
 
 ## Open Questions
 
