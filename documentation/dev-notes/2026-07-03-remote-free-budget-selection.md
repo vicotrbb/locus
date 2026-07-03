@@ -1521,6 +1521,9 @@ and one `records` drift bucket.
 Experiment 0341 made that saved dashboard rollup artifact itself reloadable
 through the parser-only path, preserving the same two-record summary recheck
 cohort counters.
+Experiment 0342 then verified that archived dashboard rollup JSON against
+saved source verdict records and rejected a controlled stale `records=1`
+rollup with `CountDrift`.
 
 ## Open Questions
 
