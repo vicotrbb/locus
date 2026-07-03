@@ -56,16 +56,7 @@ fn remote_free_service_telemetry(c: &mut Criterion) {
     remote_free_service_runtime_service_window_harness::benchmark_runtime_dirty_local_reused_collection_sequence(
         c,
     );
-    remote_free_service_runtime_service_window_harness::benchmark_runtime_dirty_local_buffer_group_collection_sequence(
-        c,
-    );
-    remote_free_service_runtime_service_window_harness::benchmark_runtime_dirty_local_buffer_group_integrated_collection_sequence(
-        c,
-    );
-    remote_free_service_runtime_service_window_harness::benchmark_runtime_dirty_local_buffer_group_bounded_collection_sequence(
-        c,
-    );
-    remote_free_service_runtime_service_window_harness::benchmark_runtime_dirty_local_buffer_group_validated_collection_sequence(
+    remote_free_service_runtime_service_window_harness::benchmark_runtime_dirty_local_buffer_group_collection_sequences(
         c,
     );
     remote_free_service_runtime_service_window_harness::benchmark_runtime_dirty_local_burst_collection_sequence(

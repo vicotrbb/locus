@@ -63,6 +63,51 @@ enum ServiceWindowRunnerMode {
     DirtyLocalThresholdFlush,
 }
 
+#[derive(Debug, Clone, Copy)]
+struct ServiceWindowBenchmarkDescriptor {
+    mode: ServiceWindowRunnerMode,
+    sample_label: &'static str,
+    sample_summary_label: &'static str,
+    benchmark_name: &'static str,
+}
+
+const LOCAL_DIRTY_GROUP_BENCHMARKS: &[ServiceWindowBenchmarkDescriptor] = &[
+    ServiceWindowBenchmarkDescriptor {
+        mode: ServiceWindowRunnerMode::DirtyLocalBufferGroup,
+        sample_label: "remote_free_service_runtime_dirty_local_buffer_group_collection_sample",
+        sample_summary_label:
+            "remote_free_service_runtime_dirty_local_buffer_group_collection_sample_summary",
+        benchmark_name: "remote_free_service_runtime_dirty_local_buffer_group_collection_sequence",
+    },
+    ServiceWindowBenchmarkDescriptor {
+        mode: ServiceWindowRunnerMode::DirtyLocalBufferGroupIntegrated,
+        sample_label:
+            "remote_free_service_runtime_dirty_local_buffer_group_integrated_collection_sample",
+        sample_summary_label:
+            "remote_free_service_runtime_dirty_local_buffer_group_integrated_collection_sample_summary",
+        benchmark_name:
+            "remote_free_service_runtime_dirty_local_buffer_group_integrated_collection_sequence",
+    },
+    ServiceWindowBenchmarkDescriptor {
+        mode: ServiceWindowRunnerMode::DirtyLocalBufferGroupBounded,
+        sample_label:
+            "remote_free_service_runtime_dirty_local_buffer_group_bounded_collection_sample",
+        sample_summary_label:
+            "remote_free_service_runtime_dirty_local_buffer_group_bounded_collection_sample_summary",
+        benchmark_name:
+            "remote_free_service_runtime_dirty_local_buffer_group_bounded_collection_sequence",
+    },
+    ServiceWindowBenchmarkDescriptor {
+        mode: ServiceWindowRunnerMode::DirtyLocalBufferGroupValidated,
+        sample_label:
+            "remote_free_service_runtime_dirty_local_buffer_group_validated_collection_sample",
+        sample_summary_label:
+            "remote_free_service_runtime_dirty_local_buffer_group_validated_collection_sample_summary",
+        benchmark_name:
+            "remote_free_service_runtime_dirty_local_buffer_group_validated_collection_sequence",
+    },
+];
+
 #[derive(Debug)]
 struct ServiceWindowDirtyLocalState {
     tracker: RemoteFreeServiceRuntimeDirtyOwnerTracker,
@@ -224,106 +269,19 @@ pub(crate) fn benchmark_runtime_dirty_local_reused_collection_sequence(c: &mut C
     );
 }
 
-pub(crate) fn benchmark_runtime_dirty_local_buffer_group_collection_sequence(c: &mut Criterion) {
-    print_service_window_sample(
-        ServiceWindowRunnerMode::DirtyLocalBufferGroup,
-        "remote_free_service_runtime_dirty_local_buffer_group_collection_sample",
-    );
-    print_service_window_sample_summary(
-        ServiceWindowRunnerMode::DirtyLocalBufferGroup,
-        "remote_free_service_runtime_dirty_local_buffer_group_collection_sample_summary",
-    );
+pub(crate) fn benchmark_runtime_dirty_local_buffer_group_collection_sequences(c: &mut Criterion) {
+    for descriptor in LOCAL_DIRTY_GROUP_BENCHMARKS {
+        print_service_window_sample(descriptor.mode, descriptor.sample_label);
+        print_service_window_sample_summary(descriptor.mode, descriptor.sample_summary_label);
 
-    c.bench_function(
-        "remote_free_service_runtime_dirty_local_buffer_group_collection_sequence",
-        |bench| {
+        c.bench_function(descriptor.benchmark_name, |bench| {
             bench.iter(|| {
-                let stats = run_runtime_service_window_sequence(
-                    ServiceWindowRunnerMode::DirtyLocalBufferGroup,
-                );
+                let stats = run_runtime_service_window_sequence(descriptor.mode);
                 assert_service_window_stats(&stats);
                 black_box(stats);
             });
-        },
-    );
-}
-
-pub(crate) fn benchmark_runtime_dirty_local_buffer_group_integrated_collection_sequence(
-    c: &mut Criterion,
-) {
-    print_service_window_sample(
-        ServiceWindowRunnerMode::DirtyLocalBufferGroupIntegrated,
-        "remote_free_service_runtime_dirty_local_buffer_group_integrated_collection_sample",
-    );
-    print_service_window_sample_summary(
-        ServiceWindowRunnerMode::DirtyLocalBufferGroupIntegrated,
-        "remote_free_service_runtime_dirty_local_buffer_group_integrated_collection_sample_summary",
-    );
-
-    c.bench_function(
-        "remote_free_service_runtime_dirty_local_buffer_group_integrated_collection_sequence",
-        |bench| {
-            bench.iter(|| {
-                let stats = run_runtime_service_window_sequence(
-                    ServiceWindowRunnerMode::DirtyLocalBufferGroupIntegrated,
-                );
-                assert_service_window_stats(&stats);
-                black_box(stats);
-            });
-        },
-    );
-}
-
-pub(crate) fn benchmark_runtime_dirty_local_buffer_group_bounded_collection_sequence(
-    c: &mut Criterion,
-) {
-    print_service_window_sample(
-        ServiceWindowRunnerMode::DirtyLocalBufferGroupBounded,
-        "remote_free_service_runtime_dirty_local_buffer_group_bounded_collection_sample",
-    );
-    print_service_window_sample_summary(
-        ServiceWindowRunnerMode::DirtyLocalBufferGroupBounded,
-        "remote_free_service_runtime_dirty_local_buffer_group_bounded_collection_sample_summary",
-    );
-
-    c.bench_function(
-        "remote_free_service_runtime_dirty_local_buffer_group_bounded_collection_sequence",
-        |bench| {
-            bench.iter(|| {
-                let stats = run_runtime_service_window_sequence(
-                    ServiceWindowRunnerMode::DirtyLocalBufferGroupBounded,
-                );
-                assert_service_window_stats(&stats);
-                black_box(stats);
-            });
-        },
-    );
-}
-
-pub(crate) fn benchmark_runtime_dirty_local_buffer_group_validated_collection_sequence(
-    c: &mut Criterion,
-) {
-    print_service_window_sample(
-        ServiceWindowRunnerMode::DirtyLocalBufferGroupValidated,
-        "remote_free_service_runtime_dirty_local_buffer_group_validated_collection_sample",
-    );
-    print_service_window_sample_summary(
-        ServiceWindowRunnerMode::DirtyLocalBufferGroupValidated,
-        "remote_free_service_runtime_dirty_local_buffer_group_validated_collection_sample_summary",
-    );
-
-    c.bench_function(
-        "remote_free_service_runtime_dirty_local_buffer_group_validated_collection_sequence",
-        |bench| {
-            bench.iter(|| {
-                let stats = run_runtime_service_window_sequence(
-                    ServiceWindowRunnerMode::DirtyLocalBufferGroupValidated,
-                );
-                assert_service_window_stats(&stats);
-                black_box(stats);
-            });
-        },
-    );
+        });
+    }
 }
 
 pub(crate) fn benchmark_runtime_dirty_local_burst_collection_sequence(c: &mut Criterion) {

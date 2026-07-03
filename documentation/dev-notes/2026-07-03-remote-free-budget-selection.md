@@ -422,6 +422,17 @@ main service-window harness shrank from 1503 lines to 1233 lines, with a
 and missing-owner assertions. Treat the helper as the local dirty-buffer group
 benchmark extension point.
 
+Experiment 0219 replaced the four local dirty-buffer group Criterion wrappers
+with the `LOCAL_DIRTY_GROUP_BENCHMARKS` descriptor table. The descriptor path
+preserved the four existing benchmark names and the same 2048 submitted
+blocks, 2048 drained blocks, 9,437,440 released bytes, 12 policy drains, 36
+drain rounds, 46 reports needing retune, two apply decisions, one confirm, one
+rollback, and one mutation-limit decision. The main service-window harness
+shrank from 1246 lines to 1204 lines. A first validated timing block reported
+221.04 to 239.78 us, but an exact validated rerun returned to 197.82 to
+199.02 us without code changes. Treat descriptor registration as a
+maintainability improvement, not a performance claim.
+
 ## Measured Thresholds
 
 | Path | Shape inputs | Budget | Matched counters |
@@ -547,6 +558,9 @@ benchmark extension point.
 36. Add future local dirty-buffer group benchmark variants through
     `runtime_local_dirty_group_harness.rs` so duplicate mark, flush, capacity
     reuse, tracker-empty, and missing-owner assertions stay shared.
+37. Register future local dirty-buffer group Criterion cases in
+    `LOCAL_DIRTY_GROUP_BENCHMARKS` so benchmark name, sample label, and mode
+    stay in one descriptor.
 
 ## Guardrails
 
@@ -646,6 +660,11 @@ benchmark extension point.
 - Do not add another local dirty-buffer group service-window variant by
   duplicating collection assertions in the main service-window harness.
   Experiment 0218 moved those assertions into a dedicated helper module.
+- Do not add another one-off Criterion wrapper for a local dirty-buffer group
+  mode. Experiment 0219 made the descriptor table the registration surface.
+- Do not treat a single Criterion regression block as proof when a same-code
+  rerun contradicts it. Experiment 0219 recorded one noisy validated block and
+  an exact rerun that returned to the normal range.
 - Recheck thresholds when KV block size, request arena capacity, burst size,
   request concurrency, or batch size changes.
 - For heterogeneous traces, derive the budget from actual retained item sizes
@@ -701,11 +720,12 @@ benchmark extension point.
 - `documentation/experiments/0216-remote-free-bounded-local-dirty-buffer-group-marking.md`
 - `documentation/experiments/0217-remote-free-validated-local-dirty-owner-handle.md`
 - `documentation/experiments/0218-remote-free-local-dirty-group-benchmark-helper.md`
+- `documentation/experiments/0219-remote-free-local-dirty-group-benchmark-descriptors.md`
 
 ## Open Questions
 
-- Can local dirty group benchmark registration become table-driven so adding a
-  new group mode requires one descriptor instead of another Criterion wrapper?
+- Can service-window benchmark sample printing become filter-aware so a
+  focused Criterion run does not print unrelated sample blocks?
 - Which workload signal should set the retained item window in production:
   scheduler turn age, active request concurrency, KV cache pressure, or memory
   pressure from observability counters?
