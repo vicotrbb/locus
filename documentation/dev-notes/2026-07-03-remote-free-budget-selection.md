@@ -737,6 +737,11 @@ coverage drift, and grouped drift-field coverage drift. The real mixed rollup
 reconstructs two records, one matched verdict, one drifted verdict, and one
 `records` drift bucket.
 
+Experiment 0259 added drift verification between an archived verdict rollup
+JSON line and the saved verdict JSON records it claims to summarize. The real
+mixed rollup matches the saved verdict log, while a controlled stale
+`records=1` JSON edit fails with `CountDrift` against expected `records=2`.
+
 ## Measured Thresholds
 
 | Path | Shape inputs | Budget | Matched counters |
@@ -1130,6 +1135,7 @@ reconstructs two records, one matched verdict, one drifted verdict, and one
 - `documentation/experiments/0256-remote-free-service-telemetry-rollup-check-log-summary-json-verdict.md`
 - `documentation/experiments/0257-remote-free-service-telemetry-rollup-check-log-summary-verdict-rollup.md`
 - `documentation/experiments/0258-remote-free-service-telemetry-rollup-check-log-summary-verdict-rollup-parser.md`
+- `documentation/experiments/0259-remote-free-service-telemetry-rollup-check-log-summary-verdict-rollup-drift.md`
 
 ## Open Questions
 

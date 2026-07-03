@@ -18,7 +18,7 @@ use locus_validate::{
     parse_remote_free_service_telemetry_collection_summary,
     parse_remote_free_service_telemetry_collection_summary_rollup_check_json_line,
     parse_remote_free_service_telemetry_collection_summary_rollup_check_log_summary_json_log,
-    parse_remote_free_service_telemetry_collection_summary_rollup_check_log_summary_verification_rollup_json_line,
+    parse_remote_free_service_telemetry_collection_summary_rollup_check_log_summary_verification_rollup_json_log,
     parse_remote_free_service_telemetry_timing_stability_manifest,
     resolve_remote_free_service_telemetry_collection_summary_manifest_path,
     resolve_remote_free_service_telemetry_collection_summary_validation_summary_path,
@@ -28,12 +28,12 @@ use locus_validate::{
     validate_remote_free_service_telemetry_collection_summary_rollup_artifact,
     verify_remote_free_service_telemetry_collection_summary_artifacts,
     verify_remote_free_service_telemetry_collection_summary_rollup_check_log_summary_json_log,
+    verify_remote_free_service_telemetry_collection_summary_rollup_check_log_summary_verification_rollup_json_log,
     write_remote_free_service_telemetry_collection_summary_rollup_artifact,
     RemoteFreeServiceTelemetryCollectionSummaryBundleValidation,
     RemoteFreeServiceTelemetryCollectionSummaryHost,
     RemoteFreeServiceTelemetryCollectionSummaryRollup,
     RemoteFreeServiceTelemetryCollectionSummaryRollupBundleStatus,
-    RemoteFreeServiceTelemetryCollectionSummaryRollupCheckLogSummaryVerificationRollup,
     RemoteFreeServiceTelemetryCollectionSummaryRollupHost,
     RemoteFreeServiceTelemetryTimingStabilityRun,
 };
@@ -80,6 +80,9 @@ fn run_mode(
         }
         "--rollup-check-json-summary-verdict-rollup-verify" => {
             run_rollup_check_json_summary_verdict_rollup_verify_mode(program, args)?;
+        }
+        "--rollup-check-json-summary-verdict-rollup-verify-against" => {
+            run_rollup_check_json_summary_verdict_rollup_verify_against_mode(program, args)?;
         }
         _ => return Ok(false),
     }
@@ -223,7 +226,26 @@ fn run_rollup_check_json_summary_verdict_rollup_verify_mode(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let log_path = one_arg(program, args)?;
     let log_text = fs::read_to_string(&log_path)?;
-    let rollup = parse_rollup_check_log_summary_verification_rollup_json_text(&log_text)?;
+    let rollup =
+        parse_remote_free_service_telemetry_collection_summary_rollup_check_log_summary_verification_rollup_json_log(
+            &log_text,
+        )?;
+    println!("{rollup}");
+    Ok(())
+}
+
+fn run_rollup_check_json_summary_verdict_rollup_verify_against_mode(
+    program: &str,
+    args: &mut impl Iterator<Item = String>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let (source_log_path, rollup_log_path) = two_args(program, args)?;
+    let source_log_text = fs::read_to_string(&source_log_path)?;
+    let rollup_log_text = fs::read_to_string(&rollup_log_path)?;
+    let rollup =
+        verify_remote_free_service_telemetry_collection_summary_rollup_check_log_summary_verification_rollup_json_log(
+            &source_log_text,
+            &rollup_log_text,
+        )?;
     println!("{rollup}");
     Ok(())
 }
@@ -429,27 +451,6 @@ fn rollup_check_log_summary_json_verification_report(
     )
 }
 
-fn parse_rollup_check_log_summary_verification_rollup_json_text(
-    input: &str,
-) -> Result<
-    RemoteFreeServiceTelemetryCollectionSummaryRollupCheckLogSummaryVerificationRollup,
-    Box<dyn Error>,
-> {
-    for line in input.lines().map(str::trim).filter(|line| !line.is_empty()) {
-        if line.contains(
-            "locus.remote_free_service.telemetry.collection_summary_rollup_check_log_summary_verification_rollup.v1",
-        ) {
-            return Ok(
-                parse_remote_free_service_telemetry_collection_summary_rollup_check_log_summary_verification_rollup_json_line(line)?,
-            );
-        }
-    }
-    Err(Box::new(io::Error::new(
-        io::ErrorKind::InvalidData,
-        "missing remote-free service telemetry rollup check log summary verification rollup JSON line",
-    )))
-}
-
 fn validate_summary_directory(
     root: &Path,
 ) -> Result<RemoteFreeServiceTelemetryCollectionSummaryRollup, Box<dyn Error>> {
@@ -623,7 +624,7 @@ fn usage_error(program: &str) -> io::Error {
     io::Error::new(
         io::ErrorKind::InvalidInput,
         format!(
-            "usage: {program} <collection-summary.json>\n       {program} --dir <evidence-root> [--write-rollup]\n       {program} --rollup <collection-summary-rollup.json>\n       {program} --rollup-check-json <saved-log.txt>\n       {program} --rollup-check-json-summary <saved-log.txt>\n       {program} --rollup-check-json-summary-verify <saved-log.txt>\n       {program} --rollup-check-json-summary-verify-against <saved-rollup-check-log.txt> <saved-summary-log.txt>\n       {program} --rollup-check-json-summary-verify-against-json <saved-rollup-check-log.txt> <saved-summary-log.txt>\n       {program} --rollup-check-json-summary-verdict-rollup <saved-verdict-log.txt>\n       {program} --rollup-check-json-summary-verdict-rollup-verify <saved-verdict-rollup-log.txt>"
+            "usage: {program} <collection-summary.json>\n       {program} --dir <evidence-root> [--write-rollup]\n       {program} --rollup <collection-summary-rollup.json>\n       {program} --rollup-check-json <saved-log.txt>\n       {program} --rollup-check-json-summary <saved-log.txt>\n       {program} --rollup-check-json-summary-verify <saved-log.txt>\n       {program} --rollup-check-json-summary-verify-against <saved-rollup-check-log.txt> <saved-summary-log.txt>\n       {program} --rollup-check-json-summary-verify-against-json <saved-rollup-check-log.txt> <saved-summary-log.txt>\n       {program} --rollup-check-json-summary-verdict-rollup <saved-verdict-log.txt>\n       {program} --rollup-check-json-summary-verdict-rollup-verify <saved-verdict-rollup-log.txt>\n       {program} --rollup-check-json-summary-verdict-rollup-verify-against <saved-verdict-log.txt> <saved-verdict-rollup-log.txt>"
         ),
     )
 }
