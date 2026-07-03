@@ -9,6 +9,11 @@ use locus_alloc::{
 };
 use locus_core::{NodeId, RequestHome, RequestId};
 
+#[cfg(target_os = "linux")]
+use locus_alloc::{
+    MappedScratchThpObservation, MappedScratchThpPageSampleSource, MappedScratchThpPageSampleStatus,
+};
+
 enum ProducerCommand {
     Run(usize),
     Stop,
@@ -243,7 +248,158 @@ fn print_mapped_scratch_thp_fault_samples() {
 }
 
 #[cfg(target_os = "linux")]
+#[derive(Debug, Clone, Copy)]
+struct MappedScratchThpPageEvidence {
+    status: MappedScratchThpPageSampleStatus,
+    source: MappedScratchThpPageSampleSource,
+    kernel_page_kb: Option<usize>,
+    observation: MappedScratchThpObservation,
+    reason: &'static str,
+}
+
+#[cfg(target_os = "linux")]
+impl MappedScratchThpPageEvidence {
+    fn available(
+        source: MappedScratchThpPageSampleSource,
+        page_kb: usize,
+        base_page_kb: usize,
+    ) -> Self {
+        let (observation, reason) = mapped_scratch_thp_page_observation(page_kb, base_page_kb);
+        Self {
+            status: MappedScratchThpPageSampleStatus::Available,
+            source,
+            kernel_page_kb: Some(page_kb),
+            observation,
+            reason,
+        }
+    }
+
+    fn unavailable(reason: &'static str) -> Self {
+        Self {
+            status: MappedScratchThpPageSampleStatus::Unavailable,
+            source: MappedScratchThpPageSampleSource::None,
+            kernel_page_kb: None,
+            observation: MappedScratchThpObservation::Unknown,
+            reason,
+        }
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn print_mapped_scratch_thp_page_samples() {
+    use std::io::{self, Write};
+
+    for mode in [
+        MappedScratchThpBenchMode::Default,
+        MappedScratchThpBenchMode::HugePage,
+        MappedScratchThpBenchMode::NoHugePage,
+    ] {
+        let evidence = mapped_scratch_thp_page_evidence(mode);
+        let kernel_page_kb = evidence
+            .kernel_page_kb
+            .map_or_else(|| "unknown".to_owned(), |value| value.to_string());
+        println!(
+            "thp_page_sample={} status={} source={} kernel_page_kb={} thp_observed={} reason={}",
+            mode.as_str(),
+            evidence.status,
+            evidence.source,
+            kernel_page_kb,
+            evidence.observation,
+            evidence.reason
+        );
+        io::stdout().flush().expect("flush page sample");
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn mapped_scratch_thp_page_evidence(
+    mode: MappedScratchThpBenchMode,
+) -> MappedScratchThpPageEvidence {
+    use std::io::ErrorKind;
+
+    use locus_observe::{
+        numa_maps_entry_for_address, read_self_numa_maps, read_self_smaps, smaps_entry_for_address,
+        ObserveReadError,
+    };
+    use locus_sys::page_size;
+
+    let mut arena = mapped_scratch_thp_bench_arena(mode);
+    black_box(arena.write_touch_pages().expect("touch pages"));
+    let mapping_start = arena.mapping_start_address();
+    let base_page_kb = match page_size() {
+        Ok(page_size) => page_size / 1024,
+        Err(_) => return MappedScratchThpPageEvidence::unavailable("base_page_unavailable"),
+    };
+    let mut unavailable_reason = "numa_maps_unavailable";
+
+    match read_self_numa_maps() {
+        Ok(entries) => {
+            if let Some(address_match) = numa_maps_entry_for_address(&entries, mapping_start) {
+                if let Some(page_kb) = address_match
+                    .entry
+                    .attributes
+                    .get("kernelpagesize_kB")
+                    .and_then(|value| value.parse::<usize>().ok())
+                {
+                    return MappedScratchThpPageEvidence::available(
+                        MappedScratchThpPageSampleSource::NumaMaps,
+                        page_kb,
+                        base_page_kb,
+                    );
+                }
+                unavailable_reason = "kernel_page_size_missing";
+            } else {
+                unavailable_reason = "mapping_missing";
+            }
+        }
+        Err(ObserveReadError::Read { source, .. }) if source.kind() == ErrorKind::NotFound => {}
+        Err(_) => unavailable_reason = "numa_maps_error",
+    }
+
+    match read_self_smaps() {
+        Ok(entries) => {
+            if let Some(entry) = smaps_entry_for_address(&entries, mapping_start) {
+                if let Some(page_kb) = entry
+                    .kernel_page_kb
+                    .and_then(|value| usize::try_from(value).ok())
+                {
+                    return MappedScratchThpPageEvidence::available(
+                        MappedScratchThpPageSampleSource::Smaps,
+                        page_kb,
+                        base_page_kb,
+                    );
+                }
+                unavailable_reason = "kernel_page_size_missing";
+            } else {
+                unavailable_reason = "mapping_missing";
+            }
+        }
+        Err(ObserveReadError::Read { source, .. }) if source.kind() == ErrorKind::NotFound => {
+            if unavailable_reason == "numa_maps_unavailable" {
+                unavailable_reason = "observability_unavailable";
+            }
+        }
+        Err(_) => unavailable_reason = "smaps_error",
+    }
+
+    MappedScratchThpPageEvidence::unavailable(unavailable_reason)
+}
+
+#[cfg(target_os = "linux")]
+fn mapped_scratch_thp_page_observation(
+    page_kb: usize,
+    base_page_kb: usize,
+) -> (MappedScratchThpObservation, &'static str) {
+    if page_kb > base_page_kb {
+        (MappedScratchThpObservation::Yes, "kernel_page_size")
+    } else {
+        (MappedScratchThpObservation::No, "base_page_size")
+    }
+}
+
+#[cfg(target_os = "linux")]
 fn mapped_scratch_thp_write_touch_4mib(c: &mut Criterion) {
+    print_mapped_scratch_thp_page_samples();
     print_mapped_scratch_thp_fault_samples();
 
     c.bench_function("mapped_scratch_write_touch_4mib_default", |bench| {

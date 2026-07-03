@@ -27,7 +27,7 @@ These are best observed local microbenchmark results, not final claims about pro
 
 | Area | Best observed validation result | Status | Source |
 | --- | --- | --- | --- |
-| Mapped scratch THP page-size evidence | Docker `mapped_scratch_thp` and `live_mapped_scratch_thp_validation_gate` fell back from unavailable `numa_maps` to available `smaps`, matched the mapped arena range, reported `kernel_page_kb=4`, and produced `thp_observed=no reason=base_page_size` with gate `not_ready reason=base_page_size` | Strong negative evidence for that environment: advice was accepted, pages were touched, and the mapping still used base pages | `documentation/experiments/0155-mapped-scratch-thp-smaps-fallback.md` |
+| Mapped scratch THP page-size evidence | Docker `scratch_arena` benchmark emitted `thp_page_sample=` lines for default, hugepage, and no-hugepage modes in the same log as fault samples and Criterion timing. All three used `source=smaps`, `kernel_page_kb=4`, and `thp_observed=no reason=base_page_size` | Strong negative evidence for that environment: advice was accepted for the hugepage mode, pages were touched, and the sampled mappings still used base pages | `documentation/experiments/0157-thp-benchmark-page-size-samples.md` |
 | Remote-free controller behavior preservation | `RemoteFreeDrainController` preserved mixed-size policy counters exactly: peak queued bytes 2,621,440 to 655,360, max pending 256 to 64, max wait 8 to 2, and `full_count=0` in both policies | Behavior-preserving runtime API evidence, not a new timing best | `documentation/experiments/0152-mixed-size-remote-free-controller-wiring.md` |
 
 ## Current Interpretation
@@ -38,8 +38,8 @@ These are best observed local microbenchmark results, not final claims about pro
 - The nonblocking backpressure matrix suggests queue capacity should be tested before drain batch size when trying to reduce `full_count`.
 - The mixed-trace remote-free result shows that larger queue capacity can hide release latency, so capacity should not become a default policy knob without a release-latency or queued-byte guard.
 - The mixed-size queued-byte policy result is the strongest evidence so far that owner drain policy should consider retained bytes, not only queue capacity or producer backpressure.
-- The THP-advised mapped scratch result is the largest single timing delta observed, but the newest Docker page-size validation observed base pages after accepted advice. Treat the timing as a lead for controlled THP environments, not as current proof of huge page adoption.
-- The best THP validation result is currently negative evidence: the `smaps` fallback turns missing `numa_maps` into a concrete base-page verdict.
+- The THP-advised mapped scratch result is the largest single timing delta observed, but the newest same-log Docker benchmark evidence observed base pages in the page-size samples. Treat the timing as a lead for controlled THP environments, not as current proof of huge page adoption.
+- The best THP validation result is currently negative evidence: `smaps` evidence now appears directly in the benchmark log beside fault samples and Criterion timing.
 
 ## Follow-Up Use
 

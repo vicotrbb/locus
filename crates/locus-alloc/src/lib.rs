@@ -4,6 +4,7 @@ mod kv_block;
 mod mapped_scratch;
 mod mapped_scratch_lock_probe;
 mod mapped_scratch_thp_fault_sample;
+mod mapped_scratch_thp_page_sample;
 mod mapped_scratch_thp_probe;
 mod pinned_scratch;
 mod pinned_scratch_near_gpu_probe;
@@ -39,6 +40,13 @@ pub use mapped_scratch_thp_fault_sample::{
     MappedScratchThpFaultSampleLineParseError, MappedScratchThpFaultSampleMode,
     MappedScratchThpFaultSampleStatus, MappedScratchThpFaultSamples,
     MappedScratchThpFaultSamplesParseError,
+};
+
+pub use mapped_scratch_thp_page_sample::{
+    parse_mapped_scratch_thp_page_sample_line, parse_mapped_scratch_thp_page_samples_output,
+    MappedScratchThpPageSampleLine, MappedScratchThpPageSampleLineParseError,
+    MappedScratchThpPageSampleSource, MappedScratchThpPageSampleStatus,
+    MappedScratchThpPageSamples, MappedScratchThpPageSamplesParseError,
 };
 
 pub use pinned_scratch::{
