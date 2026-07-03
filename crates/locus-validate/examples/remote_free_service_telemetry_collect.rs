@@ -16,6 +16,7 @@ use locus_validate::{
     summarize_remote_free_service_telemetry_timing_stability,
     RemoteFreeServiceTelemetryTimingStabilityRun,
 };
+use serde_json::{json, Value};
 
 #[derive(Debug)]
 struct SourceRun {
@@ -91,7 +92,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     )?;
 
     fs::create_dir_all(&evidence_root)?;
-    let run_dir = evidence_root.join(run_id);
+    let run_dir = evidence_root.join(&run_id);
     fs::create_dir(&run_dir)?;
 
     let baseline_output =
@@ -114,13 +115,22 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     )?;
     let summary_path = run_dir.join("validation-summary.txt");
     fs::write(&summary_path, &summary)?;
+    let collection_summary_path = write_collection_summary(
+        &run_dir,
+        &run_id,
+        collection_mode,
+        &baseline,
+        &candidates,
+        &criterion_args,
+    )?;
 
     println!(
-        "remote_free_service_telemetry_evidence_collection mode={} directory={} manifest={} validation_summary={} outputs={}",
+        "remote_free_service_telemetry_evidence_collection mode={} directory={} manifest={} validation_summary={} collection_summary={} outputs={}",
         collection_mode.as_str(),
         run_dir.display(),
         manifest_path.display(),
         summary_path.display(),
+        collection_summary_path.display(),
         candidate_outputs.len() + 1
     );
     print!("{summary}");
@@ -260,6 +270,90 @@ fn capture_labeled_benchmark_output(
     Ok(captured)
 }
 
+fn write_collection_summary(
+    run_dir: &Path,
+    run_id: &str,
+    mode: CollectionMode,
+    baseline: &SourceRun,
+    candidates: &[SourceRun],
+    criterion_args: &[String],
+) -> Result<PathBuf, Box<dyn std::error::Error>> {
+    let mut sources = Vec::with_capacity(candidates.len() + 1);
+    sources.push(source_json("baseline", baseline));
+    sources.extend(
+        candidates
+            .iter()
+            .map(|candidate| source_json("candidate", candidate)),
+    );
+
+    let mut artifacts = Vec::with_capacity(candidates.len() + 3);
+    artifacts.push(output_artifact_json(run_dir, "baseline", baseline)?);
+    for candidate in candidates {
+        artifacts.push(output_artifact_json(run_dir, "candidate", candidate)?);
+    }
+    artifacts.push(artifact_json(run_dir, "manifest", None, "manifest.txt")?);
+    artifacts.push(artifact_json(
+        run_dir,
+        "validation_summary",
+        None,
+        "validation-summary.txt",
+    )?);
+
+    let summary = json!({
+        "schema": "locus.remote_free_service.telemetry.collection_summary.v1",
+        "collection_mode": mode.as_str(),
+        "run_id": run_id,
+        "output_count": candidates.len() + 1,
+        "criterion_args": criterion_args,
+        "sources": sources,
+        "artifacts": artifacts,
+    });
+    let output = format!("{}\n", serde_json::to_string_pretty(&summary)?);
+    let path = run_dir.join("collection-summary.json");
+    fs::write(&path, output)?;
+    Ok(path)
+}
+
+fn source_json(role: &str, source: &SourceRun) -> Value {
+    json!({
+        "role": role,
+        "label": source.label,
+        "input": source.input,
+        "artifact": format!("{}.txt", source.label),
+    })
+}
+
+fn output_artifact_json(
+    run_dir: &Path,
+    role: &str,
+    source: &SourceRun,
+) -> Result<Value, Box<dyn std::error::Error>> {
+    artifact_json(
+        run_dir,
+        "output",
+        Some(role),
+        &format!("{}.txt", source.label),
+    )
+}
+
+fn artifact_json(
+    run_dir: &Path,
+    kind: &str,
+    role: Option<&str>,
+    relative_path: &str,
+) -> Result<Value, Box<dyn std::error::Error>> {
+    let byte_count = fs::metadata(run_dir.join(relative_path))?.len();
+    let mut artifact = json!({
+        "kind": kind,
+        "path": relative_path,
+        "byte_count": byte_count,
+    });
+    if let Some(role) = role {
+        artifact["role"] = json!(role);
+    }
+    Ok(artifact)
+}
+
 fn stability_summary_text(
     baseline_label: &str,
     baseline_output: &str,
@@ -318,4 +412,69 @@ fn usage_error(program: &str) -> io::Error {
             "usage: {program} [--run-id <run-id>] <evidence-root> <baseline-label> <baseline-output> <candidate-label> <candidate-output> [candidate-label candidate-output ...]\n       {program} [--run-id <run-id>] --bench <evidence-root> <baseline-label> <baseline-filter> <candidate-label> <candidate-filter> [candidate-label candidate-filter ...] [-- <criterion-arg> ...]\n       {program} [--run-id <run-id>] --bench --repeat <count> <evidence-root> <base-label> <benchmark-filter> [-- <criterion-arg> ...]"
         ),
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{write_collection_summary, CollectionMode, SourceRun};
+    use std::{
+        env, fs,
+        time::{SystemTime, UNIX_EPOCH},
+    };
+
+    #[test]
+    fn writes_collection_summary_json_with_artifact_byte_counts(
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let run_dir = env::temp_dir().join(format!(
+            "locus-collection-summary-test-{}",
+            SystemTime::now().duration_since(UNIX_EPOCH)?.as_nanos()
+        ));
+        fs::create_dir(&run_dir)?;
+
+        fs::write(run_dir.join("run-01.txt"), "aaa")?;
+        fs::write(run_dir.join("run-02.txt"), "bbbb")?;
+        fs::write(run_dir.join("manifest.txt"), "manifest")?;
+        fs::write(run_dir.join("validation-summary.txt"), "summary")?;
+
+        let baseline = SourceRun {
+            label: "run-01".to_owned(),
+            input: "benchmark_filter".to_owned(),
+        };
+        let candidates = [SourceRun {
+            label: "run-02".to_owned(),
+            input: "benchmark_filter".to_owned(),
+        }];
+        let criterion_args = ["--sample-size".to_owned(), "10".to_owned()];
+        let summary_path = write_collection_summary(
+            &run_dir,
+            "run-id",
+            CollectionMode::BenchmarkCapture,
+            &baseline,
+            &candidates,
+            &criterion_args,
+        )?;
+
+        let summary = fs::read_to_string(&summary_path)?;
+        let summary: serde_json::Value = serde_json::from_str(&summary)?;
+        assert_eq!(
+            summary["schema"],
+            "locus.remote_free_service.telemetry.collection_summary.v1"
+        );
+        assert_eq!(summary["collection_mode"], "benchmark_capture");
+        assert_eq!(summary["run_id"], "run-id");
+        assert_eq!(summary["output_count"], 2);
+        assert_eq!(
+            summary["criterion_args"],
+            serde_json::json!(["--sample-size", "10"])
+        );
+        assert_eq!(summary["sources"][0]["artifact"], "run-01.txt");
+        assert_eq!(summary["sources"][1]["artifact"], "run-02.txt");
+        assert_eq!(summary["artifacts"][0]["byte_count"], 3);
+        assert_eq!(summary["artifacts"][1]["byte_count"], 4);
+        assert_eq!(summary["artifacts"][2]["byte_count"], 8);
+        assert_eq!(summary["artifacts"][3]["byte_count"], 7);
+
+        fs::remove_dir_all(run_dir)?;
+        Ok(())
+    }
 }

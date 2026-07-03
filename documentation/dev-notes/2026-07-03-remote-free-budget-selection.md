@@ -534,6 +534,13 @@ JSON-enabled Criterion outputs, and produced a manifest-backed `stable`
 summary with two accepted candidate runs, zero discarded runs, and one timing
 range from 52,900,000 ps to 53,428,000 ps, for a 528,000 ps spread.
 
+Experiment 0230 added `collection-summary.json` to collector evidence bundles.
+A three-run direct capture recorded `benchmark_capture` mode, run id, output
+count 3, Criterion arguments, source labels, artifact paths, and artifact byte
+counts that matched filesystem metadata. The same manifest-backed validation
+reported `stable`, two accepted candidate runs, zero discarded runs, and one
+timing range from 53,611,000 ps to 56,031,000 ps, for a 2,420,000 ps spread.
+
 ## Measured Thresholds
 
 | Path | Shape inputs | Budget | Matched counters |
