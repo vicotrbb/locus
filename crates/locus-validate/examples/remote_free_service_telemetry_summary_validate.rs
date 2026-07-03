@@ -669,6 +669,9 @@ mod tests {
         assert_eq!(check.valid_bundles, 1);
         assert_eq!(check.timing_ranges, 1);
         assert_eq!(check.bundles, 1);
+        assert!(check.rollup_host_present);
+        assert_eq!(check.bundle_hosts, 1);
+        assert_eq!(check.bundle_hosts_missing, 0);
 
         fs::remove_dir_all(root)?;
         Ok(())

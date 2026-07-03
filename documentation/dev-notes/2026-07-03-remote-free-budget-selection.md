@@ -630,6 +630,12 @@ rollup without bundle `host`. Both artifacts pass the same release check,
 which remains focused on counts, statuses, timing ranges, and bundle rows.
 Treat bundle host coverage as triage context, not verdict input.
 
+Experiment 0245 added host coverage fields to release-check output:
+`rollup_host_present`, `bundle_hosts`, and `bundle_hosts_missing`. The
+host-bearing artifact reports one bundle host, while the older no-host bundle
+artifact reports zero bundle hosts and one missing bundle host. Invalid host
+metadata is treated as no coverage, not a verdict failure.
+
 ## Measured Thresholds
 
 | Path | Shape inputs | Budget | Matched counters |
@@ -1009,6 +1015,7 @@ Treat bundle host coverage as triage context, not verdict input.
 - `documentation/experiments/0242-remote-free-service-telemetry-summary-host-metadata.md`
 - `documentation/experiments/0243-remote-free-service-telemetry-summary-host-output.md`
 - `documentation/experiments/0244-remote-free-service-telemetry-rollup-bundle-host.md`
+- `documentation/experiments/0245-remote-free-service-telemetry-rollup-host-coverage.md`
 
 ## Open Questions
 

@@ -100,6 +100,12 @@ pub struct RemoteFreeServiceTelemetryCollectionSummaryRollupCheck {
     pub timing_ranges: u64,
     /// Number of bundle rows in the artifact.
     pub bundles: u64,
+    /// Whether the rollup artifact carries rollup refresh host metadata.
+    pub rollup_host_present: bool,
+    /// Number of bundle rows carrying capture host metadata.
+    pub bundle_hosts: u64,
+    /// Number of bundle rows without capture host metadata.
+    pub bundle_hosts_missing: u64,
 }
 
 /// Collection summary rollup data used to write schema v2 artifacts.
@@ -221,12 +227,15 @@ impl fmt::Display for RemoteFreeServiceTelemetryCollectionSummaryRollupCheck {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
-            "remote_free_service_telemetry_collection_summary_rollup_check=ok path={} summaries={} valid_bundles={} timing_ranges={} bundles={}",
+            "remote_free_service_telemetry_collection_summary_rollup_check=ok path={} summaries={} valid_bundles={} timing_ranges={} bundles={} rollup_host_present={} bundle_hosts={} bundle_hosts_missing={}",
             self.path.display(),
             self.summaries,
             self.valid_bundles,
             self.timing_ranges,
-            self.bundles
+            self.bundles,
+            self.rollup_host_present,
+            self.bundle_hosts,
+            self.bundle_hosts_missing
         )
     }
 }
@@ -850,16 +859,21 @@ pub fn validate_remote_free_service_telemetry_collection_summary_rollup_artifact
     let expected_other_failures = rollup_required_u64(&artifact, "other_failures")?;
     let expected_timing_ranges = rollup_required_u64(&artifact, "timing_ranges")?;
 
+    let rollup_host_present = artifact.get("host").is_some_and(Value::is_object);
     let mut valid_bundles = 0;
     let mut drifted_summaries = 0;
     let mut missing_artifacts = 0;
     let mut other_failures = 0;
     let mut timing_ranges = 0;
+    let mut bundle_hosts = 0;
 
     for bundle in bundles {
         let summary = rollup_required_str(bundle, "summary")?;
         let status = rollup_required_str(bundle, "status")?;
         timing_ranges += rollup_required_u64(bundle, "timing_ranges")?;
+        if bundle.get("host").is_some_and(Value::is_object) {
+            bundle_hosts += 1;
+        }
         match status {
             "valid" => valid_bundles += 1,
             "drifted_summary" => drifted_summaries += 1,
@@ -910,6 +924,9 @@ pub fn validate_remote_free_service_telemetry_collection_summary_rollup_artifact
         valid_bundles,
         timing_ranges,
         bundles: summaries,
+        rollup_host_present,
+        bundle_hosts,
+        bundle_hosts_missing: summaries - bundle_hosts,
     })
 }
 
@@ -1343,6 +1360,17 @@ mod tests {
         )
     }
 
+    fn rollup_json_with_invalid_host_metadata() -> String {
+        let mut artifact = serde_json::from_str::<serde_json::Value>(&rollup_json("valid", 1, 0))
+            .expect("rollup json");
+        artifact["host"] = json!("not-host-object");
+        artifact["bundles"][0]["host"] = json!("not-host-object");
+        format!(
+            "{}\n",
+            serde_json::to_string_pretty(&artifact).expect("json")
+        )
+    }
+
     fn temp_dir() -> Result<std::path::PathBuf, Box<dyn std::error::Error>> {
         let dir = env::temp_dir().join(format!(
             "locus-summary-validate-test-{}-{}-{}",
@@ -1666,10 +1694,13 @@ mod tests {
         assert_eq!(check.valid_bundles, 1);
         assert_eq!(check.timing_ranges, 1);
         assert_eq!(check.bundles, 1);
+        assert!(!check.rollup_host_present);
+        assert_eq!(check.bundle_hosts, 0);
+        assert_eq!(check.bundle_hosts_missing, 1);
         assert_eq!(
             check.to_string(),
             format!(
-                "remote_free_service_telemetry_collection_summary_rollup_check=ok path={} summaries=1 valid_bundles=1 timing_ranges=1 bundles=1",
+                "remote_free_service_telemetry_collection_summary_rollup_check=ok path={} summaries=1 valid_bundles=1 timing_ranges=1 bundles=1 rollup_host_present=false bundle_hosts=0 bundle_hosts_missing=1",
                 check.path.display()
             )
         );
@@ -1693,6 +1724,28 @@ mod tests {
         assert_eq!(check.valid_bundles, 1);
         assert_eq!(check.timing_ranges, 1);
         assert_eq!(check.bundles, 1);
+        assert!(check.rollup_host_present);
+        assert_eq!(check.bundle_hosts, 1);
+        assert_eq!(check.bundle_hosts_missing, 0);
+        fs::remove_dir_all(dir)?;
+        Ok(())
+    }
+
+    #[test]
+    fn accepts_invalid_collection_summary_rollup_host_metadata_as_no_coverage(
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let dir = temp_dir()?;
+        let rollup_path = dir.join("collection-summary-rollup.json");
+        fs::write(&rollup_path, rollup_json_with_invalid_host_metadata())?;
+
+        let check = validate_remote_free_service_telemetry_collection_summary_rollup_artifact(
+            &rollup_path,
+        )?;
+
+        assert_eq!(check.valid_bundles, 1);
+        assert!(!check.rollup_host_present);
+        assert_eq!(check.bundle_hosts, 0);
+        assert_eq!(check.bundle_hosts_missing, 1);
         fs::remove_dir_all(dir)?;
         Ok(())
     }
@@ -1750,6 +1803,9 @@ mod tests {
 
         assert_eq!(check.valid_bundles, 1);
         assert_eq!(check.timing_ranges, 1);
+        assert!(check.rollup_host_present);
+        assert_eq!(check.bundle_hosts, 1);
+        assert_eq!(check.bundle_hosts_missing, 0);
         fs::remove_dir_all(dir)?;
         Ok(())
     }
@@ -1758,7 +1814,7 @@ mod tests {
     fn rejects_failed_collection_summary_rollup_rows() -> Result<(), Box<dyn std::error::Error>> {
         let dir = temp_dir()?;
         let rollup_path = dir.join("collection-summary-rollup.json");
-        fs::write(&rollup_path, rollup_json("drifted_summary", 0, 1))?;
+        fs::write(&rollup_path, rollup_json_with_host("drifted_summary", 0, 1))?;
 
         let error =
             validate_remote_free_service_telemetry_collection_summary_rollup_artifact(&rollup_path)
