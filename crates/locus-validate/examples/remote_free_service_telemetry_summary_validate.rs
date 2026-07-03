@@ -14,6 +14,7 @@ use locus_validate::{
     format_remote_free_service_telemetry_collection_summary_rollup_check_log_summary_json_line,
     parse_remote_free_service_telemetry_collection_summary,
     parse_remote_free_service_telemetry_collection_summary_rollup_check_json_line,
+    parse_remote_free_service_telemetry_collection_summary_rollup_check_log_summary_json_line,
     parse_remote_free_service_telemetry_timing_stability_manifest,
     resolve_remote_free_service_telemetry_collection_summary_manifest_path,
     resolve_remote_free_service_telemetry_collection_summary_validation_summary_path,
@@ -100,6 +101,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             "{}",
             format_remote_free_service_telemetry_collection_summary_rollup_check_log_summary_json_line(&summary)?
         );
+        return Ok(());
+    }
+    if summary_path == "--rollup-check-json-summary-verify" {
+        let log_path = args.next().ok_or_else(|| usage_error(&program))?;
+        if args.next().is_some() {
+            return Err(Box::new(usage_error(&program)));
+        }
+        let log_text = fs::read_to_string(&log_path)?;
+        let summary = parse_rollup_check_log_summary_json_text(&log_text)?;
+        println!("{summary}");
         return Ok(());
     }
 
@@ -228,6 +239,27 @@ fn parse_rollup_check_json_text(
     Err(Box::new(io::Error::new(
         io::ErrorKind::InvalidData,
         "missing remote-free service telemetry rollup check JSON line",
+    )))
+}
+
+fn parse_rollup_check_log_summary_json_text(
+    input: &str,
+) -> Result<
+    locus_validate::RemoteFreeServiceTelemetryCollectionSummaryRollupCheckLogSummary,
+    Box<dyn Error>,
+> {
+    for line in input.lines().map(str::trim).filter(|line| !line.is_empty()) {
+        if line
+            .contains("locus.remote_free_service.telemetry.collection_summary_rollup_check_log.v1")
+        {
+            return Ok(
+                parse_remote_free_service_telemetry_collection_summary_rollup_check_log_summary_json_line(line)?,
+            );
+        }
+    }
+    Err(Box::new(io::Error::new(
+        io::ErrorKind::InvalidData,
+        "missing remote-free service telemetry rollup check log summary JSON line",
     )))
 }
 
@@ -404,7 +436,7 @@ fn usage_error(program: &str) -> io::Error {
     io::Error::new(
         io::ErrorKind::InvalidInput,
         format!(
-            "usage: {program} <collection-summary.json>\n       {program} --dir <evidence-root> [--write-rollup]\n       {program} --rollup <collection-summary-rollup.json>\n       {program} --rollup-check-json <saved-log.txt>\n       {program} --rollup-check-json-summary <saved-log.txt>"
+            "usage: {program} <collection-summary.json>\n       {program} --dir <evidence-root> [--write-rollup]\n       {program} --rollup <collection-summary-rollup.json>\n       {program} --rollup-check-json <saved-log.txt>\n       {program} --rollup-check-json-summary <saved-log.txt>\n       {program} --rollup-check-json-summary-verify <saved-log.txt>"
         ),
     )
 }

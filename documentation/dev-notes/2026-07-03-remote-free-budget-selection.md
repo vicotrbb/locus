@@ -696,6 +696,16 @@ and includes flat fields plus grouped `host_coverage` and `status_coverage`
 objects. The real combined log preserves the two-record human summary and
 emits machine-readable grouped coverage totals for dashboard ingestion.
 
+Experiment 0254 added a typed parser for saved-log summary JSON lines and
+exposed it through the validation example as
+`--rollup-check-json-summary-verify <saved-log.txt>`. The parser reconstructs
+`RemoteFreeServiceTelemetryCollectionSummaryRollupCheckLogSummary` from flat
+fields, verifies grouped host and status coverage against the same counters,
+and rejects schema drift, missing groups, and grouped counter drift. The real
+combined-log dashboard output reconstructs two records, two rollup hosts
+present, one bundle host present, one bundle host missing, two valid bundles,
+and zero failed statuses without rereading the original release-check records.
+
 ## Measured Thresholds
 
 | Path | Shape inputs | Budget | Matched counters |
@@ -1084,6 +1094,7 @@ emits machine-readable grouped coverage totals for dashboard ingestion.
 - `documentation/experiments/0251-remote-free-service-telemetry-rollup-check-json-parser.md`
 - `documentation/experiments/0252-remote-free-service-telemetry-rollup-check-log-summary.md`
 - `documentation/experiments/0253-remote-free-service-telemetry-rollup-check-log-summary-json.md`
+- `documentation/experiments/0254-remote-free-service-telemetry-rollup-check-log-summary-json-parser.md`
 
 ## Open Questions
 
