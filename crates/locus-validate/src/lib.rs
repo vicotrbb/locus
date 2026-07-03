@@ -39,7 +39,9 @@ pub use thp_benchmark_evidence_report::{
 };
 pub use thp_benchmark_evidence_run_summary::{
     summarize_mapped_scratch_thp_benchmark_evidence_report_lines,
-    MappedScratchThpBenchmarkEvidenceRunCohort, MappedScratchThpBenchmarkEvidenceRunSummary,
+    MappedScratchThpBenchmarkEvidenceRunCohort,
+    MappedScratchThpBenchmarkEvidenceRunPolicyCandidateReason,
+    MappedScratchThpBenchmarkEvidenceRunSummary,
     MappedScratchThpBenchmarkEvidenceRunSummaryParseError,
 };
 pub use thp_fault_sample_comparison::{

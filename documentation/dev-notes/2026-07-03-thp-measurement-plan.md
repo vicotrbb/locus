@@ -39,11 +39,11 @@ docker run --rm -v "$PWD":/work -w /work rust:1.96 cargo bench -p locus-alloc --
 docker run --rm -v "$PWD":/work -w /work rust:1.96 cargo run -p locus-validate --example live_mapped_scratch_thp_validation_gate
 ```
 
-Run the gate before and after the benchmark so an environment change is visible. The benchmark log should contain three `thp_page_sample=` lines, three `fault_sample=` lines, and the Criterion timing blocks. Run `mapped_scratch_thp_benchmark_evidence_report` on each saved benchmark log to get compact lines with page-size evidence, fault deltas, and normalized timing intervals. Run `mapped_scratch_thp_benchmark_evidence_run_summary` on those compact report files before comparing repeated timing ranges. Increase sample size for any result that will influence allocator policy.
+Run the gate before and after the benchmark so an environment change is visible. The benchmark log should contain three `thp_page_sample=` lines, three `fault_sample=` lines, and the Criterion timing blocks. Run `mapped_scratch_thp_benchmark_evidence_report` on each saved benchmark log to get compact lines with page-size evidence, fault deltas, and normalized timing intervals. Run `mapped_scratch_thp_benchmark_evidence_run_summary` on those compact report files before comparing repeated timing ranges. Treat THP policy changes as out of scope unless the summary reports `policy_candidate=true`. Increase sample size for any result that will influence allocator policy.
 
 ## Next Questions
 
 - Which Linux host or container configuration exposes `numa_maps` page-size evidence for this mapping?
 - Does the `hugepage` advice case remain faster across repeated runs and larger sample sizes?
 - Does ready gate evidence correlate with the faster first-touch benchmark result?
-- Which repeated THP run set first produces both `page_evidence_cohort=consistent` and observed hugepage adoption on a Linux host?
+- Which repeated THP run set first produces `policy_candidate=true` on a Linux host?

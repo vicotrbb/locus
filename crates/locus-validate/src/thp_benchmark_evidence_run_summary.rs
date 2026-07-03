@@ -29,6 +29,38 @@ impl MappedScratchThpBenchmarkEvidenceRunCohort {
     }
 }
 
+/// Conservative THP policy-candidate reason for a repeated report run.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MappedScratchThpBenchmarkEvidenceRunPolicyCandidateReason {
+    /// The repeated run has consistent ready evidence with observed adoption.
+    Ready,
+    /// At least one report line was unavailable.
+    UnavailableReports,
+    /// Report lines had mixed page-size evidence.
+    MixedPageEvidence,
+    /// The repeated run did not observe hugepage adoption for every report.
+    NoHugepageAdoption,
+}
+
+impl MappedScratchThpBenchmarkEvidenceRunPolicyCandidateReason {
+    /// Returns a stable machine-readable reason string.
+    #[must_use]
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Ready => "ready",
+            Self::UnavailableReports => "unavailable_reports",
+            Self::MixedPageEvidence => "mixed_page_evidence",
+            Self::NoHugepageAdoption => "no_hugepage_adoption",
+        }
+    }
+}
+
+impl fmt::Display for MappedScratchThpBenchmarkEvidenceRunPolicyCandidateReason {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
 /// Summary for repeated compact mapped scratch THP benchmark evidence reports.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MappedScratchThpBenchmarkEvidenceRunSummary {
@@ -62,13 +94,17 @@ pub struct MappedScratchThpBenchmarkEvidenceRunSummary {
     pub hugepage_vs_default_time_estimate_max_delta_ps: i128,
     /// Page-size evidence cohort classification.
     pub page_evidence_cohort: MappedScratchThpBenchmarkEvidenceRunCohort,
+    /// Returns true when this run is conservative policy-candidate evidence.
+    pub policy_candidate: bool,
+    /// Reason for the policy-candidate verdict.
+    pub policy_candidate_reason: MappedScratchThpBenchmarkEvidenceRunPolicyCandidateReason,
 }
 
 impl fmt::Display for MappedScratchThpBenchmarkEvidenceRunSummary {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
-            "mapped_scratch_thp_benchmark_evidence_runs=ready reports={} ready_reports={} unavailable_reports={} hugepage_adoption_reports={} base_page_reports={} major_fault_reports={} default_time_estimate_min_ps={} default_time_estimate_max_ps={} hugepage_time_estimate_min_ps={} hugepage_time_estimate_max_ps={} no_hugepage_time_estimate_min_ps={} no_hugepage_time_estimate_max_ps={} hugepage_vs_default_time_estimate_min_delta_ps={} hugepage_vs_default_time_estimate_max_delta_ps={} page_evidence_cohort={}",
+            "mapped_scratch_thp_benchmark_evidence_runs=ready reports={} ready_reports={} unavailable_reports={} hugepage_adoption_reports={} base_page_reports={} major_fault_reports={} default_time_estimate_min_ps={} default_time_estimate_max_ps={} hugepage_time_estimate_min_ps={} hugepage_time_estimate_max_ps={} no_hugepage_time_estimate_min_ps={} no_hugepage_time_estimate_max_ps={} hugepage_vs_default_time_estimate_min_delta_ps={} hugepage_vs_default_time_estimate_max_delta_ps={} page_evidence_cohort={} policy_candidate={} policy_candidate_reason={}",
             self.reports,
             self.ready_reports,
             self.unavailable_reports,
@@ -83,7 +119,9 @@ impl fmt::Display for MappedScratchThpBenchmarkEvidenceRunSummary {
             self.no_hugepage_time_estimate_max_ps,
             self.hugepage_vs_default_time_estimate_min_delta_ps,
             self.hugepage_vs_default_time_estimate_max_delta_ps,
-            self.page_evidence_cohort.as_str()
+            self.page_evidence_cohort.as_str(),
+            self.policy_candidate,
+            self.policy_candidate_reason
         )?;
 
         if let MappedScratchThpBenchmarkEvidenceRunCohort::Consistent {
@@ -227,6 +265,9 @@ pub fn summarize_mapped_scratch_thp_benchmark_evidence_report_lines(
             hugepage_source: first.hugepage_source.clone(),
             hugepage_kernel_page_kb: first.hugepage_kernel_page_kb.clone(),
         },
+        policy_candidate: false,
+        policy_candidate_reason:
+            MappedScratchThpBenchmarkEvidenceRunPolicyCandidateReason::NoHugepageAdoption,
     };
     let first_page_evidence = first.page_evidence_key();
 
@@ -278,7 +319,29 @@ pub fn summarize_mapped_scratch_thp_benchmark_evidence_report_lines(
         }
     }
 
+    summary.policy_candidate_reason = policy_candidate_reason(&summary);
+    summary.policy_candidate = summary.policy_candidate_reason
+        == MappedScratchThpBenchmarkEvidenceRunPolicyCandidateReason::Ready;
+
     Ok(summary)
+}
+
+fn policy_candidate_reason(
+    summary: &MappedScratchThpBenchmarkEvidenceRunSummary,
+) -> MappedScratchThpBenchmarkEvidenceRunPolicyCandidateReason {
+    if summary.unavailable_reports > 0 {
+        return MappedScratchThpBenchmarkEvidenceRunPolicyCandidateReason::UnavailableReports;
+    }
+
+    if summary.page_evidence_cohort == MappedScratchThpBenchmarkEvidenceRunCohort::Mixed {
+        return MappedScratchThpBenchmarkEvidenceRunPolicyCandidateReason::MixedPageEvidence;
+    }
+
+    if summary.hugepage_adoption_reports != summary.reports {
+        return MappedScratchThpBenchmarkEvidenceRunPolicyCandidateReason::NoHugepageAdoption;
+    }
+
+    MappedScratchThpBenchmarkEvidenceRunPolicyCandidateReason::Ready
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -438,6 +501,7 @@ mod tests {
     use super::{
         summarize_mapped_scratch_thp_benchmark_evidence_report_lines,
         MappedScratchThpBenchmarkEvidenceRunCohort,
+        MappedScratchThpBenchmarkEvidenceRunPolicyCandidateReason,
     };
 
     #[derive(Debug, Clone, Copy)]
@@ -521,9 +585,14 @@ mod tests {
         assert_eq!(summary.no_hugepage_time_estimate_max_ps, 1_300);
         assert_eq!(summary.hugepage_vs_default_time_estimate_min_delta_ps, -800);
         assert_eq!(summary.hugepage_vs_default_time_estimate_max_delta_ps, -550);
+        assert!(!summary.policy_candidate);
+        assert_eq!(
+            summary.policy_candidate_reason,
+            MappedScratchThpBenchmarkEvidenceRunPolicyCandidateReason::UnavailableReports
+        );
         assert_eq!(
             summary.to_string(),
-            "mapped_scratch_thp_benchmark_evidence_runs=ready reports=3 ready_reports=2 unavailable_reports=1 hugepage_adoption_reports=0 base_page_reports=3 major_fault_reports=1 default_time_estimate_min_ps=900 default_time_estimate_max_ps=1200 hugepage_time_estimate_min_ps=300 hugepage_time_estimate_max_ps=400 no_hugepage_time_estimate_min_ps=1000 no_hugepage_time_estimate_max_ps=1300 hugepage_vs_default_time_estimate_min_delta_ps=-800 hugepage_vs_default_time_estimate_max_delta_ps=-550 page_evidence_cohort=consistent cohort_hugepage_observed=no cohort_hugepage_source=smaps cohort_hugepage_kernel_page_kb=4"
+            "mapped_scratch_thp_benchmark_evidence_runs=ready reports=3 ready_reports=2 unavailable_reports=1 hugepage_adoption_reports=0 base_page_reports=3 major_fault_reports=1 default_time_estimate_min_ps=900 default_time_estimate_max_ps=1200 hugepage_time_estimate_min_ps=300 hugepage_time_estimate_max_ps=400 no_hugepage_time_estimate_min_ps=1000 no_hugepage_time_estimate_max_ps=1300 hugepage_vs_default_time_estimate_min_delta_ps=-800 hugepage_vs_default_time_estimate_max_delta_ps=-550 page_evidence_cohort=consistent policy_candidate=false policy_candidate_reason=unavailable_reports cohort_hugepage_observed=no cohort_hugepage_source=smaps cohort_hugepage_kernel_page_kb=4"
         );
     }
 
@@ -551,7 +620,77 @@ mod tests {
         );
         assert_eq!(summary.hugepage_vs_default_time_estimate_min_delta_ps, -700);
         assert_eq!(summary.hugepage_vs_default_time_estimate_max_delta_ps, 200);
-        assert!(summary.to_string().ends_with("page_evidence_cohort=mixed"));
+        assert!(!summary.policy_candidate);
+        assert_eq!(
+            summary.policy_candidate_reason,
+            MappedScratchThpBenchmarkEvidenceRunPolicyCandidateReason::MixedPageEvidence
+        );
+        assert!(
+            summary
+                .to_string()
+                .ends_with("page_evidence_cohort=mixed policy_candidate=false policy_candidate_reason=mixed_page_evidence")
+        );
+    }
+
+    #[test]
+    fn rejects_consistent_base_pages_as_policy_candidate() {
+        let input = [
+            compact_report_line(CompactReportLineInput::default()),
+            compact_report_line(CompactReportLineInput {
+                default_time_estimate_ps: 1_200,
+                hugepage_time_estimate_ps: 400,
+                no_hugepage_time_estimate_ps: 1_300,
+                ..CompactReportLineInput::default()
+            }),
+        ]
+        .join("\n");
+        let summary =
+            summarize_mapped_scratch_thp_benchmark_evidence_report_lines(&input).expect("summary");
+
+        assert!(!summary.policy_candidate);
+        assert_eq!(
+            summary.policy_candidate_reason,
+            MappedScratchThpBenchmarkEvidenceRunPolicyCandidateReason::NoHugepageAdoption
+        );
+    }
+
+    #[test]
+    fn accepts_consistent_hugepage_adoption_as_policy_candidate() {
+        let input = [
+            compact_report_line(CompactReportLineInput {
+                hugepage_observed: "yes",
+                hugepage_kernel_page_kb: "2048",
+                hugepage_adoption: true,
+                hugepage_time_estimate_ps: 1_200,
+                ..CompactReportLineInput::default()
+            }),
+            compact_report_line(CompactReportLineInput {
+                hugepage_observed: "yes",
+                hugepage_kernel_page_kb: "2048",
+                hugepage_adoption: true,
+                default_time_estimate_ps: 1_100,
+                hugepage_time_estimate_ps: 1_300,
+                no_hugepage_time_estimate_ps: 1_200,
+                ..CompactReportLineInput::default()
+            }),
+        ]
+        .join("\n");
+        let summary =
+            summarize_mapped_scratch_thp_benchmark_evidence_report_lines(&input).expect("summary");
+
+        assert!(summary.policy_candidate);
+        assert_eq!(
+            summary.policy_candidate_reason,
+            MappedScratchThpBenchmarkEvidenceRunPolicyCandidateReason::Ready
+        );
+        assert_eq!(
+            summary.page_evidence_cohort,
+            MappedScratchThpBenchmarkEvidenceRunCohort::Consistent {
+                hugepage_observed: "yes".to_owned(),
+                hugepage_source: "smaps".to_owned(),
+                hugepage_kernel_page_kb: "2048".to_owned(),
+            }
+        );
     }
 
     #[test]
