@@ -49,6 +49,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
         return Ok(());
     }
+    if summary_path == "--rollup" {
+        let rollup_path = args.next().ok_or_else(|| usage_error(&program))?;
+        if args.next().is_some() {
+            return Err(Box::new(usage_error(&program)));
+        }
+        let check = validate_rollup_artifact(Path::new(&rollup_path))?;
+        println!("{check}");
+        return Ok(());
+    }
 
     if args.next().is_some() {
         return Err(Box::new(usage_error(&program)));
@@ -98,6 +107,15 @@ struct DirectoryRollup {
 }
 
 #[derive(Debug, PartialEq, Eq)]
+struct RollupArtifactCheck {
+    path: PathBuf,
+    summaries: u64,
+    valid_bundles: u64,
+    timing_ranges: u64,
+    bundles: u64,
+}
+
+#[derive(Debug, PartialEq, Eq)]
 struct BundleRollup {
     summary_path: PathBuf,
     run_id: Option<String>,
@@ -136,6 +154,20 @@ impl std::fmt::Display for DirectoryRollup {
             self.missing_artifacts,
             self.other_failures,
             self.timing_ranges
+        )
+    }
+}
+
+impl std::fmt::Display for RollupArtifactCheck {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "remote_free_service_telemetry_collection_summary_rollup_check=ok path={} summaries={} valid_bundles={} timing_ranges={} bundles={}",
+            self.path.display(),
+            self.summaries,
+            self.valid_bundles,
+            self.timing_ranges,
+            self.bundles
         )
     }
 }
@@ -279,6 +311,113 @@ fn write_directory_rollup_artifact(
     Ok(path)
 }
 
+fn validate_rollup_artifact(path: &Path) -> Result<RollupArtifactCheck, Box<dyn Error>> {
+    let artifact_text = fs::read_to_string(path)?;
+    let artifact = serde_json::from_str::<serde_json::Value>(&artifact_text)?;
+    let schema = artifact
+        .get("schema")
+        .and_then(serde_json::Value::as_str)
+        .ok_or_else(|| invalid_data("missing rollup artifact schema"))?;
+    if schema != "locus.remote_free_service.telemetry.collection_summary_rollup.v2" {
+        return Err(Box::new(invalid_data(format!(
+            "unsupported rollup artifact schema: {schema}"
+        ))));
+    }
+
+    let bundles = artifact
+        .get("bundles")
+        .and_then(serde_json::Value::as_array)
+        .ok_or_else(|| invalid_data("missing rollup artifact bundles"))?;
+    let expected_summaries = required_u64(&artifact, "summaries")?;
+    let expected_valid_bundles = required_u64(&artifact, "valid_bundles")?;
+    let expected_drifted_summaries = required_u64(&artifact, "drifted_summaries")?;
+    let expected_missing_artifacts = required_u64(&artifact, "missing_artifacts")?;
+    let expected_other_failures = required_u64(&artifact, "other_failures")?;
+    let expected_timing_ranges = required_u64(&artifact, "timing_ranges")?;
+
+    let mut valid_bundles = 0;
+    let mut drifted_summaries = 0;
+    let mut missing_artifacts = 0;
+    let mut other_failures = 0;
+    let mut timing_ranges = 0;
+
+    for bundle in bundles {
+        let summary = bundle
+            .get("summary")
+            .and_then(serde_json::Value::as_str)
+            .ok_or_else(|| invalid_data("missing rollup bundle summary"))?;
+        let status = bundle
+            .get("status")
+            .and_then(serde_json::Value::as_str)
+            .ok_or_else(|| invalid_data(format!("missing rollup bundle status: {summary}")))?;
+        let row_timing_ranges = required_u64(bundle, "timing_ranges")?;
+        timing_ranges += row_timing_ranges;
+        match status {
+            "valid" => valid_bundles += 1,
+            "drifted_summary" => drifted_summaries += 1,
+            "missing_artifact" => missing_artifacts += 1,
+            "other_failure" => other_failures += 1,
+            _ => {
+                return Err(Box::new(invalid_data(format!(
+                    "unknown rollup bundle status: summary={summary} status={status}"
+                ))));
+            }
+        }
+    }
+
+    let summaries = u64::try_from(bundles.len())
+        .map_err(|_| invalid_data("rollup artifact bundle count overflows u64"))?;
+    require_count("summaries", expected_summaries, summaries)?;
+    require_count("valid_bundles", expected_valid_bundles, valid_bundles)?;
+    require_count(
+        "drifted_summaries",
+        expected_drifted_summaries,
+        drifted_summaries,
+    )?;
+    require_count(
+        "missing_artifacts",
+        expected_missing_artifacts,
+        missing_artifacts,
+    )?;
+    require_count("other_failures", expected_other_failures, other_failures)?;
+    require_count("timing_ranges", expected_timing_ranges, timing_ranges)?;
+
+    if drifted_summaries != 0 || missing_artifacts != 0 || other_failures != 0 {
+        return Err(Box::new(invalid_data(format!(
+            "rollup artifact contains failed bundles: drifted_summaries={drifted_summaries} missing_artifacts={missing_artifacts} other_failures={other_failures}"
+        ))));
+    }
+
+    Ok(RollupArtifactCheck {
+        path: path.to_path_buf(),
+        summaries,
+        valid_bundles,
+        timing_ranges,
+        bundles: summaries,
+    })
+}
+
+fn required_u64(value: &serde_json::Value, field: &str) -> Result<u64, io::Error> {
+    value
+        .get(field)
+        .and_then(serde_json::Value::as_u64)
+        .ok_or_else(|| invalid_data(format!("missing rollup artifact numeric field: {field}")))
+}
+
+fn require_count(field: &str, expected: u64, actual: u64) -> Result<(), io::Error> {
+    if expected == actual {
+        return Ok(());
+    }
+
+    Err(invalid_data(format!(
+        "rollup artifact count drift: field={field} expected={expected} actual={actual}"
+    )))
+}
+
+fn invalid_data(message: impl Into<String>) -> io::Error {
+    io::Error::new(io::ErrorKind::InvalidData, message.into())
+}
+
 fn collect_summary_paths(root: &Path, summary_paths: &mut Vec<PathBuf>) -> io::Result<()> {
     for entry in fs::read_dir(root)? {
         let entry = entry?;
@@ -389,7 +528,7 @@ fn usage_error(program: &str) -> io::Error {
     io::Error::new(
         io::ErrorKind::InvalidInput,
         format!(
-            "usage: {program} <collection-summary.json>\n       {program} --dir <evidence-root> [--write-rollup]"
+            "usage: {program} <collection-summary.json>\n       {program} --dir <evidence-root> [--write-rollup]\n       {program} --rollup <collection-summary-rollup.json>"
         ),
     )
 }
@@ -397,7 +536,8 @@ fn usage_error(program: &str) -> io::Error {
 #[cfg(test)]
 mod tests {
     use super::{
-        compare_validation_summary, validate_summary_directory, write_directory_rollup_artifact,
+        compare_validation_summary, validate_rollup_artifact, validate_summary_directory,
+        write_directory_rollup_artifact,
     };
     use serde_json::json;
     use std::{
@@ -603,6 +743,71 @@ mod tests {
         assert_eq!(artifact["bundles"][0]["status"], "valid");
         assert_eq!(artifact["bundles"][0]["timing_ranges"], 1);
 
+        fs::remove_dir_all(root)?;
+        Ok(())
+    }
+
+    #[test]
+    fn validates_clean_rollup_artifact() -> Result<(), Box<dyn std::error::Error>> {
+        let root = temp_dir()?;
+        write_bundle(&root, "valid", false, false)?;
+        let rollup = validate_summary_directory(&root)?;
+        let path = write_directory_rollup_artifact(&root, &rollup)?;
+
+        let check = validate_rollup_artifact(&path)?;
+
+        assert_eq!(check.path, path);
+        assert_eq!(check.summaries, 1);
+        assert_eq!(check.valid_bundles, 1);
+        assert_eq!(check.timing_ranges, 1);
+        assert_eq!(check.bundles, 1);
+
+        fs::remove_dir_all(root)?;
+        Ok(())
+    }
+
+    #[test]
+    fn rejects_failed_rollup_bundle_rows() -> Result<(), Box<dyn std::error::Error>> {
+        let root = temp_dir()?;
+        write_bundle(&root, "valid", false, false)?;
+        let rollup = validate_summary_directory(&root)?;
+        let path = write_directory_rollup_artifact(&root, &rollup)?;
+        let mut artifact = serde_json::from_str::<serde_json::Value>(&fs::read_to_string(&path)?)?;
+        artifact["valid_bundles"] = json!(0);
+        artifact["drifted_summaries"] = json!(1);
+        artifact["bundles"][0]["status"] = json!("drifted_summary");
+        fs::write(
+            &path,
+            format!("{}\n", serde_json::to_string_pretty(&artifact)?),
+        )?;
+
+        let error = validate_rollup_artifact(&path).expect_err("failed bundle row");
+
+        assert!(error
+            .to_string()
+            .contains("rollup artifact contains failed bundles"));
+        fs::remove_dir_all(root)?;
+        Ok(())
+    }
+
+    #[test]
+    fn rejects_rollup_count_drift() -> Result<(), Box<dyn std::error::Error>> {
+        let root = temp_dir()?;
+        write_bundle(&root, "valid", false, false)?;
+        let rollup = validate_summary_directory(&root)?;
+        let path = write_directory_rollup_artifact(&root, &rollup)?;
+        let mut artifact = serde_json::from_str::<serde_json::Value>(&fs::read_to_string(&path)?)?;
+        artifact["valid_bundles"] = json!(2);
+        fs::write(
+            &path,
+            format!("{}\n", serde_json::to_string_pretty(&artifact)?),
+        )?;
+
+        let error = validate_rollup_artifact(&path).expect_err("count drift");
+
+        assert!(error
+            .to_string()
+            .contains("rollup artifact count drift: field=valid_bundles expected=2 actual=1"));
         fs::remove_dir_all(root)?;
         Ok(())
     }

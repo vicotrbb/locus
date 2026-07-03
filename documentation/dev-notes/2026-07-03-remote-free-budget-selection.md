@@ -570,6 +570,10 @@ per-bundle table. The real evidence root wrote one row for
 `apply-confirm-summary-1783084007-13676`, reported `valid` status, preserved
 one timing range, and stayed at 511 bytes.
 
+Experiment 0236 added artifact-only rollup validation for release checks. The
+real 511-byte artifact passed without rescanning the evidence tree and reported
+one summary, one valid bundle, one timing range, and one bundle row.
+
 ## Measured Thresholds
 
 | Path | Shape inputs | Budget | Matched counters |
