@@ -6,9 +6,10 @@ use criterion::{black_box, Criterion};
 use locus_alloc::{
     RemoteFreeOwnerRuntime, RemoteFreeOwnerRuntimeApplyOutcome,
     RemoteFreeOwnerRuntimeConfirmOutcome, RemoteFreeOwnerRuntimeRollbackOutcome,
-    RemoteFreeQueuedByteDrainConfig, RemoteFreeServiceRetuneCandidate,
-    RemoteFreeServiceRetuneGuardDecision, RemoteFreeServiceRetunePolicyApplication,
-    RemoteFreeServiceRetunePolicyApplicator, RemoteFreeTryEnqueueErrorKind,
+    RemoteFreeQueuedByteDrainConfig, RemoteFreeQueuedByteDriftReport,
+    RemoteFreeServiceRetuneCandidate, RemoteFreeServiceRetuneGuardDecision,
+    RemoteFreeServiceRetunePolicyApplication, RemoteFreeServiceRetunePolicyApplicator,
+    RemoteFreeServiceRetuneSummary, RemoteFreeTryEnqueueErrorKind,
 };
 
 use crate::remote_free_service_harness::{
@@ -372,6 +373,27 @@ pub(crate) fn run_runtime_owner_window(
     runtime: &mut RemoteFreeOwnerRuntime<RuntimeTraceBlock>,
     stats: &mut RuntimeApplicationStats,
 ) {
+    run_runtime_owner_window_inner(runtime, stats, |_| {});
+}
+
+pub(crate) fn run_runtime_owner_window_with_summary(
+    runtime: &mut RemoteFreeOwnerRuntime<RuntimeTraceBlock>,
+    stats: &mut RuntimeApplicationStats,
+) -> RemoteFreeServiceRetuneSummary {
+    let mut summary = RemoteFreeServiceRetuneSummary::new();
+
+    run_runtime_owner_window_inner(runtime, stats, |report| {
+        summary.observe_report(report);
+    });
+
+    summary
+}
+
+fn run_runtime_owner_window_inner(
+    runtime: &mut RemoteFreeOwnerRuntime<RuntimeTraceBlock>,
+    stats: &mut RuntimeApplicationStats,
+    mut observe_report: impl FnMut(RemoteFreeQueuedByteDriftReport),
+) {
     let sink = runtime.sink();
 
     for burst in 0..BURSTS {
@@ -401,6 +423,11 @@ pub(crate) fn run_runtime_owner_window(
 
         let completed_bursts = burst.saturating_add(1);
         let runtime_status = runtime.status(completed_bursts).expect("runtime status");
+        observe_report(
+            runtime
+                .drift_report(completed_bursts)
+                .expect("runtime drift report"),
+        );
         if runtime_status.decision.should_drain() {
             let drained = drain_runtime_batch(runtime, completed_bursts, stats);
             if drained > 0 {

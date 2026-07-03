@@ -237,6 +237,14 @@ runtime installs, one confirm, one rollback, one mutation-limit decision, five
 runtime no-change outcomes, 2304 submitted blocks, 2304 drained blocks,
 9,437,184 released bytes, final queue capacity 128, and no rollback config.
 
+Experiment 0201 replaced controlled summary shapes for the guarded
+apply-confirm path with telemetry collected directly from
+`RemoteFreeOwnerRuntime`. Three real owner-runtime windows produced one hold,
+one apply, one confirm, 768 submitted blocks, 768 drained blocks, 3,145,728
+released bytes, 12 runtime-collected reports needing retune before apply, a
+clean validation window after apply, final capacity 256, and no rollback
+config.
+
 ## Measured Thresholds
 
 | Path | Shape inputs | Budget | Matched counters |
@@ -294,6 +302,9 @@ runtime no-change outcomes, 2304 submitted blocks, 2304 drained blocks,
 18. Use the guarded runtime sequence to verify that guard decisions translate
     into runtime install, confirm, rollback, and no-change outcomes before
     attempting live orchestration.
+19. Prefer `RemoteFreeOwnerRuntime::drift_report` when guarded decisions can be
+    driven by runtime-collected owner telemetry. Use controlled summaries only
+    for paths that do not yet have a measured runtime-collected equivalent.
 
 ## Guardrails
 
@@ -329,6 +340,9 @@ runtime no-change outcomes, 2304 submitted blocks, 2304 drained blocks,
   runtime config.
 - Do not treat the controlled-summary guarded runtime benchmark as a full live
   retune proof. Runtime-collected telemetry still needs separate measurement.
+- Do not treat the runtime initial-policy override as a production shortcut.
+  It is a measured way to compare runtime telemetry against a diagnostic config
+  while the applied config still restores the config's queued-byte policy.
 - Recheck thresholds when KV block size, request arena capacity, burst size,
   request concurrency, or batch size changes.
 - For heterogeneous traces, derive the budget from actual retained item sizes
@@ -366,11 +380,12 @@ runtime no-change outcomes, 2304 submitted blocks, 2304 drained blocks,
 - `documentation/experiments/0198-remote-free-owner-runtime-rollback.md`
 - `documentation/experiments/0199-remote-free-owner-runtime-confirm.md`
 - `documentation/experiments/0200-remote-free-guarded-runtime-sequence.md`
+- `documentation/experiments/0201-remote-free-runtime-collected-guarded-confirm.md`
 
 ## Open Questions
 
-- How should runtime-collected telemetry replace controlled service-summary
-  shapes in the guarded runtime sequence?
+- How should runtime-collected telemetry drive rollback and mutation-limit
+  guarded runtime paths?
 - How should the guarded runtime sequence lift to multi-owner runtime
   orchestration?
 - Which workload signal should set the retained item window in production:

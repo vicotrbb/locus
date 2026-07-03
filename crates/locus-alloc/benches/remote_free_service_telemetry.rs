@@ -12,6 +12,8 @@ mod remote_free_service_guarded_harness;
 mod remote_free_service_guarded_runtime_harness;
 #[path = "remote_free_service/harness.rs"]
 mod remote_free_service_harness;
+#[path = "remote_free_service/runtime_collected_harness.rs"]
+mod remote_free_service_runtime_collected_harness;
 
 fn remote_free_service_telemetry(c: &mut Criterion) {
     remote_free_service_harness::benchmark_service_telemetry(c);
@@ -19,6 +21,7 @@ fn remote_free_service_telemetry(c: &mut Criterion) {
     remote_free_service_dry_run_harness::benchmark_dry_run_sequence(c);
     remote_free_service_guarded_harness::benchmark_guarded_sequences(c);
     remote_free_service_guarded_runtime_harness::benchmark_guarded_runtime_sequence(c);
+    remote_free_service_runtime_collected_harness::benchmark_runtime_collected_guarded_confirm(c);
 }
 
 criterion_group!(benches, remote_free_service_telemetry);

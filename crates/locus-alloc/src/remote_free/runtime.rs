@@ -2,9 +2,10 @@ use std::fmt;
 
 use super::{
     RemoteFreeDrainController, RemoteFreeDrainControllerError, RemoteFreeDrainControllerStatus,
-    RemoteFreeDrainStats, RemoteFreeQueue, RemoteFreeQueueError, RemoteFreeQueueStats,
-    RemoteFreeQueuedByteDrainConfig, RemoteFreeServiceRetuneCandidate,
-    RemoteFreeServiceRetuneGuardDecision, RemoteFreeServiceRetunePolicyApplication,
+    RemoteFreeDrainPolicy, RemoteFreeDrainStats, RemoteFreeQueue, RemoteFreeQueueError,
+    RemoteFreeQueueStats, RemoteFreeQueuedByteDrainConfig, RemoteFreeQueuedByteDriftReport,
+    RemoteFreeServiceRetuneCandidate, RemoteFreeServiceRetuneGuardDecision,
+    RemoteFreeServiceRetunePolicyApplication,
 };
 
 /// Owner-side queue and controller runtime for applying remote-free configs.
@@ -82,11 +83,28 @@ impl<T> RemoteFreeOwnerRuntime<T> {
     pub fn new(
         config: RemoteFreeQueuedByteDrainConfig,
     ) -> Result<Self, RemoteFreeOwnerRuntimeError> {
+        Self::new_with_drain_policy(config, config.drain_policy())
+    }
+
+    /// Creates an owner runtime with a caller-supplied initial drain policy.
+    ///
+    /// The queued-byte config remains the diagnostic target for drift reports,
+    /// while the supplied policy controls the initial drain cadence. Later
+    /// applied configs rebuild the controller from the applied config's
+    /// queued-byte policy.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if queue construction fails.
+    pub fn new_with_drain_policy(
+        config: RemoteFreeQueuedByteDrainConfig,
+        drain_policy: RemoteFreeDrainPolicy,
+    ) -> Result<Self, RemoteFreeOwnerRuntimeError> {
         Ok(Self {
             config,
             previous_config: None,
             queue: config.queue().map_err(RemoteFreeOwnerRuntimeError::Queue)?,
-            controller: RemoteFreeDrainController::new(config.drain_policy()),
+            controller: RemoteFreeDrainController::new(drain_policy),
         })
     }
 
@@ -106,6 +124,12 @@ impl<T> RemoteFreeOwnerRuntime<T> {
     #[must_use]
     pub fn queue_stats(&self) -> RemoteFreeQueueStats {
         self.queue.stats()
+    }
+
+    /// Returns the active owner-side drain policy.
+    #[must_use]
+    pub const fn drain_policy(&self) -> RemoteFreeDrainPolicy {
+        self.controller.policy()
     }
 
     /// Returns a fresh sink for the current queue generation.
@@ -129,6 +153,19 @@ impl<T> RemoteFreeOwnerRuntime<T> {
         current_turn: u64,
     ) -> Result<RemoteFreeDrainControllerStatus, RemoteFreeDrainControllerError> {
         self.controller.status_for_queue(&self.queue, current_turn)
+    }
+
+    /// Builds a queued-byte drift report from the runtime's current status.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if queue and controller pending counts diverge.
+    pub fn drift_report(
+        &self,
+        current_turn: u64,
+    ) -> Result<RemoteFreeQueuedByteDriftReport, RemoteFreeDrainControllerError> {
+        self.status(current_turn)
+            .map(|status| RemoteFreeQueuedByteDriftReport::from_status(self.config, status))
     }
 
     /// Drains one owner batch and records release sizes in the controller.
@@ -309,10 +346,10 @@ mod tests {
         RemoteFreeOwnerRuntimeRollbackOutcome,
     };
     use crate::{
-        RemoteFreeDrainDecision, RemoteFreeDrainReason, RemoteFreeQueuedByteDrainConfig,
-        RemoteFreeServiceRetuneCandidate, RemoteFreeServiceRetuneGuardDecision,
-        RemoteFreeServiceRetunePolicyApplication, RemoteFreeServiceRetunePolicyApplicator,
-        RemoteFreeTryEnqueueErrorKind,
+        RemoteFreeDrainDecision, RemoteFreeDrainPolicy, RemoteFreeDrainReason,
+        RemoteFreeQueuedByteDrainConfig, RemoteFreeServiceRetuneCandidate,
+        RemoteFreeServiceRetuneGuardDecision, RemoteFreeServiceRetunePolicyApplication,
+        RemoteFreeServiceRetunePolicyApplicator, RemoteFreeTryEnqueueErrorKind,
     };
 
     fn config(queue_capacity: usize) -> RemoteFreeQueuedByteDrainConfig {
@@ -573,5 +610,35 @@ mod tests {
             runtime.status(1).expect("status").decision,
             RemoteFreeDrainDecision::Drain(RemoteFreeDrainReason::QueuedBytes)
         );
+    }
+
+    #[test]
+    fn owner_runtime_collects_drift_against_config_with_initial_policy_override() {
+        let mut runtime = RemoteFreeOwnerRuntime::new_with_drain_policy(
+            config(128),
+            RemoteFreeDrainPolicy::new(),
+        )
+        .expect("runtime");
+        let sink = runtime.sink();
+
+        for item in 0..65 {
+            sink.enqueue(item).expect("enqueue");
+            runtime.record_submit(0, 4096);
+        }
+
+        assert_eq!(runtime.config().queue_capacity(), 128);
+        assert_eq!(runtime.drain_policy(), RemoteFreeDrainPolicy::new());
+        assert_eq!(
+            runtime.status(1).expect("status").decision,
+            RemoteFreeDrainDecision::Defer
+        );
+
+        let report = runtime.drift_report(1).expect("drift report");
+        assert_eq!(report.target_pending_items(), 64);
+        assert_eq!(report.observed_pending_count(), 65);
+        assert_eq!(report.pending_items_over_target(), 1);
+        assert_eq!(report.observed_queued_bytes(), 266_240);
+        assert_eq!(report.queued_bytes_over_budget(), 4096);
+        assert!(report.needs_retuning());
     }
 }
