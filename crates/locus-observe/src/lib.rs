@@ -58,6 +58,17 @@ pub struct NumaMapsAddressMatch<'a> {
     pub entry: &'a NumaMapsEntry,
 }
 
+/// One parsed mapping range from `/proc/<pid>/smaps`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SmapsEntry {
+    /// Mapping start address.
+    pub start_address: u64,
+    /// Exclusive mapping end address.
+    pub end_address: u64,
+    /// Kernel-reported page size in KiB, from `KernelPageSize`.
+    pub kernel_page_kb: Option<u64>,
+}
+
 /// One parsed entry from cgroup v2 `memory.numa_stat`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CgroupNumaStatEntry {
@@ -1204,6 +1215,27 @@ pub fn read_self_numa_maps() -> Result<Vec<NumaMapsEntry>, ObserveReadError> {
     read_numa_maps("/proc/self/numa_maps")
 }
 
+/// Reads and parses a `smaps` file from an explicit path.
+///
+/// # Errors
+///
+/// Returns an error when the file cannot be read or parsing fails.
+pub fn read_smaps(path: impl AsRef<Path>) -> Result<Vec<SmapsEntry>, ObserveReadError> {
+    let path = path.as_ref();
+    let input = read_to_string(path)?;
+    parse_smaps(&input).map_err(ObserveReadError::Parse)
+}
+
+/// Reads and parses `/proc/self/smaps`.
+///
+/// # Errors
+///
+/// Returns an error when `/proc/self/smaps` cannot be read or parsing fails.
+/// Non-Linux hosts normally return a read error.
+pub fn read_self_smaps() -> Result<Vec<SmapsEntry>, ObserveReadError> {
+    read_smaps("/proc/self/smaps")
+}
+
 /// Reads and parses process fault counters from an explicit proc stat path.
 ///
 /// # Errors
@@ -1278,6 +1310,16 @@ pub fn numa_maps_entry_for_address(
         kind: NumaMapsAddressMatchKind::ContainingRange,
         entry,
     })
+}
+
+/// Finds the `smaps` entry containing an address.
+#[must_use]
+pub fn smaps_entry_for_address(entries: &[SmapsEntry], address: usize) -> Option<&SmapsEntry> {
+    let address = u64::try_from(address).ok()?;
+
+    entries
+        .iter()
+        .find(|entry| entry.start_address <= address && address < entry.end_address)
 }
 
 /// Reads and parses cgroup v2 `memory.numa_stat` from an explicit path.
@@ -1435,6 +1477,62 @@ pub fn parse_numa_maps_line(line: &str) -> Result<NumaMapsEntry, ObserveParseErr
         attributes,
         flags,
     })
+}
+
+/// Parses mapping ranges and kernel page sizes from `/proc/<pid>/smaps`.
+///
+/// # Errors
+///
+/// Returns an error when a mapping header has an invalid address range or a
+/// `KernelPageSize` field has a malformed numeric value.
+pub fn parse_smaps(input: &str) -> Result<Vec<SmapsEntry>, ObserveParseError> {
+    let mut entries = Vec::new();
+    let mut current = None;
+
+    for (index, line) in input.lines().enumerate() {
+        let line = line.trim();
+        if line.is_empty() {
+            continue;
+        }
+
+        if let Some(range) = line
+            .split_whitespace()
+            .next()
+            .filter(|token| token.contains('-'))
+        {
+            if let Some(entry) = current.replace(parse_smaps_header(range).map_err(|source| {
+                ObserveParseError::Line {
+                    line: index + 1,
+                    source: Box::new(source),
+                }
+            })?) {
+                entries.push(entry);
+            }
+            continue;
+        }
+
+        let Some(entry) = current.as_mut() else {
+            return Err(ObserveParseError::Line {
+                line: index + 1,
+                source: Box::new(ObserveParseError::InvalidToken(line.to_owned())),
+            });
+        };
+
+        if let Some(value) = line.strip_prefix("KernelPageSize:") {
+            let page_kb =
+                parse_smaps_kb_field(line, value).map_err(|source| ObserveParseError::Line {
+                    line: index + 1,
+                    source: Box::new(source),
+                })?;
+            entry.kernel_page_kb = Some(page_kb);
+        }
+    }
+
+    if let Some(entry) = current {
+        entries.push(entry);
+    }
+
+    Ok(entries)
 }
 
 /// Parses all non-empty lines from cgroup v2 `memory.numa_stat`.
@@ -1688,6 +1786,46 @@ fn read_to_string(path: &Path) -> Result<String, ObserveReadError> {
     })
 }
 
+fn parse_smaps_header(range: &str) -> Result<SmapsEntry, ObserveParseError> {
+    let (start, end) = range
+        .split_once('-')
+        .ok_or_else(|| ObserveParseError::InvalidAddress(range.to_owned()))?;
+    if start.is_empty() || end.is_empty() {
+        return Err(ObserveParseError::InvalidAddress(range.to_owned()));
+    }
+
+    let start_address = u64::from_str_radix(start, 16)
+        .map_err(|_| ObserveParseError::InvalidAddress(range.to_owned()))?;
+    let end_address = u64::from_str_radix(end, 16)
+        .map_err(|_| ObserveParseError::InvalidAddress(range.to_owned()))?;
+
+    if start_address >= end_address {
+        return Err(ObserveParseError::InvalidAddress(range.to_owned()));
+    }
+
+    Ok(SmapsEntry {
+        start_address,
+        end_address,
+        kernel_page_kb: None,
+    })
+}
+
+fn parse_smaps_kb_field(line: &str, value: &str) -> Result<u64, ObserveParseError> {
+    let mut tokens = value.split_whitespace();
+    let number = tokens
+        .next()
+        .ok_or_else(|| ObserveParseError::InvalidToken(line.to_owned()))?;
+    let unit = tokens
+        .next()
+        .ok_or_else(|| ObserveParseError::InvalidToken(line.to_owned()))?;
+
+    if unit != "kB" || tokens.next().is_some() {
+        return Err(ObserveParseError::InvalidToken(line.to_owned()));
+    }
+
+    parse_u64(number, line)
+}
+
 fn parse_node_key(key: &str) -> Result<Option<NodeId>, ObserveParseError> {
     let Some(rest) = key.strip_prefix('N') else {
         return Ok(None);
@@ -1746,17 +1884,18 @@ mod tests {
         numa_maps_entry_for_address, parse_cgroup_numa_stat, parse_node_numastat, parse_numa_maps,
         parse_numa_maps_line, parse_numa_placement_proof_line, parse_numa_placement_proof_output,
         parse_numa_placement_readiness_line, parse_numa_placement_readiness_output,
-        parse_process_stat_fault_counts, read_cgroup_numa_stat, read_cgroup_numa_summary,
-        read_node_numastat, read_node_numastat_system_snapshot, read_numa_maps,
-        read_process_fault_counts, resolve_cgroup_v2_memory_numa_stat_path, CgroupNumaDelta,
-        CgroupNumaSummary, CgroupPathError, NodeNumastatSnapshot, NodeNumastatSystemSnapshot,
-        NumaMapsAddressMatchKind, NumaMapsSummary, NumaPlacementEvidence, NumaPlacementProof,
+        parse_process_stat_fault_counts, parse_smaps, read_cgroup_numa_stat,
+        read_cgroup_numa_summary, read_node_numastat, read_node_numastat_system_snapshot,
+        read_numa_maps, read_process_fault_counts, resolve_cgroup_v2_memory_numa_stat_path,
+        smaps_entry_for_address, CgroupNumaDelta, CgroupNumaSummary, CgroupPathError,
+        NodeNumastatSnapshot, NodeNumastatSystemSnapshot, NumaMapsAddressMatchKind,
+        NumaMapsSummary, NumaPlacementEvidence, NumaPlacementProof,
         NumaPlacementProofLineParseError, NumaPlacementProofOutputParseError,
         NumaPlacementProofReason, NumaPlacementProofStatus, NumaPlacementReadinessLineParseError,
         NumaPlacementReadinessOutputParseError, NumaPlacementStatus,
         NumaPlacementValidationReadiness, NumaPlacementValidationReadinessReason,
         NumaPlacementValidationReadinessStatus, ObserveParseError, ProcessFaultCounts,
-        ProcessFaultDelta,
+        ProcessFaultDelta, SmapsEntry,
     };
 
     #[test]
@@ -1840,6 +1979,78 @@ mod tests {
         assert_eq!(containing.kind, NumaMapsAddressMatchKind::ContainingRange);
         assert_eq!(containing.entry.policy, "bind:0");
         assert!(numa_maps_entry_for_address(&entries, 0x0fff).is_none());
+    }
+
+    #[test]
+    fn parses_smaps_ranges_and_kernel_page_sizes() {
+        let entries = parse_smaps(
+            "1000-2000 rw-p 00000000 00:00 0\n\
+             Size:                  4 kB\n\
+             KernelPageSize:        4 kB\n\
+             MMUPageSize:           4 kB\n\
+             VmFlags: rd wr mr mw me ac sd\n\
+             \n\
+             2000-4000 rw-p 00000000 00:00 0\n\
+             Size:               8192 kB\n\
+             KernelPageSize:     2048 kB\n",
+        )
+        .expect("valid smaps");
+
+        assert_eq!(
+            entries,
+            vec![
+                SmapsEntry {
+                    start_address: 0x1000,
+                    end_address: 0x2000,
+                    kernel_page_kb: Some(4),
+                },
+                SmapsEntry {
+                    start_address: 0x2000,
+                    end_address: 0x4000,
+                    kernel_page_kb: Some(2048),
+                },
+            ]
+        );
+        assert_eq!(
+            smaps_entry_for_address(&entries, 0x2000).map(|entry| entry.kernel_page_kb),
+            Some(Some(2048))
+        );
+        assert!(smaps_entry_for_address(&entries, 0x4000).is_none());
+    }
+
+    #[test]
+    fn parses_smaps_entry_without_kernel_page_size() {
+        let entries =
+            parse_smaps("1000-2000 rw-p 00000000 00:00 0\nSize: 4 kB\n").expect("valid smaps");
+
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].kernel_page_kb, None);
+    }
+
+    #[test]
+    fn rejects_malformed_smaps_header() {
+        let error = parse_smaps("2000-1000 rw-p 00000000 00:00 0\n").expect_err("invalid range");
+
+        assert!(matches!(
+            error,
+            ObserveParseError::Line { source, .. }
+                if matches!(*source, ObserveParseError::InvalidAddress(_))
+        ));
+    }
+
+    #[test]
+    fn rejects_malformed_smaps_kernel_page_size() {
+        let error = parse_smaps(
+            "1000-2000 rw-p 00000000 00:00 0\n\
+             KernelPageSize: 4 bytes\n",
+        )
+        .expect_err("invalid kernel page size");
+
+        assert!(matches!(
+            error,
+            ObserveParseError::Line { source, .. }
+                if matches!(*source, ObserveParseError::InvalidToken(_))
+        ));
     }
 
     #[test]

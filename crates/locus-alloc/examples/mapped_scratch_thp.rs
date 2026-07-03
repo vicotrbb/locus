@@ -5,11 +5,8 @@ use locus_alloc::MappedScratchHugePageAdvice;
 
 #[cfg(target_os = "linux")]
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    use std::io::ErrorKind;
-
     use locus_alloc::MappedScratchArena;
     use locus_core::NodeId;
-    use locus_observe::{numa_maps_entry_for_address, read_self_numa_maps, ObserveReadError};
     use locus_sys::page_size;
 
     let mode = parse_mode_arg()?;
@@ -36,22 +33,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let touched = arena.write_touch_pages()?;
     println!("touched={touched}");
 
-    match read_self_numa_maps() {
-        Ok(entries) => {
-            println!("numa_maps=available entries={}", entries.len());
-            if let Some(address_match) = numa_maps_entry_for_address(&entries, mapping_start) {
-                print_numa_maps_evidence(address_match, base_page_kb);
-            } else {
-                println!("numa_maps_match=missing");
-                println!("thp_observed=unknown reason=mapping_missing");
-            }
-        }
-        Err(ObserveReadError::Read { source, .. }) if source.kind() == ErrorKind::NotFound => {
-            println!("numa_maps=unavailable");
-            println!("thp_observed=unknown reason=numa_maps_unavailable");
-        }
-        Err(error) => return Err(Box::new(error)),
-    }
+    print_thp_evidence(mapping_start, base_page_kb)?;
 
     Ok(())
 }
@@ -109,7 +91,7 @@ fn usage_error(program: &str) -> std::io::Error {
 fn print_numa_maps_evidence(
     address_match: locus_observe::NumaMapsAddressMatch<'_>,
     base_page_kb: usize,
-) {
+) -> bool {
     let entry = address_match.entry;
     println!("numa_maps_match={}", address_match.kind);
     println!("numa_maps_policy={}", entry.policy);
@@ -124,16 +106,103 @@ fn print_numa_maps_evidence(
     {
         Some(page_kb) => {
             println!("kernel_page_kb={page_kb}");
-            if page_kb > base_page_kb {
-                println!("thp_observed=yes reason=kernel_page_size");
-            } else {
-                println!("thp_observed=no reason=base_page_size");
-            }
+            print_kernel_page_observation(page_kb, base_page_kb);
+            true
         }
         None => {
-            println!("kernel_page_kb=unknown");
-            println!("thp_observed=unknown reason=kernel_page_size_missing");
+            println!("numa_maps_kernel_page_kb=missing");
+            false
         }
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn print_thp_evidence(
+    mapping_start: usize,
+    base_page_kb: usize,
+) -> Result<(), Box<dyn std::error::Error>> {
+    use std::io::ErrorKind;
+
+    use locus_observe::{
+        numa_maps_entry_for_address, read_self_numa_maps, read_self_smaps, smaps_entry_for_address,
+        ObserveReadError,
+    };
+
+    let mut unknown_reason = "numa_maps_unavailable";
+
+    match read_self_numa_maps() {
+        Ok(entries) => {
+            println!("numa_maps=available entries={}", entries.len());
+            if let Some(address_match) = numa_maps_entry_for_address(&entries, mapping_start) {
+                if print_numa_maps_evidence(address_match, base_page_kb) {
+                    return Ok(());
+                }
+                unknown_reason = "kernel_page_size_missing";
+            } else {
+                println!("numa_maps_match=missing");
+                unknown_reason = "mapping_missing";
+            }
+        }
+        Err(ObserveReadError::Read { source, .. }) if source.kind() == ErrorKind::NotFound => {
+            println!("numa_maps=unavailable");
+        }
+        Err(error) => return Err(Box::new(error)),
+    }
+
+    match read_self_smaps() {
+        Ok(entries) => {
+            println!("smaps=available entries={}", entries.len());
+            if let Some(entry) = smaps_entry_for_address(&entries, mapping_start) {
+                if print_smaps_evidence(entry, base_page_kb) {
+                    return Ok(());
+                }
+                unknown_reason = "kernel_page_size_missing";
+            } else {
+                println!("smaps_match=missing");
+                unknown_reason = "mapping_missing";
+            }
+        }
+        Err(ObserveReadError::Read { source, .. }) if source.kind() == ErrorKind::NotFound => {
+            println!("smaps=unavailable");
+            if unknown_reason == "numa_maps_unavailable" {
+                unknown_reason = "observability_unavailable";
+            }
+        }
+        Err(error) => return Err(Box::new(error)),
+    }
+
+    println!("kernel_page_kb=unknown");
+    println!("thp_observed=unknown reason={unknown_reason}");
+    Ok(())
+}
+
+#[cfg(target_os = "linux")]
+fn print_smaps_evidence(entry: &locus_observe::SmapsEntry, base_page_kb: usize) -> bool {
+    println!("smaps_match=containing_range");
+    println!(
+        "smaps_range=0x{:x}-0x{:x}",
+        entry.start_address, entry.end_address
+    );
+
+    if let Some(page_kb) = entry
+        .kernel_page_kb
+        .and_then(|value| usize::try_from(value).ok())
+    {
+        println!("kernel_page_kb={page_kb}");
+        print_kernel_page_observation(page_kb, base_page_kb);
+        true
+    } else {
+        println!("smaps_kernel_page_kb=missing");
+        false
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn print_kernel_page_observation(page_kb: usize, base_page_kb: usize) {
+    if page_kb > base_page_kb {
+        println!("thp_observed=yes reason=kernel_page_size");
+    } else {
+        println!("thp_observed=no reason=base_page_size");
     }
 }
 

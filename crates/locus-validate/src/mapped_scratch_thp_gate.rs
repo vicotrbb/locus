@@ -507,6 +507,21 @@ numa_maps=unavailable
 thp_observed=unknown reason=numa_maps_unavailable
 ";
 
+    const THP_SMAPS_BASE_PAGE_OUTPUT: &str = "\
+mapped_scratch_thp=started mode=hugepage
+mapping_start=0xffff8753f000
+mapping_len=4198399
+base_page_kb=4
+thp_advice=ok mode=hugepage
+touched=1025
+numa_maps=unavailable
+smaps=available entries=25
+smaps_match=containing_range
+smaps_range=0xffff8753f000-0xffff87940000
+kernel_page_kb=4
+thp_observed=no reason=base_page_size
+";
+
     #[test]
     fn reports_ready_gate_from_probe_output() {
         let gate = evaluate_mapped_scratch_thp_validation_output(THP_READY_OUTPUT).expect("gate");
@@ -538,6 +553,22 @@ thp_observed=unknown reason=numa_maps_unavailable
             "mapped_scratch_thp_validation_gate=unavailable reason=observation_unavailable"
         );
         assert!(!gate.is_ready());
+    }
+
+    #[test]
+    fn reports_not_ready_gate_from_smaps_fallback_output() {
+        let gate = evaluate_mapped_scratch_thp_validation_output(THP_SMAPS_BASE_PAGE_OUTPUT)
+            .expect("gate");
+
+        assert_eq!(gate.status, MappedScratchThpValidationGateStatus::NotReady);
+        assert_eq!(
+            gate.reason,
+            MappedScratchThpValidationGateReason::BasePageSize
+        );
+        assert_eq!(
+            gate.to_string(),
+            "mapped_scratch_thp_validation_gate=not_ready reason=base_page_size"
+        );
     }
 
     #[test]

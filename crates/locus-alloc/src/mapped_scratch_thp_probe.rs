@@ -587,6 +587,32 @@ thp_observed=no reason=base_page_size
             }
         );
 
+        let smaps_fallback_output = "\
+mapped_scratch_thp=started mode=hugepage
+thp_advice=ok mode=hugepage
+touched=1025
+numa_maps=unavailable
+smaps=available entries=42
+smaps_match=containing_range
+smaps_range=0x1000-0x5000
+kernel_page_kb=2048
+thp_observed=yes reason=kernel_page_size
+";
+
+        assert_eq!(
+            parse_mapped_scratch_thp_probe_output(smaps_fallback_output)
+                .expect("smaps fallback output"),
+            MappedScratchThpProbeOutput {
+                run_status: MappedScratchThpProbeRunStatus::Started,
+                mode: Some(MappedScratchHugePageAdvice::HugePage),
+                advice_status: Some(MappedScratchThpAdviceStatus::Ok),
+                touched: Some(1025),
+                kernel_page_kb: Some(2048),
+                observation: Some(MappedScratchThpObservation::Yes),
+                observation_reason: Some("kernel_page_size".to_owned()),
+            }
+        );
+
         assert_eq!(
             MappedScratchHugePageAdvice::HugePage.to_string(),
             "hugepage"
