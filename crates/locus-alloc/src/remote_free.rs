@@ -36,6 +36,7 @@ pub use coordinator::{
 };
 pub use dirty_buffer::{
     RemoteFreeServiceRuntimeDirtyOwnerFlushStats, RemoteFreeServiceRuntimeDirtyOwnerLocalBuffer,
+    RemoteFreeServiceRuntimeDirtyOwnerLocalBufferGroupError,
     RemoteFreeServiceRuntimeDirtyOwnerLocalBuffers, RemoteFreeServiceRuntimeDirtyOwnerLocalMarker,
 };
 pub use dirty_window::{

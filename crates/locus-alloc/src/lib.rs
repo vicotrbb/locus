@@ -85,6 +85,7 @@ pub use remote_free::{
     RemoteFreeServiceRetunePolicyApplication, RemoteFreeServiceRetunePolicyApplicationError,
     RemoteFreeServiceRetunePolicyApplicator, RemoteFreeServiceRetuneSummary,
     RemoteFreeServiceRuntimeDirtyOwnerFlushStats, RemoteFreeServiceRuntimeDirtyOwnerLocalBuffer,
+    RemoteFreeServiceRuntimeDirtyOwnerLocalBufferGroupError,
     RemoteFreeServiceRuntimeDirtyOwnerLocalBuffers, RemoteFreeServiceRuntimeDirtyOwnerLocalMarker,
     RemoteFreeServiceRuntimeDirtyOwnerSnapshot, RemoteFreeServiceRuntimeDirtyOwnerTracker,
     RemoteFreeServiceRuntimeDirtyOwners, RemoteFreeServiceRuntimeDirtySink,

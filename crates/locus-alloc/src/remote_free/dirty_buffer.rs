@@ -1,3 +1,5 @@
+use std::fmt;
+
 use super::{RemoteFreeServiceRuntimeDirtyOwnerTracker, RemoteFreeServiceRuntimeOwnerId};
 
 /// Per-worker dirty-owner mark buffer for batching tracker updates.
@@ -19,6 +21,18 @@ pub struct RemoteFreeServiceRuntimeDirtyOwnerLocalBuffers {
 pub struct RemoteFreeServiceRuntimeDirtyOwnerLocalMarker<'a> {
     owner_id: RemoteFreeServiceRuntimeOwnerId,
     buffer: &'a mut RemoteFreeServiceRuntimeDirtyOwnerLocalBuffer,
+}
+
+/// Error from bounded local dirty-owner buffer group access.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RemoteFreeServiceRuntimeDirtyOwnerLocalBufferGroupError {
+    /// The owner ID is outside the caller-provided owner limit.
+    OwnerOutOfRange {
+        /// Requested owner ID.
+        owner_id: RemoteFreeServiceRuntimeOwnerId,
+        /// Exclusive upper bound for accepted owner indexes.
+        owner_limit: usize,
+    },
 }
 
 /// Result of flushing local dirty-owner marks into the shared tracker.
@@ -143,6 +157,23 @@ impl RemoteFreeServiceRuntimeDirtyOwnerLocalBuffers {
         self.buffer_mut(owner_id).mark_dirty(owner_id)
     }
 
+    /// Marks an owner dirty after checking it against an owner-index limit.
+    ///
+    /// Returns an error without growing local buffer storage when `owner_id`
+    /// is greater than or equal to `owner_limit`.
+    ///
+    /// # Errors
+    ///
+    /// Returns `OwnerOutOfRange` when the owner ID is outside `owner_limit`.
+    pub fn try_mark_dirty(
+        &mut self,
+        owner_id: RemoteFreeServiceRuntimeOwnerId,
+        owner_limit: usize,
+    ) -> Result<bool, RemoteFreeServiceRuntimeDirtyOwnerLocalBufferGroupError> {
+        Self::validate_owner_limit(owner_id, owner_limit)?;
+        Ok(self.mark_dirty(owner_id))
+    }
+
     /// Borrows a hot-path local marker for one owner.
     #[must_use]
     pub fn local_marker(
@@ -153,6 +184,26 @@ impl RemoteFreeServiceRuntimeDirtyOwnerLocalBuffers {
             owner_id,
             buffer: self.buffer_mut(owner_id),
         }
+    }
+
+    /// Borrows a local marker after checking it against an owner-index limit.
+    ///
+    /// Returns an error without growing local buffer storage when `owner_id`
+    /// is greater than or equal to `owner_limit`.
+    ///
+    /// # Errors
+    ///
+    /// Returns `OwnerOutOfRange` when the owner ID is outside `owner_limit`.
+    pub fn try_local_marker(
+        &mut self,
+        owner_id: RemoteFreeServiceRuntimeOwnerId,
+        owner_limit: usize,
+    ) -> Result<
+        RemoteFreeServiceRuntimeDirtyOwnerLocalMarker<'_>,
+        RemoteFreeServiceRuntimeDirtyOwnerLocalBufferGroupError,
+    > {
+        Self::validate_owner_limit(owner_id, owner_limit)?;
+        Ok(self.local_marker(owner_id))
     }
 
     /// Flushes one owner's local buffer into the shared dirty-owner tracker.
@@ -198,6 +249,22 @@ impl RemoteFreeServiceRuntimeDirtyOwnerLocalBuffers {
             );
         }
     }
+
+    fn validate_owner_limit(
+        owner_id: RemoteFreeServiceRuntimeOwnerId,
+        owner_limit: usize,
+    ) -> Result<(), RemoteFreeServiceRuntimeDirtyOwnerLocalBufferGroupError> {
+        if owner_id.index() < owner_limit {
+            Ok(())
+        } else {
+            Err(
+                RemoteFreeServiceRuntimeDirtyOwnerLocalBufferGroupError::OwnerOutOfRange {
+                    owner_id,
+                    owner_limit,
+                },
+            )
+        }
+    }
 }
 
 impl RemoteFreeServiceRuntimeDirtyOwnerLocalMarker<'_> {
@@ -210,10 +277,47 @@ impl RemoteFreeServiceRuntimeDirtyOwnerLocalMarker<'_> {
     }
 }
 
+impl RemoteFreeServiceRuntimeDirtyOwnerLocalBufferGroupError {
+    /// Returns the rejected owner ID.
+    #[must_use]
+    pub const fn owner_id(self) -> RemoteFreeServiceRuntimeOwnerId {
+        match self {
+            Self::OwnerOutOfRange { owner_id, .. } => owner_id,
+        }
+    }
+
+    /// Returns the owner-index limit used for validation.
+    #[must_use]
+    pub const fn owner_limit(self) -> usize {
+        match self {
+            Self::OwnerOutOfRange { owner_limit, .. } => owner_limit,
+        }
+    }
+}
+
+impl fmt::Display for RemoteFreeServiceRuntimeDirtyOwnerLocalBufferGroupError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::OwnerOutOfRange {
+                owner_id,
+                owner_limit,
+            } => write!(
+                formatter,
+                "remote-free dirty owner {} is outside owner limit {}",
+                owner_id.index(),
+                owner_limit
+            ),
+        }
+    }
+}
+
+impl std::error::Error for RemoteFreeServiceRuntimeDirtyOwnerLocalBufferGroupError {}
+
 #[cfg(test)]
 mod tests {
     use super::{
         RemoteFreeServiceRuntimeDirtyOwnerLocalBuffer,
+        RemoteFreeServiceRuntimeDirtyOwnerLocalBufferGroupError,
         RemoteFreeServiceRuntimeDirtyOwnerLocalBuffers, RemoteFreeServiceRuntimeDirtyOwnerTracker,
         RemoteFreeServiceRuntimeOwnerId,
     };
@@ -340,6 +444,82 @@ mod tests {
 
         {
             let mut marker = buffers.local_marker(owner_id);
+            assert!(marker.mark_dirty());
+            assert!(!marker.mark_dirty());
+        }
+
+        let buffer = buffers.local_buffer(owner_id).expect("owner buffer");
+        assert_eq!(buffer.owner_ids(), &[owner_id]);
+        assert_eq!(buffer.duplicate_marks(), 1);
+    }
+
+    #[test]
+    fn local_buffer_group_try_mark_dirty_rejects_out_of_range_owner_without_allocation() {
+        let owner_id = RemoteFreeServiceRuntimeOwnerId::new(usize::MAX);
+        let mut buffers = RemoteFreeServiceRuntimeDirtyOwnerLocalBuffers::new();
+        let error = buffers
+            .try_mark_dirty(owner_id, 4)
+            .expect_err("bounded mark error");
+
+        assert_eq!(
+            error,
+            RemoteFreeServiceRuntimeDirtyOwnerLocalBufferGroupError::OwnerOutOfRange {
+                owner_id,
+                owner_limit: 4,
+            }
+        );
+        assert_eq!(error.owner_id(), owner_id);
+        assert_eq!(error.owner_limit(), 4);
+        assert_eq!(
+            error.to_string(),
+            format!(
+                "remote-free dirty owner {} is outside owner limit 4",
+                owner_id.index()
+            )
+        );
+        assert!(buffers.local_buffer(owner_id).is_none());
+        assert!(buffers.tracker().is_empty());
+    }
+
+    #[test]
+    fn local_buffer_group_try_mark_dirty_accepts_owner_inside_limit() {
+        let owner_id = RemoteFreeServiceRuntimeOwnerId::new(2);
+        let mut buffers = RemoteFreeServiceRuntimeDirtyOwnerLocalBuffers::new();
+
+        assert_eq!(buffers.try_mark_dirty(owner_id, 3), Ok(true));
+        assert_eq!(buffers.try_mark_dirty(owner_id, 3), Ok(false));
+
+        let buffer = buffers.local_buffer(owner_id).expect("owner buffer");
+        assert_eq!(buffer.owner_ids(), &[owner_id]);
+        assert_eq!(buffer.duplicate_marks(), 1);
+    }
+
+    #[test]
+    fn local_buffer_group_try_local_marker_rejects_out_of_range_owner_without_allocation() {
+        let owner_id = RemoteFreeServiceRuntimeOwnerId::new(7);
+        let mut buffers = RemoteFreeServiceRuntimeDirtyOwnerLocalBuffers::new();
+
+        assert_eq!(
+            buffers.try_local_marker(owner_id, 7).map(|_| ()),
+            Err(
+                RemoteFreeServiceRuntimeDirtyOwnerLocalBufferGroupError::OwnerOutOfRange {
+                    owner_id,
+                    owner_limit: 7,
+                }
+            )
+        );
+        assert!(buffers.local_buffer(owner_id).is_none());
+    }
+
+    #[test]
+    fn local_buffer_group_try_local_marker_marks_owner_inside_limit() {
+        let owner_id = RemoteFreeServiceRuntimeOwnerId::new(4);
+        let mut buffers = RemoteFreeServiceRuntimeDirtyOwnerLocalBuffers::new();
+
+        {
+            let mut marker = buffers
+                .try_local_marker(owner_id, 5)
+                .expect("bounded local marker");
             assert!(marker.mark_dirty());
             assert!(!marker.mark_dirty());
         }

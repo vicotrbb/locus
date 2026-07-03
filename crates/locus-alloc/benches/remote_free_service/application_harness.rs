@@ -522,6 +522,38 @@ pub(crate) fn run_runtime_owner_window_with_local_dirty_group_summary_and_block_
     summary
 }
 
+pub(crate) fn run_runtime_owner_window_with_bounded_local_dirty_group_summary_and_block_bytes(
+    runtime: &mut RemoteFreeOwnerRuntime<RuntimeTraceBlock>,
+    stats: &mut RuntimeApplicationStats,
+    block_bytes: u64,
+    owner_id: RemoteFreeServiceRuntimeOwnerId,
+    owner_limit: usize,
+    buffers: &mut RemoteFreeServiceRuntimeDirtyOwnerLocalBuffers,
+) -> RemoteFreeServiceRetuneSummary {
+    let mut summary = RemoteFreeServiceRetuneSummary::new();
+    let mut marker = buffers
+        .try_local_marker(owner_id, owner_limit)
+        .expect("bounded local dirty marker");
+    let sink = runtime.sink();
+
+    run_runtime_owner_window_inner_with_enqueue(
+        runtime,
+        stats,
+        block_bytes,
+        |block| sink.try_enqueue(block),
+        |event| {
+            if event == RuntimeOwnerWindowEvent::SuccessfulEnqueue {
+                let _ = marker.mark_dirty();
+            }
+        },
+        |report| {
+            summary.observe_report(report);
+        },
+    );
+
+    summary
+}
+
 pub(crate) fn run_runtime_owner_window_with_local_dirty_burst_summary_and_block_bytes(
     runtime: &mut RemoteFreeOwnerRuntime<RuntimeTraceBlock>,
     stats: &mut RuntimeApplicationStats,

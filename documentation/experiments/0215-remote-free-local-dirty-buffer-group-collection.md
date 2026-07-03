@@ -37,7 +37,7 @@ allocation.
 
 ```text
 cargo fmt --all --check
-rg -n "—" documentation crates || true
+rg -n "$(printf '\342\200\224')" documentation crates || true
 git diff --check
 cargo test -p locus-alloc remote_free::dirty -- --nocapture
 cargo bench -p locus-alloc --bench remote_free_service_telemetry --no-run
