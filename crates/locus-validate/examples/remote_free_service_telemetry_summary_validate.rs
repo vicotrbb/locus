@@ -22,6 +22,7 @@ use locus_validate::{
     format_remote_free_service_telemetry_collection_summary_rollup_check_log_summary_verification_rollup_verification_summary_json_line,
     format_remote_free_service_telemetry_collection_summary_rollup_check_log_summary_verification_rollup_verification_summary_verification_json_line,
     format_remote_free_service_telemetry_collection_summary_rollup_check_log_summary_verification_rollup_verification_summary_verification_rollup_json_line,
+    format_remote_free_service_telemetry_collection_summary_rollup_check_log_summary_verification_rollup_verification_summary_verification_rollup_verification_json_line,
     parse_remote_free_service_telemetry_collection_summary,
     parse_remote_free_service_telemetry_collection_summary_rollup_check_json_line,
     parse_remote_free_service_telemetry_collection_summary_rollup_check_log_summary_json_log,
@@ -154,6 +155,11 @@ fn run_mode(
         }
         "--rollup-check-json-summary-verdict-rollup-verify-against-json-summary-verify-against-json-rollup-verify-against-report" => {
             run_rollup_check_json_summary_verdict_rollup_verify_against_json_summary_verify_against_json_rollup_verify_against_report_mode(
+                program, args,
+            )?;
+        }
+        "--rollup-check-json-summary-verdict-rollup-verify-against-json-summary-verify-against-json-rollup-verify-against-json" => {
+            run_rollup_check_json_summary_verdict_rollup_verify_against_json_summary_verify_against_json_rollup_verify_against_json_mode(
                 program, args,
             )?;
         }
@@ -524,6 +530,28 @@ fn run_rollup_check_json_summary_verdict_rollup_verify_against_json_summary_veri
             &rollup_log_text,
         )?;
     println!("{report}");
+    Ok(())
+}
+
+fn run_rollup_check_json_summary_verdict_rollup_verify_against_json_summary_verify_against_json_rollup_verify_against_json_mode(
+    program: &str,
+    args: &mut impl Iterator<Item = String>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let (source_log_path, rollup_log_path) = two_args(program, args)?;
+    let source_log_text = fs::read_to_string(&source_log_path)?;
+    let rollup_log_text = fs::read_to_string(&rollup_log_path)?;
+    let report =
+        check_remote_free_service_telemetry_collection_summary_rollup_check_log_summary_verification_rollup_verification_summary_verification_rollup_json_log(
+            &source_log_text,
+            &rollup_log_text,
+        )?;
+    println!("{report}");
+    println!(
+        "{}",
+        format_remote_free_service_telemetry_collection_summary_rollup_check_log_summary_verification_rollup_verification_summary_verification_rollup_verification_json_line(
+            &report,
+        )?
+    );
     Ok(())
 }
 
@@ -953,6 +981,9 @@ fn usage_error(program: &str) -> io::Error {
         ),
         format!(
             "       {program} --rollup-check-json-summary-verdict-rollup-verify-against-json-summary-verify-against-json-rollup-verify-against-report <saved-verifier-summary-verification-log.txt> <saved-verifier-summary-verification-rollup-log.txt>"
+        ),
+        format!(
+            "       {program} --rollup-check-json-summary-verdict-rollup-verify-against-json-summary-verify-against-json-rollup-verify-against-json <saved-verifier-summary-verification-log.txt> <saved-verifier-summary-verification-rollup-log.txt>"
         ),
     ]
     .join("\n");
