@@ -12,6 +12,9 @@ locus-core = { path = "../locus-core" }
 locus-observe = { path = "../locus-observe" }
 locus-sys = { path = "../locus-sys" }
 
+[dev-dependencies]
+locus-topology = { path = "../locus-topology" }
+
 [lib]
 path = "src/lib.rs"
 

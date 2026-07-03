@@ -368,6 +368,7 @@ dependencies = [
  "locus-core",
  "locus-observe",
  "locus-sys",
+ "locus-topology",
 ]
 
 [[package]]
