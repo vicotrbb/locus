@@ -5,7 +5,8 @@ use std::{num::NonZeroU64, sync::mpsc::sync_channel, thread};
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use locus_alloc::{
     KvBlockHandle, KvBlockPool, RemoteFreeDrainController, RemoteFreeDrainPolicy, RemoteFreeQueue,
-    RemoteFreeQueuedByteDrainConfig,
+    RemoteFreeQueuedByteDrainConfig, RemoteFreeQueuedByteDriftReport,
+    RemoteFreeQueuedByteRetuneAction, RemoteFreeQueuedByteRetuneHint,
 };
 use locus_core::NodeId;
 
@@ -30,6 +31,17 @@ enum RemoteCompletionCommand {
 struct KvPolicyCase {
     label: &'static str,
     drain_policy: RemoteFreeDrainPolicy,
+    drift_config: RemoteFreeQueuedByteDrainConfig,
+    expected: ExpectedKvPolicyDrift,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct ExpectedKvPolicyDrift {
+    max_pending_over_target: u64,
+    max_queued_bytes_over_budget: u64,
+    queue_backpressure_observed: u64,
+    retune_hint: RemoteFreeQueuedByteRetuneHint,
+    retune_action: RemoteFreeQueuedByteRetuneAction,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -45,6 +57,11 @@ struct KvPolicyStats {
     released_bytes: u64,
     max_wait_bursts: u64,
     total_wait_bursts: u64,
+    max_pending_over_target: u64,
+    max_queued_bytes_over_budget: u64,
+    queue_backpressure_observed: u64,
+    retune_hint: RemoteFreeQueuedByteRetuneHint,
+    retune_action: RemoteFreeQueuedByteRetuneAction,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -59,6 +76,14 @@ impl KvPolicyCase {
         Self {
             label: "end_drain",
             drain_policy: RemoteFreeDrainPolicy::new(),
+            drift_config: kv_queued_byte_config(),
+            expected: ExpectedKvPolicyDrift {
+                max_pending_over_target: 192,
+                max_queued_bytes_over_budget: 786_432,
+                queue_backpressure_observed: 0,
+                retune_hint: RemoteFreeQueuedByteRetuneHint::ReviewMultipleSignals,
+                retune_action: RemoteFreeQueuedByteRetuneAction::DrainEarlier,
+            },
         }
     }
 
@@ -67,22 +92,42 @@ impl KvPolicyCase {
             label: "max_wait2",
             drain_policy: RemoteFreeDrainPolicy::new()
                 .with_max_pending_age(NonZeroU64::new(2).expect("non-zero")),
+            drift_config: kv_queued_byte_config(),
+            expected: ExpectedKvPolicyDrift {
+                max_pending_over_target: 0,
+                max_queued_bytes_over_budget: 0,
+                queue_backpressure_observed: 0,
+                retune_hint: RemoteFreeQueuedByteRetuneHint::KeepConfig,
+                retune_action: RemoteFreeQueuedByteRetuneAction::KeepConfig,
+            },
         }
     }
 
     fn max_queued256kib() -> Self {
+        let config = kv_queued_byte_config();
         Self {
             label: "max_queued256kib",
-            drain_policy: RemoteFreeQueuedByteDrainConfig::from_item_shape(
-                QUEUE_CAPACITY,
-                BATCH_LIMIT,
-                TARGET_PENDING_BLOCKS,
-                BLOCK_SIZE_U64,
-            )
-            .expect("drain config")
-            .drain_policy(),
+            drain_policy: config.drain_policy(),
+            drift_config: config,
+            expected: ExpectedKvPolicyDrift {
+                max_pending_over_target: 0,
+                max_queued_bytes_over_budget: 0,
+                queue_backpressure_observed: 0,
+                retune_hint: RemoteFreeQueuedByteRetuneHint::KeepConfig,
+                retune_action: RemoteFreeQueuedByteRetuneAction::KeepConfig,
+            },
         }
     }
+}
+
+fn kv_queued_byte_config() -> RemoteFreeQueuedByteDrainConfig {
+    RemoteFreeQueuedByteDrainConfig::from_item_shape(
+        QUEUE_CAPACITY,
+        BATCH_LIMIT,
+        TARGET_PENDING_BLOCKS,
+        BLOCK_SIZE_U64,
+    )
+    .expect("drain config")
 }
 
 impl CounterSummary {
@@ -123,7 +168,26 @@ impl KvPolicyStats {
             released_bytes: 0,
             max_wait_bursts: 0,
             total_wait_bursts: 0,
+            max_pending_over_target: 0,
+            max_queued_bytes_over_budget: 0,
+            queue_backpressure_observed: 0,
+            retune_hint: RemoteFreeQueuedByteRetuneHint::KeepConfig,
+            retune_action: RemoteFreeQueuedByteRetuneAction::KeepConfig,
         }
+    }
+
+    fn observe_drift(&mut self, report: RemoteFreeQueuedByteDriftReport) {
+        self.max_pending_over_target = self
+            .max_pending_over_target
+            .max(report.pending_items_over_target());
+        self.max_queued_bytes_over_budget = self
+            .max_queued_bytes_over_budget
+            .max(report.queued_bytes_over_budget());
+        if report.has_queue_backpressure() {
+            self.queue_backpressure_observed = 1;
+        }
+        self.retune_hint = report.retune_hint();
+        self.retune_action = report.retune_action();
     }
 
     fn mean_wait_milli(self) -> u64 {
@@ -184,6 +248,7 @@ fn kv_remote_free_tracker_benchmark(c: &mut Criterion, name: &'static str, case:
             assert_eq!(stats.queued_bytes, 0);
             assert_eq!(stats.released_bytes, TOTAL_BYTES);
             assert_eq!(pool.stats().allocated, 0);
+            assert_kv_policy_drift(case, stats);
             black_box(stats);
         });
 
@@ -203,7 +268,7 @@ fn print_kv_policy_sample(case: KvPolicyCase) {
         run_kv_policy_iteration(&mut pool, &mut queue, &command_sender, &ack_receiver, case);
     let label = case.label;
     println!(
-        "kv_remote_free_policy_sample={label} blocks={BLOCKS_U64} bursts={BURSTS} burst_blocks={BURST_BLOCKS_U64} capacity={QUEUE_CAPACITY} batch_limit={BATCH_LIMIT} submitted_count={} drained_count={} full_count={} policy_drains={} drain_rounds={} max_pending_count={} max_queued_bytes={} released_bytes={} max_wait_bursts={} mean_wait_bursts={}",
+        "kv_remote_free_policy_sample={label} blocks={BLOCKS_U64} bursts={BURSTS} burst_blocks={BURST_BLOCKS_U64} capacity={QUEUE_CAPACITY} batch_limit={BATCH_LIMIT} submitted_count={} drained_count={} full_count={} policy_drains={} drain_rounds={} max_pending_count={} max_queued_bytes={} released_bytes={} max_wait_bursts={} mean_wait_bursts={} max_pending_over_target={} max_queued_bytes_over_budget={} queue_backpressure_observed={} retune_hint={} retune_action={}",
         stats.submitted_count,
         stats.drained_count,
         stats.full_count,
@@ -213,7 +278,12 @@ fn print_kv_policy_sample(case: KvPolicyCase) {
         stats.max_queued_bytes,
         stats.released_bytes,
         stats.max_wait_bursts,
-        format_milli(stats.mean_wait_milli())
+        format_milli(stats.mean_wait_milli()),
+        stats.max_pending_over_target,
+        stats.max_queued_bytes_over_budget,
+        stats.queue_backpressure_observed,
+        stats.retune_hint.as_str(),
+        stats.retune_action.as_str()
     );
 
     assert_eq!(stats.submitted_count, BLOCKS_U64);
@@ -221,6 +291,7 @@ fn print_kv_policy_sample(case: KvPolicyCase) {
     assert_eq!(stats.queued_bytes, 0);
     assert_eq!(stats.released_bytes, TOTAL_BYTES);
     assert_eq!(pool.stats().allocated, 0);
+    assert_kv_policy_drift(case, stats);
 
     command_sender
         .send(RemoteCompletionCommand::Stop)
@@ -240,6 +311,9 @@ fn print_kv_policy_sample_summary(case: KvPolicyCase) {
     let mut max_queued_bytes = CounterSummary::new();
     let mut max_wait = CounterSummary::new();
     let mut mean_wait = CounterSummary::new();
+    let mut max_pending_over_target = CounterSummary::new();
+    let mut max_queued_bytes_over_budget = CounterSummary::new();
+    let mut queue_backpressure_observed = CounterSummary::new();
 
     for _ in 0..SAMPLES {
         let mut pool = KvBlockPool::new(NodeId(0), BLOCK_SIZE, BLOCKS).expect("pool");
@@ -255,12 +329,16 @@ fn print_kv_policy_sample_summary(case: KvPolicyCase) {
         max_queued_bytes.observe(stats.max_queued_bytes);
         max_wait.observe(stats.max_wait_bursts);
         mean_wait.observe(stats.mean_wait_milli());
+        max_pending_over_target.observe(stats.max_pending_over_target);
+        max_queued_bytes_over_budget.observe(stats.max_queued_bytes_over_budget);
+        queue_backpressure_observed.observe(stats.queue_backpressure_observed);
 
         assert_eq!(stats.submitted_count, BLOCKS_U64);
         assert_eq!(stats.drained_count, BLOCKS_U64);
         assert_eq!(stats.queued_bytes, 0);
         assert_eq!(stats.released_bytes, TOTAL_BYTES);
         assert_eq!(pool.stats().allocated, 0);
+        assert_kv_policy_drift(case, stats);
 
         command_sender
             .send(RemoteCompletionCommand::Stop)
@@ -270,7 +348,9 @@ fn print_kv_policy_sample_summary(case: KvPolicyCase) {
 
     let label = case.label;
     println!(
-        "kv_remote_free_policy_sample_summary={label} blocks={BLOCKS_U64} bursts={BURSTS} burst_blocks={BURST_BLOCKS_U64} capacity={QUEUE_CAPACITY} batch_limit={BATCH_LIMIT} samples={SAMPLES} full_min={} full_max={} full_mean={} policy_drains_min={} policy_drains_max={} policy_drains_mean={} drain_rounds_min={} drain_rounds_max={} drain_rounds_mean={} max_pending_min={} max_pending_max={} max_pending_mean={} max_queued_bytes_min={} max_queued_bytes_max={} max_queued_bytes_mean={} max_wait_min={} max_wait_max={} max_wait_mean={} mean_wait_min={} mean_wait_max={} mean_wait_mean={}",
+        "kv_remote_free_policy_sample_summary={label} blocks={BLOCKS_U64} bursts={BURSTS} burst_blocks={BURST_BLOCKS_U64} capacity={QUEUE_CAPACITY} batch_limit={BATCH_LIMIT} retune_hint={} retune_action={} samples={SAMPLES} full_min={} full_max={} full_mean={} policy_drains_min={} policy_drains_max={} policy_drains_mean={} drain_rounds_min={} drain_rounds_max={} drain_rounds_mean={} max_pending_min={} max_pending_max={} max_pending_mean={} max_queued_bytes_min={} max_queued_bytes_max={} max_queued_bytes_mean={} max_wait_min={} max_wait_max={} max_wait_mean={} mean_wait_min={} mean_wait_max={} mean_wait_mean={} max_pending_over_target_min={} max_pending_over_target_max={} max_pending_over_target_mean={} max_queued_bytes_over_budget_min={} max_queued_bytes_over_budget_max={} max_queued_bytes_over_budget_mean={} queue_backpressure_observed_min={} queue_backpressure_observed_max={} queue_backpressure_observed_mean={}",
+        case.expected.retune_hint.as_str(),
+        case.expected.retune_action.as_str(),
         full.min,
         full.max,
         format_milli(full.mean_milli(SAMPLES)),
@@ -291,7 +371,16 @@ fn print_kv_policy_sample_summary(case: KvPolicyCase) {
         format_milli(max_wait.mean_milli(SAMPLES)),
         format_milli(mean_wait.min),
         format_milli(mean_wait.max),
-        format_milli(mean_wait.mean(SAMPLES))
+        format_milli(mean_wait.mean(SAMPLES)),
+        max_pending_over_target.min,
+        max_pending_over_target.max,
+        format_milli(max_pending_over_target.mean_milli(SAMPLES)),
+        max_queued_bytes_over_budget.min,
+        max_queued_bytes_over_budget.max,
+        max_queued_bytes_over_budget.mean(SAMPLES),
+        queue_backpressure_observed.min,
+        queue_backpressure_observed.max,
+        format_milli(queue_backpressure_observed.mean_milli(SAMPLES))
     );
 }
 
@@ -361,6 +450,10 @@ fn run_kv_policy_iteration(
             .status_for_queue(queue, completed_bursts)
             .expect("controller status");
         assert_eq!(policy_report.observation.queued_bytes, stats.queued_bytes);
+        stats.observe_drift(RemoteFreeQueuedByteDriftReport::from_status(
+            case.drift_config,
+            policy_report,
+        ));
         if policy_report.decision.should_drain()
             && drain_kv_policy_batch(queue, pool, &mut controller, completed_bursts, &mut stats) > 0
         {
@@ -380,6 +473,23 @@ fn run_kv_policy_iteration(
     assert!(controller.is_empty());
     stats.full_count = queue_stats.full_count;
     stats
+}
+
+fn assert_kv_policy_drift(case: KvPolicyCase, stats: KvPolicyStats) {
+    assert_eq!(
+        stats.max_pending_over_target,
+        case.expected.max_pending_over_target
+    );
+    assert_eq!(
+        stats.max_queued_bytes_over_budget,
+        case.expected.max_queued_bytes_over_budget
+    );
+    assert_eq!(
+        stats.queue_backpressure_observed,
+        case.expected.queue_backpressure_observed
+    );
+    assert_eq!(stats.retune_hint, case.expected.retune_hint);
+    assert_eq!(stats.retune_action, case.expected.retune_action);
 }
 
 fn drain_kv_policy_batch(
