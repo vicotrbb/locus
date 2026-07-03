@@ -815,6 +815,79 @@ pub struct MappedScratchThpFaultSamples {
     pub no_hugepage: MappedScratchThpFaultSampleLine,
 }
 
+/// Process fault comparison for mapped scratch THP benchmark samples.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct MappedScratchThpFaultSampleComparison {
+    /// Default mode process minor-fault delta.
+    pub default_minor_faults_delta: i128,
+    /// Hugepage advice mode process minor-fault delta.
+    pub hugepage_minor_faults_delta: i128,
+    /// No-hugepage advice mode process minor-fault delta.
+    pub no_hugepage_minor_faults_delta: i128,
+    /// Hugepage process minor-fault delta minus default process minor-fault delta.
+    pub hugepage_vs_default_minor_faults_delta: i128,
+    /// Hugepage process minor-fault delta minus no-hugepage process minor-fault delta.
+    pub hugepage_vs_no_hugepage_minor_faults_delta: i128,
+    /// True when any process or child major-fault delta is nonzero.
+    pub major_faults_observed: bool,
+}
+
+impl MappedScratchThpFaultSamples {
+    /// Returns a conservative comparison summary for complete available samples.
+    ///
+    /// The comparison is supporting evidence for benchmark interpretation only.
+    /// It does not prove transparent huge page adoption.
+    #[must_use]
+    pub fn comparison(&self) -> Option<MappedScratchThpFaultSampleComparison> {
+        let default = self.default.available_fault_deltas()?;
+        let hugepage = self.hugepage.available_fault_deltas()?;
+        let no_hugepage = self.no_hugepage.available_fault_deltas()?;
+
+        Some(MappedScratchThpFaultSampleComparison {
+            default_minor_faults_delta: default.minor,
+            hugepage_minor_faults_delta: hugepage.minor,
+            no_hugepage_minor_faults_delta: no_hugepage.minor,
+            hugepage_vs_default_minor_faults_delta: hugepage.minor.checked_sub(default.minor)?,
+            hugepage_vs_no_hugepage_minor_faults_delta: hugepage
+                .minor
+                .checked_sub(no_hugepage.minor)?,
+            major_faults_observed: [default, hugepage, no_hugepage]
+                .into_iter()
+                .any(MappedScratchThpFaultDeltas::major_faults_observed),
+        })
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct MappedScratchThpFaultDeltas {
+    minor: i128,
+    major: i128,
+    child_major: i128,
+}
+
+impl MappedScratchThpFaultDeltas {
+    fn major_faults_observed(self) -> bool {
+        self.major != 0 || self.child_major != 0
+    }
+}
+
+impl MappedScratchThpFaultSampleLine {
+    fn available_fault_deltas(&self) -> Option<MappedScratchThpFaultDeltas> {
+        if self.status != MappedScratchThpFaultSampleStatus::Available {
+            return None;
+        }
+
+        let _iterations = self.iterations?;
+        let _child_minor_faults_delta = self.child_minor_faults_delta?;
+
+        Some(MappedScratchThpFaultDeltas {
+            minor: self.minor_faults_delta?,
+            major: self.major_faults_delta?,
+            child_major: self.child_major_faults_delta?,
+        })
+    }
+}
+
 /// Pinned scratch pool accounting.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct PinnedScratchPoolStats {
@@ -4348,22 +4421,22 @@ mod tests {
         KvBlockPool, KvBlockPoolError, KvBlockTable, KvBlockTableError, KvSequenceId,
         MappedScratchAllocError, MappedScratchArena, MappedScratchHugePageAdvice,
         MappedScratchLockProbeOutput, MappedScratchLockProbeOutputParseError,
-        MappedScratchThpAdviceStatus, MappedScratchThpFaultSampleLine,
-        MappedScratchThpFaultSampleLineParseError, MappedScratchThpFaultSampleMode,
-        MappedScratchThpFaultSampleStatus, MappedScratchThpFaultSamples,
-        MappedScratchThpFaultSamplesParseError, MappedScratchThpObservation,
-        MappedScratchThpProbeOutput, MappedScratchThpProbeOutputParseError,
-        MappedScratchThpProbeRunStatus, PageLockError, PageLockProbeField, PageLockProbeStatus,
-        PageLockProbeStatusLine, PageLockProbeStatusLineParseError, PinnedScratchHandle,
-        PinnedScratchNearGpuPoolLine, PinnedScratchNearGpuProbeLineParseError,
-        PinnedScratchNearGpuProbeOutput, PinnedScratchNearGpuProbeOutputParseError,
-        PinnedScratchNearGpuProbeStatus, PinnedScratchPool, PinnedScratchPoolError,
-        PinnedScratchPoolProbeEvent, PinnedScratchPoolProbeEventLine,
-        PinnedScratchPoolProbeLineParseError, PinnedScratchPoolProbeOutput,
-        PinnedScratchPoolProbeOutputParseError, PinnedScratchPoolProbePhase,
-        PinnedScratchPoolProbeStatsLine, PinnedScratchPoolProbeStatus, RemoteFreeQueue,
-        RemoteFreeQueueError, RequestScratch, RequestScratchError, RequestScratchPool,
-        ScratchAllocError, ScratchArena, MAX_SUPPORTED_ALIGN,
+        MappedScratchThpAdviceStatus, MappedScratchThpFaultSampleComparison,
+        MappedScratchThpFaultSampleLine, MappedScratchThpFaultSampleLineParseError,
+        MappedScratchThpFaultSampleMode, MappedScratchThpFaultSampleStatus,
+        MappedScratchThpFaultSamples, MappedScratchThpFaultSamplesParseError,
+        MappedScratchThpObservation, MappedScratchThpProbeOutput,
+        MappedScratchThpProbeOutputParseError, MappedScratchThpProbeRunStatus, PageLockError,
+        PageLockProbeField, PageLockProbeStatus, PageLockProbeStatusLine,
+        PageLockProbeStatusLineParseError, PinnedScratchHandle, PinnedScratchNearGpuPoolLine,
+        PinnedScratchNearGpuProbeLineParseError, PinnedScratchNearGpuProbeOutput,
+        PinnedScratchNearGpuProbeOutputParseError, PinnedScratchNearGpuProbeStatus,
+        PinnedScratchPool, PinnedScratchPoolError, PinnedScratchPoolProbeEvent,
+        PinnedScratchPoolProbeEventLine, PinnedScratchPoolProbeLineParseError,
+        PinnedScratchPoolProbeOutput, PinnedScratchPoolProbeOutputParseError,
+        PinnedScratchPoolProbePhase, PinnedScratchPoolProbeStatsLine, PinnedScratchPoolProbeStatus,
+        RemoteFreeQueue, RemoteFreeQueueError, RequestScratch, RequestScratchError,
+        RequestScratchPool, ScratchAllocError, ScratchArena, MAX_SUPPORTED_ALIGN,
     };
 
     #[test]
@@ -5046,6 +5119,113 @@ Benchmarking mapped_scratch_write_touch_4mib_default
                     child_major_faults_delta: Some(0),
                 },
             }
+        );
+    }
+
+    #[test]
+    fn compares_mapped_scratch_thp_fault_samples() {
+        let output = "\
+fault_sample=default status=available iterations=8 minor_faults_delta=16400 child_minor_faults_delta=0 major_faults_delta=0 child_major_faults_delta=0
+fault_sample=hugepage status=available iterations=8 minor_faults_delta=8224 child_minor_faults_delta=0 major_faults_delta=0 child_major_faults_delta=0
+fault_sample=no_hugepage status=available iterations=8 minor_faults_delta=16400 child_minor_faults_delta=0 major_faults_delta=0 child_major_faults_delta=0
+";
+        let samples = parse_mapped_scratch_thp_fault_samples_output(output).expect("samples");
+
+        assert_eq!(
+            samples.comparison(),
+            Some(MappedScratchThpFaultSampleComparison {
+                default_minor_faults_delta: 16400,
+                hugepage_minor_faults_delta: 8224,
+                no_hugepage_minor_faults_delta: 16400,
+                hugepage_vs_default_minor_faults_delta: -8176,
+                hugepage_vs_no_hugepage_minor_faults_delta: -8176,
+                major_faults_observed: false,
+            })
+        );
+    }
+
+    #[test]
+    fn skips_incomplete_mapped_scratch_thp_fault_sample_comparison() {
+        let samples = MappedScratchThpFaultSamples {
+            default: MappedScratchThpFaultSampleLine {
+                mode: MappedScratchThpFaultSampleMode::Default,
+                status: MappedScratchThpFaultSampleStatus::Available,
+                iterations: Some(8),
+                minor_faults_delta: Some(16400),
+                child_minor_faults_delta: Some(0),
+                major_faults_delta: Some(0),
+                child_major_faults_delta: Some(0),
+            },
+            hugepage: MappedScratchThpFaultSampleLine {
+                mode: MappedScratchThpFaultSampleMode::HugePage,
+                status: MappedScratchThpFaultSampleStatus::Unavailable,
+                iterations: None,
+                minor_faults_delta: None,
+                child_minor_faults_delta: None,
+                major_faults_delta: None,
+                child_major_faults_delta: None,
+            },
+            no_hugepage: MappedScratchThpFaultSampleLine {
+                mode: MappedScratchThpFaultSampleMode::NoHugePage,
+                status: MappedScratchThpFaultSampleStatus::Available,
+                iterations: Some(8),
+                minor_faults_delta: Some(16400),
+                child_minor_faults_delta: Some(0),
+                major_faults_delta: Some(0),
+                child_major_faults_delta: Some(0),
+            },
+        };
+
+        assert_eq!(samples.comparison(), None);
+    }
+
+    #[test]
+    fn flags_major_faults_in_mapped_scratch_thp_fault_sample_comparison() {
+        let mut samples = MappedScratchThpFaultSamples {
+            default: MappedScratchThpFaultSampleLine {
+                mode: MappedScratchThpFaultSampleMode::Default,
+                status: MappedScratchThpFaultSampleStatus::Available,
+                iterations: Some(8),
+                minor_faults_delta: Some(16400),
+                child_minor_faults_delta: Some(0),
+                major_faults_delta: Some(0),
+                child_major_faults_delta: Some(0),
+            },
+            hugepage: MappedScratchThpFaultSampleLine {
+                mode: MappedScratchThpFaultSampleMode::HugePage,
+                status: MappedScratchThpFaultSampleStatus::Available,
+                iterations: Some(8),
+                minor_faults_delta: Some(8224),
+                child_minor_faults_delta: Some(0),
+                major_faults_delta: Some(1),
+                child_major_faults_delta: Some(0),
+            },
+            no_hugepage: MappedScratchThpFaultSampleLine {
+                mode: MappedScratchThpFaultSampleMode::NoHugePage,
+                status: MappedScratchThpFaultSampleStatus::Available,
+                iterations: Some(8),
+                minor_faults_delta: Some(16400),
+                child_minor_faults_delta: Some(0),
+                major_faults_delta: Some(0),
+                child_major_faults_delta: Some(0),
+            },
+        };
+
+        assert!(
+            samples
+                .comparison()
+                .expect("comparison")
+                .major_faults_observed
+        );
+
+        samples.hugepage.major_faults_delta = Some(0);
+        samples.no_hugepage.child_major_faults_delta = Some(-1);
+
+        assert!(
+            samples
+                .comparison()
+                .expect("comparison")
+                .major_faults_observed
         );
     }
 
