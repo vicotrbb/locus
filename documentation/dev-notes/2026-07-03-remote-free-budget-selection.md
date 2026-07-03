@@ -1529,6 +1529,9 @@ recheck outcomes as compact JSON verdicts, then reloaded them through the
 parser path.
 Experiment 0344 made that parser-only recheck explicit for the saved matched
 and stale archived dashboard rollup recheck JSON verdict records.
+Experiment 0345 aggregated those saved matched and stale JSON verdict records
+into a compact dashboard rollup with one matched record, one drifted record,
+and one `records` drift bucket.
 
 ## Open Questions
 
