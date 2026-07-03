@@ -60,6 +60,10 @@ impl CounterSummary {
     fn mean_milli(self, samples: u64) -> u64 {
         self.sum.saturating_mul(1000) / samples
     }
+
+    fn mean(self, samples: u64) -> u64 {
+        self.sum / samples
+    }
 }
 
 impl MixedTraceStats {
@@ -282,6 +286,53 @@ fn print_mixed_trace_sample(label: &'static str, capacity: usize, batch_limit: u
 
     assert_eq!(stats.submitted_count, MIXED_TRACE_BLOCKS);
     assert_eq!(stats.drained_count, MIXED_TRACE_BLOCKS);
+
+    print_mixed_trace_sample_summary(label, capacity, batch_limit);
+}
+
+fn print_mixed_trace_sample_summary(label: &'static str, capacity: usize, batch_limit: usize) {
+    const SAMPLES: u64 = 8;
+
+    let mut full = CounterSummary::new();
+    let mut forced_drains = CounterSummary::new();
+    let mut drain_rounds = CounterSummary::new();
+    let mut max_pending = CounterSummary::new();
+    let mut max_wait = CounterSummary::new();
+    let mut mean_wait = CounterSummary::new();
+
+    for _ in 0..SAMPLES {
+        let stats = run_mixed_trace_sample(capacity, batch_limit);
+        full.observe(stats.full_count);
+        forced_drains.observe(stats.forced_drains);
+        drain_rounds.observe(stats.drain_rounds);
+        max_pending.observe(stats.max_pending_count);
+        max_wait.observe(stats.max_wait_bursts);
+        mean_wait.observe(stats.mean_wait_milli());
+        assert_eq!(stats.submitted_count, MIXED_TRACE_BLOCKS);
+        assert_eq!(stats.drained_count, MIXED_TRACE_BLOCKS);
+    }
+
+    println!(
+        "remote_free_mixed_trace_sample_summary={label} blocks={MIXED_TRACE_BLOCKS} capacity={capacity} batch_limit={batch_limit} samples={SAMPLES} full_min={} full_max={} full_mean={} forced_drains_min={} forced_drains_max={} forced_drains_mean={} drain_rounds_min={} drain_rounds_max={} drain_rounds_mean={} max_pending_min={} max_pending_max={} max_pending_mean={} max_wait_min={} max_wait_max={} max_wait_mean={} mean_wait_min={} mean_wait_max={} mean_wait_mean={}",
+        full.min,
+        full.max,
+        format_milli(full.mean_milli(SAMPLES)),
+        forced_drains.min,
+        forced_drains.max,
+        format_milli(forced_drains.mean_milli(SAMPLES)),
+        drain_rounds.min,
+        drain_rounds.max,
+        format_milli(drain_rounds.mean_milli(SAMPLES)),
+        max_pending.min,
+        max_pending.max,
+        format_milli(max_pending.mean_milli(SAMPLES)),
+        max_wait.min,
+        max_wait.max,
+        format_milli(max_wait.mean_milli(SAMPLES)),
+        format_milli(mean_wait.min),
+        format_milli(mean_wait.max),
+        format_milli(mean_wait.mean(SAMPLES))
+    );
 }
 
 fn format_milli(value: u64) -> String {
