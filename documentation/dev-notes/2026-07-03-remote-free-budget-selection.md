@@ -209,6 +209,13 @@ candidate applications, a third stable `drain_earlier` candidate emitted one
 pending validation candidate while preserving 9216 submitted blocks, 9216
 drained blocks, and 37,748,736 released bytes.
 
+Experiment 0197 added `RemoteFreeServiceRetunePolicyApplicator` as a narrow
+bridge from guarded decisions to validated queued-byte drain configs. The
+guarded service benchmark now routes pending candidates through the applicator
+before running the real allocation service cases. Confirming, rollback, and
+mutation-limit counters stayed unchanged, including 37,748,736 released bytes
+in the mutation-limit sequence.
+
 ## Measured Thresholds
 
 | Path | Shape inputs | Budget | Matched counters |
@@ -255,6 +262,9 @@ drained blocks, and 37,748,736 released bytes.
 14. Treat `mutation_limit_reached` as a hold decision for live policy and
     record it in service telemetry before allowing any later retune window to
     apply.
+15. Use `RemoteFreeServiceRetunePolicyApplicator` to translate guarded apply
+    decisions into validated configs. Do not let callers apply raw telemetry
+    candidates directly.
 
 ## Guardrails
 
@@ -282,6 +292,8 @@ drained blocks, and 37,748,736 released bytes.
 - Do not ignore guarded mutation-limit decisions. They mean the service should
   hold its current policy and record telemetry instead of applying another
   candidate.
+- Do not let service telemetry or raw candidates mutate live policy directly.
+  Guard decisions must pass through the typed policy applicator.
 - Recheck thresholds when KV block size, request arena capacity, burst size,
   request concurrency, or batch size changes.
 - For heterogeneous traces, derive the budget from actual retained item sizes
@@ -315,11 +327,12 @@ drained blocks, and 37,748,736 released bytes.
 - `documentation/experiments/0194-remote-free-dry-run-oscillation.md`
 - `documentation/experiments/0195-remote-free-guarded-retune-plan.md`
 - `documentation/experiments/0196-remote-free-guarded-mutation-limit.md`
+- `documentation/experiments/0197-remote-free-guarded-policy-application.md`
 
 ## Open Questions
 
-- What is the smallest production-facing policy application API that can
-  consume guarded decisions without giving telemetry direct mutation authority?
+- What owner runtime wrapper should install applied configs while preserving
+  rollback state across queue reconstruction boundaries?
 - Which workload signal should set the retained item window in production:
   scheduler turn age, active request concurrency, KV cache pressure, or memory
   pressure from observability counters?

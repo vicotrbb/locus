@@ -2,6 +2,8 @@
 
 use criterion::{criterion_group, criterion_main, Criterion};
 
+#[path = "remote_free_service/application_harness.rs"]
+mod remote_free_service_application_harness;
 #[path = "remote_free_service/dry_run_harness.rs"]
 mod remote_free_service_dry_run_harness;
 #[path = "remote_free_service/guarded_harness.rs"]

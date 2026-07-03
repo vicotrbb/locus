@@ -15,9 +15,9 @@ pub(crate) const BLOCKS_PER_OWNER: u64 = 256;
 const BURSTS: u64 = 8;
 const BURST_BLOCKS: u64 = 32;
 pub(crate) const BYTES_PER_BLOCK: u64 = 4096;
-const QUEUE_CAPACITY: usize = 256;
-const BATCH_LIMIT: usize = 64;
-const TARGET_PENDING_BLOCKS: u64 = 64;
+pub(crate) const QUEUE_CAPACITY: usize = 256;
+pub(crate) const BATCH_LIMIT: usize = 64;
+pub(crate) const TARGET_PENDING_BLOCKS: u64 = 64;
 pub(crate) const SAMPLES: u64 = 8;
 
 #[derive(Debug, Clone, Copy)]

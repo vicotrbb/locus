@@ -6,6 +6,7 @@ use locus_alloc::{
     RemoteFreeServiceRetuneGuardDecision,
 };
 
+use crate::remote_free_service_application_harness::candidate_case;
 use crate::remote_free_service_harness::{
     assert_service_telemetry, format_milli, run_service_case, CounterSummary, ServiceTelemetryCase,
     ServiceTelemetryStats, BLOCKS_PER_OWNER, BYTES_PER_BLOCK, OWNERS, SAMPLES,
@@ -221,18 +222,6 @@ fn run_guarded_sequence(kind: GuardedSequenceKind) -> GuardedSequenceStats {
     sequence_stats.final_confirmed_mutations = guard.confirmed_mutations();
     sequence_stats.final_rollbacks = guard.rollbacks();
     sequence_stats
-}
-
-fn candidate_case(candidate: RemoteFreeServiceRetuneCandidate) -> ServiceTelemetryCase {
-    match candidate {
-        RemoteFreeServiceRetuneCandidate::DrainEarlier => {
-            ServiceTelemetryCase::planner_candidate_drain_earlier()
-        }
-        RemoteFreeServiceRetuneCandidate::IncreaseQueueCapacityAndDrainEarlier => {
-            ServiceTelemetryCase::planner_candidate_capacity_and_drain_earlier()
-        }
-        _ => panic!("candidate cannot be applied by guarded benchmark: {candidate:?}"),
-    }
 }
 
 fn assert_guarded_decision(

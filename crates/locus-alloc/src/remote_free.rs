@@ -3,6 +3,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::{sync_channel, Receiver, SyncSender, TryRecvError, TrySendError};
 use std::sync::Arc;
 
+mod application;
 mod budget;
 mod config;
 mod controller;
@@ -11,6 +12,10 @@ mod guard;
 mod planner;
 mod telemetry;
 
+pub use application::{
+    RemoteFreeServiceRetunePolicyApplication, RemoteFreeServiceRetunePolicyApplicationError,
+    RemoteFreeServiceRetunePolicyApplicator,
+};
 pub use budget::{RemoteFreeQueuedByteBudget, RemoteFreeQueuedByteBudgetError};
 pub use config::{RemoteFreeQueuedByteDrainConfig, RemoteFreeQueuedByteDrainConfigError};
 pub use controller::{
