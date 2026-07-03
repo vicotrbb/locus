@@ -12,6 +12,7 @@ These are best observed local microbenchmark results, not final claims about pro
 | --- | --- | --- |
 | Scratch arena fast path | `scratch_arena_reset_cycle_64x256b`: 200.06 ns to 201.77 ns vs `vec_allocation_cycle_64x256b`: 618.20 ns to 620.74 ns | `documentation/experiments/0001-scratch-arena-foundation.md` |
 | Scratch arena vs uninitialized Vec | `scratch_arena_reset_cycle_64x256b`: 205.04 ns to 217.84 ns vs `vec_uninit_capacity_allocation_cycle_64x256b`: 605.70 ns to 608.27 ns | `documentation/experiments/0046-vec-uninit-capacity-benchmark-baseline.md` |
+| Pinned scratch locked reuse | `pinned_scratch_pool_reuse_cycle_64x256b`: 197.84 ns to 199.14 ns, fastest observed page-locked mapped arena reuse cycle | `documentation/experiments/0136-pinned-scratch-pool-module.md` |
 | Request-affine arena reuse | `request_scratch_pool_cycle_16x64x256b`: 3.1759 us to 3.1842 us vs `request_vec_allocation_cycle_16x64x256b`: 12.344 us to 12.522 us | `documentation/experiments/0010-reusable-request-scratch-pool.md` |
 | KV block reuse | `kv_block_pool_cycle_256x4k`: 1.1499 us to 1.1556 us vs `kv_vec_allocation_cycle_256x4k`: 16.840 us to 16.917 us | `documentation/experiments/0011-node-tagged-kv-block-pool.md` |
 | KV block reuse vs uninitialized Vec | `kv_block_pool_cycle_256x4k`: 1.1526 us to 1.1558 us vs `kv_vec_uninit_capacity_allocation_cycle_256x4k`: 5.5628 us to 5.6642 us | `documentation/experiments/0046-vec-uninit-capacity-benchmark-baseline.md` |
@@ -22,7 +23,7 @@ These are best observed local microbenchmark results, not final claims about pro
 
 ## Current Interpretation
 
-- The reusable domain allocator paths are the strongest current Locus evidence: scratch arena reuse, request scratch pool reuse, and KV block pool reuse all beat repeated Vec allocation baselines in their microbenchmarks.
+- The reusable domain allocator paths are the strongest current Locus evidence: scratch arena reuse, pinned scratch locked reuse, request scratch pool reuse, and KV block pool reuse all beat repeated Vec allocation baselines in their microbenchmarks.
 - The uninitialized Vec baselines are the fairest allocator-cost comparison for arena paths that do not initialize every byte on each allocation.
 - The remote-free results show that batching and owner-side draining are worth keeping in the runtime design, but latency and scheduler policy still need mixed-trace benchmarks.
 - The nonblocking backpressure matrix suggests queue capacity should be tested before drain batch size when trying to reduce `full_count`.
