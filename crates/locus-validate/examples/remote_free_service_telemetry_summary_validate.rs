@@ -16,9 +16,12 @@ use locus_validate::{
     summarize_remote_free_service_telemetry_timing_stability,
     validate_remote_free_service_telemetry_collection_summary_rollup_artifact,
     verify_remote_free_service_telemetry_collection_summary_artifacts,
+    write_remote_free_service_telemetry_collection_summary_rollup_artifact,
+    RemoteFreeServiceTelemetryCollectionSummaryRollup,
+    RemoteFreeServiceTelemetryCollectionSummaryRollupBundle,
+    RemoteFreeServiceTelemetryCollectionSummaryRollupBundleStatus,
     RemoteFreeServiceTelemetryTimingStabilityRun,
 };
-use serde_json::json;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut args = env::args();
@@ -113,27 +116,8 @@ struct DirectoryRollup {
 struct BundleRollup {
     summary_path: PathBuf,
     run_id: Option<String>,
-    status: BundleValidationStatus,
+    status: RemoteFreeServiceTelemetryCollectionSummaryRollupBundleStatus,
     timing_ranges: usize,
-}
-
-#[derive(Debug, PartialEq, Eq)]
-enum BundleValidationStatus {
-    Valid,
-    DriftedSummary,
-    MissingArtifact,
-    OtherFailure,
-}
-
-impl BundleValidationStatus {
-    fn as_str(&self) -> &'static str {
-        match self {
-            Self::Valid => "valid",
-            Self::DriftedSummary => "drifted_summary",
-            Self::MissingArtifact => "missing_artifact",
-            Self::OtherFailure => "other_failure",
-        }
-    }
 }
 
 impl std::fmt::Display for DirectoryRollup {
@@ -206,7 +190,7 @@ fn validate_summary_directory(root: &Path) -> Result<DirectoryRollup, Box<dyn Er
                 rollup.bundles.push(BundleRollup {
                     summary_path,
                     run_id: Some(report.run_id),
-                    status: BundleValidationStatus::Valid,
+                    status: RemoteFreeServiceTelemetryCollectionSummaryRollupBundleStatus::Valid,
                     timing_ranges: report.timing_ranges,
                 });
             }
@@ -214,10 +198,18 @@ fn validate_summary_directory(root: &Path) -> Result<DirectoryRollup, Box<dyn Er
                 let message = error.to_string();
                 let status = classify_validation_error(&message);
                 match status {
-                    BundleValidationStatus::Valid => unreachable!("errors cannot validate"),
-                    BundleValidationStatus::DriftedSummary => rollup.drifted_summaries += 1,
-                    BundleValidationStatus::MissingArtifact => rollup.missing_artifacts += 1,
-                    BundleValidationStatus::OtherFailure => rollup.other_failures += 1,
+                    RemoteFreeServiceTelemetryCollectionSummaryRollupBundleStatus::Valid => {
+                        unreachable!("errors cannot validate")
+                    }
+                    RemoteFreeServiceTelemetryCollectionSummaryRollupBundleStatus::DriftedSummary => {
+                        rollup.drifted_summaries += 1;
+                    }
+                    RemoteFreeServiceTelemetryCollectionSummaryRollupBundleStatus::MissingArtifact => {
+                        rollup.missing_artifacts += 1;
+                    }
+                    RemoteFreeServiceTelemetryCollectionSummaryRollupBundleStatus::OtherFailure => {
+                        rollup.other_failures += 1;
+                    }
                 }
                 rollup.bundles.push(BundleRollup {
                     run_id: read_summary_run_id(&summary_path).ok(),
@@ -232,17 +224,19 @@ fn validate_summary_directory(root: &Path) -> Result<DirectoryRollup, Box<dyn Er
     Ok(rollup)
 }
 
-fn classify_validation_error(message: &str) -> BundleValidationStatus {
+fn classify_validation_error(
+    message: &str,
+) -> RemoteFreeServiceTelemetryCollectionSummaryRollupBundleStatus {
     if message.contains("validation summary drift") {
-        BundleValidationStatus::DriftedSummary
+        RemoteFreeServiceTelemetryCollectionSummaryRollupBundleStatus::DriftedSummary
     } else if message.contains("No such file")
         || message.contains("missing remote-free service telemetry collection summary")
         || message
             .contains("failed to read remote-free service telemetry collection summary artifact")
     {
-        BundleValidationStatus::MissingArtifact
+        RemoteFreeServiceTelemetryCollectionSummaryRollupBundleStatus::MissingArtifact
     } else {
-        BundleValidationStatus::OtherFailure
+        RemoteFreeServiceTelemetryCollectionSummaryRollupBundleStatus::OtherFailure
     }
 }
 
@@ -256,6 +250,14 @@ fn write_directory_rollup_artifact(
     root: &Path,
     rollup: &DirectoryRollup,
 ) -> Result<PathBuf, Box<dyn Error>> {
+    let rollup = to_collection_summary_rollup(root, rollup)?;
+    Ok(write_remote_free_service_telemetry_collection_summary_rollup_artifact(root, &rollup)?)
+}
+
+fn to_collection_summary_rollup(
+    root: &Path,
+    rollup: &DirectoryRollup,
+) -> Result<RemoteFreeServiceTelemetryCollectionSummaryRollup, Box<dyn Error>> {
     let bundles = rollup
         .bundles
         .iter()
@@ -264,31 +266,25 @@ fn write_directory_rollup_artifact(
                 .summary_path
                 .strip_prefix(root)
                 .unwrap_or(&bundle.summary_path);
-            json!({
-                "summary": summary_path.display().to_string(),
-                "run_id": bundle.run_id.as_deref(),
-                "status": bundle.status.as_str(),
-                "timing_ranges": bundle.timing_ranges,
+            Ok(RemoteFreeServiceTelemetryCollectionSummaryRollupBundle {
+                summary: summary_path.display().to_string(),
+                run_id: bundle.run_id.clone(),
+                status: bundle.status,
+                timing_ranges: u64::try_from(bundle.timing_ranges)?,
             })
         })
-        .collect::<Vec<_>>();
-    let artifact = json!({
-        "schema": "locus.remote_free_service.telemetry.collection_summary_rollup.v2",
-        "root": rollup.root.display().to_string(),
-        "summaries": rollup.summaries,
-        "valid_bundles": rollup.valid_bundles,
-        "drifted_summaries": rollup.drifted_summaries,
-        "missing_artifacts": rollup.missing_artifacts,
-        "other_failures": rollup.other_failures,
-        "timing_ranges": rollup.timing_ranges,
-        "bundles": bundles,
-    });
-    let path = root.join("collection-summary-rollup.json");
-    fs::write(
-        &path,
-        format!("{}\n", serde_json::to_string_pretty(&artifact)?),
-    )?;
-    Ok(path)
+        .collect::<Result<Vec<_>, std::num::TryFromIntError>>()?;
+
+    Ok(RemoteFreeServiceTelemetryCollectionSummaryRollup {
+        root: rollup.root.clone(),
+        summaries: u64::try_from(rollup.summaries)?,
+        valid_bundles: u64::try_from(rollup.valid_bundles)?,
+        drifted_summaries: u64::try_from(rollup.drifted_summaries)?,
+        missing_artifacts: u64::try_from(rollup.missing_artifacts)?,
+        other_failures: u64::try_from(rollup.other_failures)?,
+        timing_ranges: u64::try_from(rollup.timing_ranges)?,
+        bundles,
+    })
 }
 
 fn collect_summary_paths(root: &Path, summary_paths: &mut Vec<PathBuf>) -> io::Result<()> {

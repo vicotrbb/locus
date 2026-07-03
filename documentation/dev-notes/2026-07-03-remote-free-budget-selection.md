@@ -582,6 +582,12 @@ the public API, while the example command still accepts the real 511-byte
 artifact with one summary, one valid bundle, one timing range, and one bundle
 row.
 
+Experiment 0238 moved rollup artifact writing into `locus-validate` as
+`write_remote_free_service_telemetry_collection_summary_rollup_artifact` and
+added exported rollup data and bundle status types. The real evidence root
+still wrote a 511-byte artifact with one valid bundle row, and the public
+release-check helper accepted the result.
+
 ## Measured Thresholds
 
 | Path | Shape inputs | Budget | Matched counters |

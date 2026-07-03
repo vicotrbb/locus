@@ -3,7 +3,7 @@ use std::{
     path::{Component, Path, PathBuf},
 };
 
-use serde_json::Value;
+use serde_json::{json, Value};
 
 /// Expected schema for remote-free service telemetry collection summaries.
 pub const REMOTE_FREE_SERVICE_TELEMETRY_COLLECTION_SUMMARY_SCHEMA: &str =
@@ -78,6 +78,66 @@ pub struct RemoteFreeServiceTelemetryCollectionSummaryRollupCheck {
     pub timing_ranges: u64,
     /// Number of bundle rows in the artifact.
     pub bundles: u64,
+}
+
+/// Collection summary rollup data used to write schema v2 artifacts.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RemoteFreeServiceTelemetryCollectionSummaryRollup {
+    /// Evidence root associated with the rollup.
+    pub root: PathBuf,
+    /// Number of discovered collection summaries.
+    pub summaries: u64,
+    /// Number of valid bundle rows.
+    pub valid_bundles: u64,
+    /// Number of drifted saved validation summaries.
+    pub drifted_summaries: u64,
+    /// Number of bundles with missing artifacts.
+    pub missing_artifacts: u64,
+    /// Number of other validation failures.
+    pub other_failures: u64,
+    /// Total timing range rows across valid bundles.
+    pub timing_ranges: u64,
+    /// Per-bundle rollup rows.
+    pub bundles: Vec<RemoteFreeServiceTelemetryCollectionSummaryRollupBundle>,
+}
+
+/// One bundle row in a collection summary rollup artifact.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RemoteFreeServiceTelemetryCollectionSummaryRollupBundle {
+    /// Summary path, usually relative to the rollup root.
+    pub summary: String,
+    /// Run id when the summary could be parsed.
+    pub run_id: Option<String>,
+    /// Bundle validation status.
+    pub status: RemoteFreeServiceTelemetryCollectionSummaryRollupBundleStatus,
+    /// Number of timing ranges for this bundle.
+    pub timing_ranges: u64,
+}
+
+/// Stable status labels for collection summary rollup bundle rows.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RemoteFreeServiceTelemetryCollectionSummaryRollupBundleStatus {
+    /// Bundle passed validation.
+    Valid,
+    /// Saved validation summary drifted from a fresh computation.
+    DriftedSummary,
+    /// One or more artifacts listed by the summary were missing.
+    MissingArtifact,
+    /// Bundle failed for a different validation reason.
+    OtherFailure,
+}
+
+impl RemoteFreeServiceTelemetryCollectionSummaryRollupBundleStatus {
+    /// Stable status label used in rollup artifacts.
+    #[must_use]
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Valid => "valid",
+            Self::DriftedSummary => "drifted_summary",
+            Self::MissingArtifact => "missing_artifact",
+            Self::OtherFailure => "other_failure",
+        }
+    }
 }
 
 impl fmt::Display for RemoteFreeServiceTelemetryCollectionSummaryArtifactReport {
@@ -225,8 +285,17 @@ pub enum RemoteFreeServiceTelemetryCollectionSummaryRollupError {
         /// Underlying I/O error.
         source: io::Error,
     },
+    /// Filesystem access failed while writing the rollup artifact.
+    WriteIo {
+        /// Rollup artifact path.
+        path: PathBuf,
+        /// Underlying I/O error.
+        source: io::Error,
+    },
     /// JSON parsing failed.
     Json(serde_json::Error),
+    /// JSON serialization failed.
+    Serialize(serde_json::Error),
     /// Required field was missing.
     MissingField(&'static str),
     /// Field had the wrong JSON type.
@@ -270,9 +339,20 @@ impl fmt::Display for RemoteFreeServiceTelemetryCollectionSummaryRollupError {
                     path.display()
                 )
             }
+            Self::WriteIo { path, source } => {
+                write!(
+                    f,
+                    "failed to write remote-free service telemetry collection summary rollup artifact {}: {source}",
+                    path.display()
+                )
+            }
             Self::Json(source) => write!(
                 f,
                 "invalid remote-free service telemetry collection summary rollup JSON: {source}"
+            ),
+            Self::Serialize(source) => write!(
+                f,
+                "failed to serialize remote-free service telemetry collection summary rollup JSON: {source}"
             ),
             Self::MissingField(field) => write!(
                 f,
@@ -313,8 +393,8 @@ impl fmt::Display for RemoteFreeServiceTelemetryCollectionSummaryRollupError {
 impl std::error::Error for RemoteFreeServiceTelemetryCollectionSummaryRollupError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
-            Self::Io { source, .. } => Some(source),
-            Self::Json(source) => Some(source),
+            Self::Io { source, .. } | Self::WriteIo { source, .. } => Some(source),
+            Self::Json(source) | Self::Serialize(source) => Some(source),
             Self::MissingField(_)
             | Self::InvalidFieldType(_)
             | Self::UnexpectedSchema(_)
@@ -460,6 +540,53 @@ pub fn resolve_remote_free_service_telemetry_collection_summary_validation_summa
         "validation_summary",
         RemoteFreeServiceTelemetryCollectionSummaryError::MissingValidationSummaryArtifact,
     )
+}
+
+/// Writes a schema v2 collection summary rollup artifact at the evidence root.
+///
+/// # Errors
+///
+/// Returns an error when the artifact cannot be serialized or written.
+pub fn write_remote_free_service_telemetry_collection_summary_rollup_artifact(
+    root: &Path,
+    rollup: &RemoteFreeServiceTelemetryCollectionSummaryRollup,
+) -> Result<PathBuf, RemoteFreeServiceTelemetryCollectionSummaryRollupError> {
+    let bundles = rollup
+        .bundles
+        .iter()
+        .map(|bundle| {
+            json!({
+                "summary": bundle.summary.as_str(),
+                "run_id": bundle.run_id.as_deref(),
+                "status": bundle.status.as_str(),
+                "timing_ranges": bundle.timing_ranges,
+            })
+        })
+        .collect::<Vec<_>>();
+    let artifact = json!({
+        "schema": REMOTE_FREE_SERVICE_TELEMETRY_COLLECTION_SUMMARY_ROLLUP_SCHEMA,
+        "root": rollup.root.display().to_string(),
+        "summaries": rollup.summaries,
+        "valid_bundles": rollup.valid_bundles,
+        "drifted_summaries": rollup.drifted_summaries,
+        "missing_artifacts": rollup.missing_artifacts,
+        "other_failures": rollup.other_failures,
+        "timing_ranges": rollup.timing_ranges,
+        "bundles": bundles,
+    });
+    let path = root.join("collection-summary-rollup.json");
+    let text = format!(
+        "{}\n",
+        serde_json::to_string_pretty(&artifact)
+            .map_err(RemoteFreeServiceTelemetryCollectionSummaryRollupError::Serialize)?
+    );
+    fs::write(&path, text).map_err(|source| {
+        RemoteFreeServiceTelemetryCollectionSummaryRollupError::WriteIo {
+            path: path.clone(),
+            source,
+        }
+    })?;
+    Ok(path)
 }
 
 /// Validates a remote-free service telemetry collection summary rollup artifact.
@@ -766,7 +893,11 @@ mod tests {
         resolve_remote_free_service_telemetry_collection_summary_validation_summary_path,
         validate_remote_free_service_telemetry_collection_summary_rollup_artifact,
         verify_remote_free_service_telemetry_collection_summary_artifacts,
+        write_remote_free_service_telemetry_collection_summary_rollup_artifact,
         RemoteFreeServiceTelemetryCollectionSummaryError,
+        RemoteFreeServiceTelemetryCollectionSummaryRollup,
+        RemoteFreeServiceTelemetryCollectionSummaryRollupBundle,
+        RemoteFreeServiceTelemetryCollectionSummaryRollupBundleStatus,
         RemoteFreeServiceTelemetryCollectionSummaryRollupError,
     };
     use serde_json::json;
@@ -988,6 +1119,47 @@ mod tests {
                 check.path.display()
             )
         );
+        fs::remove_dir_all(dir)?;
+        Ok(())
+    }
+
+    #[test]
+    fn writes_collection_summary_rollup_artifact_for_release_check(
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let dir = temp_dir()?;
+        let rollup = RemoteFreeServiceTelemetryCollectionSummaryRollup {
+            root: dir.clone(),
+            summaries: 1,
+            valid_bundles: 1,
+            drifted_summaries: 0,
+            missing_artifacts: 0,
+            other_failures: 0,
+            timing_ranges: 1,
+            bundles: vec![RemoteFreeServiceTelemetryCollectionSummaryRollupBundle {
+                summary: "run-1/collection-summary.json".to_owned(),
+                run_id: Some("run-1".to_owned()),
+                status: RemoteFreeServiceTelemetryCollectionSummaryRollupBundleStatus::Valid,
+                timing_ranges: 1,
+            }],
+        };
+
+        let rollup_path =
+            write_remote_free_service_telemetry_collection_summary_rollup_artifact(&dir, &rollup)?;
+        let artifact = fs::read_to_string(&rollup_path)?;
+        let artifact = serde_json::from_str::<serde_json::Value>(&artifact)?;
+
+        assert_eq!(
+            artifact["schema"],
+            "locus.remote_free_service.telemetry.collection_summary_rollup.v2"
+        );
+        assert_eq!(artifact["bundles"][0]["status"], "valid");
+
+        let check = validate_remote_free_service_telemetry_collection_summary_rollup_artifact(
+            &rollup_path,
+        )?;
+
+        assert_eq!(check.valid_bundles, 1);
+        assert_eq!(check.timing_ranges, 1);
         fs::remove_dir_all(dir)?;
         Ok(())
     }
