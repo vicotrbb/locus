@@ -46,4 +46,4 @@ Run the gate before and after the benchmark so an environment change is visible.
 - Which Linux host or container configuration exposes `numa_maps` page-size evidence for this mapping?
 - Does the `hugepage` advice case remain faster across repeated runs and larger sample sizes?
 - Does ready gate evidence correlate with the faster first-touch benchmark result?
-- Should a validation command parse both `thp_page_sample=` and `fault_sample=` lines into one combined THP benchmark report?
+- Should the combined THP benchmark evidence report also parse Criterion timing intervals, or should timing stay in the raw benchmark log until repeated-run reporting is stronger?

@@ -27,7 +27,7 @@ These are best observed local microbenchmark results, not final claims about pro
 
 | Area | Best observed validation result | Status | Source |
 | --- | --- | --- | --- |
-| Mapped scratch THP page-size evidence | Docker `scratch_arena` benchmark emitted `thp_page_sample=` lines for default, hugepage, and no-hugepage modes in the same log as fault samples and Criterion timing. All three used `source=smaps`, `kernel_page_kb=4`, and `thp_observed=no reason=base_page_size` | Strong negative evidence for that environment: advice was accepted for the hugepage mode, pages were touched, and the sampled mappings still used base pages | `documentation/experiments/0157-thp-benchmark-page-size-samples.md` |
+| Mapped scratch THP benchmark evidence | Docker `scratch_arena` benchmark emitted `thp_page_sample=` lines for default, hugepage, and no-hugepage modes in the same log as fault samples and Criterion timing. The combined report classified the log as `ready` while reporting `hugepage_observed=no` and `hugepage_adoption=false` | Strong negative evidence for that environment: advice was accepted for the hugepage mode, pages were touched, and the sampled mappings still used base pages | `documentation/experiments/0158-thp-benchmark-evidence-report.md` |
 | Remote-free controller behavior preservation | `RemoteFreeDrainController` preserved mixed-size policy counters exactly: peak queued bytes 2,621,440 to 655,360, max pending 256 to 64, max wait 8 to 2, and `full_count=0` in both policies | Behavior-preserving runtime API evidence, not a new timing best | `documentation/experiments/0152-mixed-size-remote-free-controller-wiring.md` |
 
 ## Current Interpretation
