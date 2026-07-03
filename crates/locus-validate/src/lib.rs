@@ -4,6 +4,7 @@ mod mapped_scratch_thp_gate;
 mod pinned_scratch_gate;
 mod pinned_scratch_near_gpu_gate;
 mod remote_free_service_sample_compare;
+mod remote_free_service_timing_stability;
 mod thp_benchmark_evidence_report;
 mod thp_benchmark_evidence_run_summary;
 mod thp_fault_sample_comparison;
@@ -42,6 +43,13 @@ pub use remote_free_service_sample_compare::{
     RemoteFreeServiceTelemetrySampleTimingCompareReport,
     RemoteFreeServiceTelemetrySampleTimingCompareStatus, RemoteFreeServiceTelemetryTimingDelta,
     RemoteFreeServiceTelemetryTimingInterval, RemoteFreeServiceTelemetryTimingParseError,
+};
+pub use remote_free_service_timing_stability::{
+    summarize_remote_free_service_telemetry_timing_stability,
+    RemoteFreeServiceTelemetryTimingStabilityDiscard,
+    RemoteFreeServiceTelemetryTimingStabilityError, RemoteFreeServiceTelemetryTimingStabilityRange,
+    RemoteFreeServiceTelemetryTimingStabilityReport, RemoteFreeServiceTelemetryTimingStabilityRun,
+    RemoteFreeServiceTelemetryTimingStabilityStatus,
 };
 pub use thp_benchmark_evidence_report::{
     parse_mapped_scratch_thp_benchmark_evidence_report_output,

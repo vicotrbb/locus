@@ -497,6 +497,13 @@ ps. The controlled drift output that changed `submitted_count` from 768 to
 the combined report as the review surface: timing deltas are meaningful only
 when `drift_entries=0`.
 
+Experiment 0225 added a repeated-run stability summary for saved remote-free
+service telemetry outputs. Baseline A plus stable candidate B and the
+controlled drift output reported `mixed`, two candidate runs, one accepted
+run, one discarded run, and one timing range. The range used only counter-stable
+timing evidence: 56,595,000 ps to 56,867,000 ps, with a 272,000 ps spread.
+The drifted output stayed visible as a discard with one drift entry.
+
 ## Measured Thresholds
 
 | Path | Shape inputs | Budget | Matched counters |
@@ -641,6 +648,11 @@ when `drift_entries=0`.
     telemetry review surface. Interpret `remote_free_service_telemetry_timing_delta`
     lines only when `remote_free_service_telemetry_sample_timing_compare`
     reports `stable`.
+43. Use the repeated-run timing stability report when comparing more than two
+    saved remote-free service telemetry outputs. Treat timing ranges as
+    candidate evidence only for outputs counted in `accepted_runs`; inspect
+    `remote_free_service_telemetry_timing_discard` lines before interpreting
+    the range.
 
 ## Guardrails
 
@@ -757,6 +769,9 @@ when `drift_entries=0`.
 - Do not manually compare Criterion timing intervals from saved remote-free
   service telemetry outputs before checking the combined report status. The
   validator intentionally suppresses timing deltas when counters drift.
+- Do not include a discarded remote-free service telemetry output in a timing
+  range by hand. The repeated-run stability report excludes counter-drifted
+  candidates and reports them separately.
 - Recheck thresholds when KV block size, request arena capacity, burst size,
   request concurrency, or batch size changes.
 - For heterogeneous traces, derive the budget from actual retained item sizes
@@ -818,12 +833,13 @@ when `drift_entries=0`.
 - `documentation/experiments/0222-remote-free-service-telemetry-json-sample-lines.md`
 - `documentation/experiments/0223-remote-free-service-telemetry-json-compare.md`
 - `documentation/experiments/0224-remote-free-service-telemetry-timing-compare.md`
+- `documentation/experiments/0225-remote-free-service-telemetry-timing-stability.md`
 
 ## Open Questions
 
-- Can repeated remote-free service telemetry benchmark runs be summarized into
-  a small stability report that separates counter-stable timing ranges from
-  runs that must be discarded due to counter drift?
+- Can the repeated-run stability report ingest a directory or manifest of
+  saved outputs so benchmark evidence collection does not depend on long
+  command lines?
 - Which workload signal should set the retained item window in production:
   scheduler turn age, active request concurrency, KV cache pressure, or memory
   pressure from observability counters?
