@@ -52,6 +52,12 @@ impl RemoteFreeServiceRuntimeDirtyOwnerLocalBuffer {
         self.pending.len()
     }
 
+    /// Returns the current local owner storage capacity.
+    #[must_use]
+    pub fn capacity(&self) -> usize {
+        self.pending.capacity()
+    }
+
     /// Returns true when no local owner marks are pending.
     #[must_use]
     pub fn is_empty(&self) -> bool {
@@ -144,6 +150,7 @@ mod tests {
         assert_eq!(stats.new_tracker_marks, 2);
         assert_eq!(stats.duplicate_local_marks, 1);
         assert!(buffer.is_empty());
+        assert!(buffer.capacity() >= 2);
         assert_eq!(tracker.owner_ids(), vec![first, second]);
     }
 

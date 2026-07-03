@@ -345,6 +345,19 @@ dirty-enqueue tracker marking measured 203.45 to 205.38 us. Treat threshold
 flushing as a correctness-validated visibility option, not the measured
 default for this owner-window shape.
 
+Experiment 0213 tested a longer-lived local dirty-buffer lifecycle with one
+shared tracker and per-owner local buffers reused across the service-window
+sequence. The path preserved 2048 submitted blocks, 2048 drained blocks,
+9,437,440 released bytes, 12 policy drains, 36 drain rounds, 46 reports
+needing retune, two apply decisions, one confirm, one rollback, and one
+mutation-limit decision. It also asserted 8 non-empty local flushes, 8 owner
+flush observations, 8 newly pending tracker marks, 2040 duplicate local marks,
+and retained local buffer capacity after flush. Reused local buffers measured
+195.12 to 196.07 us, fresh before-collection local buffers measured 198.76 to
+201.50 us, and direct dirty-enqueue tracker marking measured 205.31 to 206.05
+us. Treat long-lived worker-local buffers with service-demand flushing as the
+current measured candidate.
+
 ## Measured Thresholds
 
 | Path | Shape inputs | Budget | Matched counters |
@@ -445,6 +458,9 @@ default for this owner-window shape.
     visibility is required and same-session allocation benchmarks show that
     the added tracker flush cadence is acceptable. It is not the current
     default over before-collection local flushing.
+31. Keep worker-local dirty buffers alive across service windows when the
+    worker can own that lifecycle. Flush them on service demand before tracked
+    dirty collection, and retain their capacity after each flush.
 
 ## Guardrails
 
@@ -521,6 +537,10 @@ default for this owner-window shape.
 - Do not promote retained-window threshold flushing from correctness alone.
   Experiment 0212 preserved counters, but before-collection local flushing was
   still faster for the current real allocation service-window shape.
+- Do not recreate worker-local dirty buffers per service window when a worker
+  can retain them across windows. Experiment 0213 showed capacity reuse was
+  faster than fresh before-collection local flushing for the current real
+  allocation service-window shape.
 - Recheck thresholds when KV block size, request arena capacity, burst size,
   request concurrency, or batch size changes.
 - For heterogeneous traces, derive the budget from actual retained item sizes
@@ -570,12 +590,12 @@ default for this owner-window shape.
 - `documentation/experiments/0210-remote-free-local-dirty-mark-buffer.md`
 - `documentation/experiments/0211-remote-free-local-dirty-flush-cadence.md`
 - `documentation/experiments/0212-remote-free-local-dirty-threshold-flush.md`
+- `documentation/experiments/0213-remote-free-reused-local-dirty-buffer.md`
 
 ## Open Questions
 
-- Can a service-demand-triggered local dirty-buffer flush fire only when the
-  collector is about to wait on dirty-owner visibility, instead of using a
-  fixed burst or retained-window cadence?
+- Can a production-facing helper own the shared dirty tracker and worker-local
+  buffers without exposing callers to per-window buffer lifecycle details?
 - Which workload signal should set the retained item window in production:
   scheduler turn age, active request concurrency, KV cache pressure, or memory
   pressure from observability counters?
