@@ -18,6 +18,52 @@ pub struct RemoteFreeServiceTelemetryTimingStabilityRun<'a> {
     pub output: &'a str,
 }
 
+/// Role for one repeated-run timing stability manifest entry.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RemoteFreeServiceTelemetryTimingStabilityManifestRole {
+    /// Baseline output.
+    Baseline,
+    /// Candidate output compared with the baseline.
+    Candidate,
+}
+
+impl RemoteFreeServiceTelemetryTimingStabilityManifestRole {
+    /// Returns a stable machine-readable role string.
+    #[must_use]
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Baseline => "baseline",
+            Self::Candidate => "candidate",
+        }
+    }
+}
+
+impl fmt::Display for RemoteFreeServiceTelemetryTimingStabilityManifestRole {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+/// One saved-output entry from a repeated-run timing stability manifest.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RemoteFreeServiceTelemetryTimingStabilityManifestEntry {
+    /// Entry role.
+    pub role: RemoteFreeServiceTelemetryTimingStabilityManifestRole,
+    /// Stable run label.
+    pub label: String,
+    /// Saved output path.
+    pub path: String,
+}
+
+/// Parsed repeated-run timing stability manifest.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RemoteFreeServiceTelemetryTimingStabilityManifest {
+    /// Baseline saved output entry.
+    pub baseline: RemoteFreeServiceTelemetryTimingStabilityManifestEntry,
+    /// Candidate saved output entries.
+    pub candidates: Vec<RemoteFreeServiceTelemetryTimingStabilityManifestEntry>,
+}
+
 /// Summary status for repeated remote-free service telemetry timing evidence.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RemoteFreeServiceTelemetryTimingStabilityStatus {
@@ -181,6 +227,189 @@ impl std::error::Error for RemoteFreeServiceTelemetryTimingStabilityError {
     }
 }
 
+/// Error returned when parsing a repeated-run timing stability manifest.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum RemoteFreeServiceTelemetryTimingStabilityManifestParseError {
+    /// No data rows were present.
+    Empty,
+    /// A data row was malformed.
+    InvalidLine {
+        /// One-based line number.
+        line: usize,
+        /// Parse failure reason.
+        reason: &'static str,
+    },
+    /// A row used an unsupported role.
+    UnknownRole {
+        /// One-based line number.
+        line: usize,
+        /// Role text.
+        role: String,
+    },
+    /// More than one baseline row was present.
+    DuplicateBaseline {
+        /// One-based line number.
+        line: usize,
+    },
+    /// No baseline row was present.
+    MissingBaseline,
+    /// No candidate rows were present.
+    MissingCandidates,
+    /// A run label appeared more than once.
+    DuplicateRunLabel {
+        /// One-based line number.
+        line: usize,
+        /// Duplicate label.
+        label: String,
+    },
+}
+
+impl fmt::Display for RemoteFreeServiceTelemetryTimingStabilityManifestParseError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Empty => f.write_str("empty remote-free service telemetry stability manifest"),
+            Self::InvalidLine { line, reason } => {
+                write!(
+                    f,
+                    "invalid remote-free service telemetry stability manifest line {line}: {reason}"
+                )
+            }
+            Self::UnknownRole { line, role } => {
+                write!(
+                    f,
+                    "unknown remote-free service telemetry stability manifest role on line {line}: {role}"
+                )
+            }
+            Self::DuplicateBaseline { line } => {
+                write!(
+                    f,
+                    "duplicate remote-free service telemetry stability manifest baseline on line {line}"
+                )
+            }
+            Self::MissingBaseline => {
+                f.write_str("missing remote-free service telemetry stability manifest baseline")
+            }
+            Self::MissingCandidates => {
+                f.write_str("missing remote-free service telemetry stability manifest candidates")
+            }
+            Self::DuplicateRunLabel { line, label } => {
+                write!(
+                    f,
+                    "duplicate remote-free service telemetry stability manifest label on line {line}: {label}"
+                )
+            }
+        }
+    }
+}
+
+impl std::error::Error for RemoteFreeServiceTelemetryTimingStabilityManifestParseError {}
+
+/// Parses a repeated-run timing stability manifest.
+///
+/// Blank lines and `#` comments are ignored. Each data row must contain
+/// exactly three whitespace-separated fields: role, label, and path. The role
+/// must be `baseline` or `candidate`.
+///
+/// # Errors
+///
+/// Returns an error for empty manifests, malformed rows, unknown roles,
+/// duplicate labels, duplicate baselines, missing baseline rows, or missing
+/// candidate rows.
+pub fn parse_remote_free_service_telemetry_timing_stability_manifest(
+    input: &str,
+) -> Result<
+    RemoteFreeServiceTelemetryTimingStabilityManifest,
+    RemoteFreeServiceTelemetryTimingStabilityManifestParseError,
+> {
+    let mut saw_data_row = false;
+    let mut baseline = None;
+    let mut candidates = Vec::new();
+    let mut labels = BTreeSet::new();
+
+    for (line_index, raw_line) in input.lines().enumerate() {
+        let line_number = line_index + 1;
+        let line = raw_line.trim();
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
+        saw_data_row = true;
+
+        let fields = line.split_whitespace().collect::<Vec<_>>();
+        if fields.len() != 3 {
+            return Err(
+                RemoteFreeServiceTelemetryTimingStabilityManifestParseError::InvalidLine {
+                    line: line_number,
+                    reason: "expected role label path",
+                },
+            );
+        }
+        let [role, label, path] = [fields[0], fields[1], fields[2]];
+        if label.is_empty() || path.is_empty() {
+            return Err(
+                RemoteFreeServiceTelemetryTimingStabilityManifestParseError::InvalidLine {
+                    line: line_number,
+                    reason: "label and path must be non-empty",
+                },
+            );
+        }
+        if !labels.insert(label.to_owned()) {
+            return Err(
+                RemoteFreeServiceTelemetryTimingStabilityManifestParseError::DuplicateRunLabel {
+                    line: line_number,
+                    label: label.to_owned(),
+                },
+            );
+        }
+
+        let role = match role {
+            "baseline" => RemoteFreeServiceTelemetryTimingStabilityManifestRole::Baseline,
+            "candidate" => RemoteFreeServiceTelemetryTimingStabilityManifestRole::Candidate,
+            _ => {
+                return Err(
+                    RemoteFreeServiceTelemetryTimingStabilityManifestParseError::UnknownRole {
+                        line: line_number,
+                        role: role.to_owned(),
+                    },
+                );
+            }
+        };
+        let entry = RemoteFreeServiceTelemetryTimingStabilityManifestEntry {
+            role,
+            label: label.to_owned(),
+            path: path.to_owned(),
+        };
+
+        match role {
+            RemoteFreeServiceTelemetryTimingStabilityManifestRole::Baseline => {
+                if baseline.replace(entry).is_some() {
+                    return Err(
+                        RemoteFreeServiceTelemetryTimingStabilityManifestParseError::DuplicateBaseline {
+                            line: line_number,
+                        },
+                    );
+                }
+            }
+            RemoteFreeServiceTelemetryTimingStabilityManifestRole::Candidate => {
+                candidates.push(entry);
+            }
+        }
+    }
+
+    if !saw_data_row {
+        return Err(RemoteFreeServiceTelemetryTimingStabilityManifestParseError::Empty);
+    }
+    let baseline = baseline
+        .ok_or(RemoteFreeServiceTelemetryTimingStabilityManifestParseError::MissingBaseline)?;
+    if candidates.is_empty() {
+        return Err(RemoteFreeServiceTelemetryTimingStabilityManifestParseError::MissingCandidates);
+    }
+
+    Ok(RemoteFreeServiceTelemetryTimingStabilityManifest {
+        baseline,
+        candidates,
+    })
+}
+
 /// Summarizes repeated remote-free service telemetry timing evidence.
 ///
 /// Each candidate is compared with the baseline. Counter-stable candidates
@@ -339,8 +568,11 @@ fn record_timing_delta(
 #[cfg(test)]
 mod tests {
     use super::{
+        parse_remote_free_service_telemetry_timing_stability_manifest,
         summarize_remote_free_service_telemetry_timing_stability,
         RemoteFreeServiceTelemetryTimingStabilityError,
+        RemoteFreeServiceTelemetryTimingStabilityManifestParseError,
+        RemoteFreeServiceTelemetryTimingStabilityManifestRole,
         RemoteFreeServiceTelemetryTimingStabilityRun,
         RemoteFreeServiceTelemetryTimingStabilityStatus,
     };
@@ -368,6 +600,119 @@ mod tests {
         output: &'a str,
     ) -> RemoteFreeServiceTelemetryTimingStabilityRun<'a> {
         RemoteFreeServiceTelemetryTimingStabilityRun { label, output }
+    }
+
+    #[test]
+    fn parses_timing_stability_manifest() {
+        let manifest = parse_remote_free_service_telemetry_timing_stability_manifest(
+            r"
+            # role label path
+            baseline apply-confirm-a evidence/apply-confirm-a.txt
+
+            candidate apply-confirm-b evidence/apply-confirm-b.txt
+            candidate apply-confirm-drift evidence/apply-confirm-drift.txt
+            ",
+        )
+        .expect("manifest");
+
+        assert_eq!(
+            manifest.baseline.role,
+            RemoteFreeServiceTelemetryTimingStabilityManifestRole::Baseline
+        );
+        assert_eq!(manifest.baseline.label, "apply-confirm-a");
+        assert_eq!(manifest.baseline.path, "evidence/apply-confirm-a.txt");
+        assert_eq!(manifest.candidates.len(), 2);
+        assert_eq!(
+            manifest.candidates[0].role,
+            RemoteFreeServiceTelemetryTimingStabilityManifestRole::Candidate
+        );
+        assert_eq!(manifest.candidates[0].label, "apply-confirm-b");
+        assert_eq!(
+            RemoteFreeServiceTelemetryTimingStabilityManifestRole::Candidate.to_string(),
+            "candidate"
+        );
+    }
+
+    #[test]
+    fn rejects_duplicate_manifest_labels() {
+        let error = parse_remote_free_service_telemetry_timing_stability_manifest(
+            r"
+            baseline same a.txt
+            candidate same b.txt
+            ",
+        )
+        .expect_err("duplicate label");
+
+        assert!(matches!(
+            error,
+            RemoteFreeServiceTelemetryTimingStabilityManifestParseError::DuplicateRunLabel { .. }
+        ));
+    }
+
+    #[test]
+    fn rejects_duplicate_manifest_baselines() {
+        let error = parse_remote_free_service_telemetry_timing_stability_manifest(
+            r"
+            baseline first a.txt
+            baseline second b.txt
+            candidate candidate c.txt
+            ",
+        )
+        .expect_err("duplicate baseline");
+
+        assert!(matches!(
+            error,
+            RemoteFreeServiceTelemetryTimingStabilityManifestParseError::DuplicateBaseline { .. }
+        ));
+    }
+
+    #[test]
+    fn rejects_unknown_manifest_roles() {
+        let error =
+            parse_remote_free_service_telemetry_timing_stability_manifest("control label a.txt\n")
+                .expect_err("unknown role");
+
+        assert!(matches!(
+            error,
+            RemoteFreeServiceTelemetryTimingStabilityManifestParseError::UnknownRole { .. }
+        ));
+    }
+
+    #[test]
+    fn rejects_manifest_without_baseline() {
+        let error =
+            parse_remote_free_service_telemetry_timing_stability_manifest("candidate only a.txt\n")
+                .expect_err("missing baseline");
+
+        assert!(matches!(
+            error,
+            RemoteFreeServiceTelemetryTimingStabilityManifestParseError::MissingBaseline
+        ));
+    }
+
+    #[test]
+    fn rejects_manifest_without_candidates() {
+        let error =
+            parse_remote_free_service_telemetry_timing_stability_manifest("baseline only a.txt\n")
+                .expect_err("missing candidates");
+
+        assert!(matches!(
+            error,
+            RemoteFreeServiceTelemetryTimingStabilityManifestParseError::MissingCandidates
+        ));
+    }
+
+    #[test]
+    fn rejects_malformed_manifest_rows() {
+        let error = parse_remote_free_service_telemetry_timing_stability_manifest(
+            "baseline label path extra\n",
+        )
+        .expect_err("malformed row");
+
+        assert!(matches!(
+            error,
+            RemoteFreeServiceTelemetryTimingStabilityManifestParseError::InvalidLine { .. }
+        ));
     }
 
     #[test]
