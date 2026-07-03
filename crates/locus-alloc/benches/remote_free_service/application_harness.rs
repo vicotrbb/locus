@@ -529,6 +529,49 @@ pub(crate) fn run_runtime_owner_window_with_local_dirty_burst_summary_and_block_
     (summary, flush_stats)
 }
 
+pub(crate) fn run_runtime_owner_window_with_local_dirty_threshold_summary_and_block_bytes(
+    runtime: &mut RemoteFreeOwnerRuntime<RuntimeTraceBlock>,
+    stats: &mut RuntimeApplicationStats,
+    block_bytes: u64,
+    owner_id: RemoteFreeServiceRuntimeOwnerId,
+    tracker: &RemoteFreeServiceRuntimeDirtyOwnerTracker,
+    flush_item_threshold: u64,
+) -> (RemoteFreeServiceRetuneSummary, RuntimeLocalDirtyFlushStats) {
+    assert!(flush_item_threshold != 0);
+
+    let mut summary = RemoteFreeServiceRetuneSummary::new();
+    let mut flush_stats = RuntimeLocalDirtyFlushStats::default();
+    let mut buffer = RemoteFreeServiceRuntimeDirtyOwnerLocalBuffer::new();
+    let sink = runtime.sink();
+
+    run_runtime_owner_window_inner_with_enqueue(
+        runtime,
+        stats,
+        block_bytes,
+        |block| sink.try_enqueue(block),
+        |event| {
+            if event == RuntimeOwnerWindowEvent::SuccessfulEnqueue {
+                let _ = buffer.mark_dirty(owner_id);
+                let local_marks = u64::try_from(buffer.len())
+                    .expect("dirty owner count fits u64")
+                    .saturating_add(buffer.duplicate_marks());
+                if local_marks >= flush_item_threshold {
+                    flush_stats.observe(buffer.flush_into(tracker));
+                }
+            }
+        },
+        |report| {
+            summary.observe_report(report);
+        },
+    );
+
+    if !buffer.is_empty() {
+        flush_stats.observe(buffer.flush_into(tracker));
+    }
+
+    (summary, flush_stats)
+}
+
 fn run_runtime_owner_window_inner(
     runtime: &mut RemoteFreeOwnerRuntime<RuntimeTraceBlock>,
     stats: &mut RuntimeApplicationStats,

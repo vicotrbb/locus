@@ -17,12 +17,14 @@ use crate::remote_free_service_application_harness::{
     run_runtime_owner_window_with_dirty_summary_and_block_bytes,
     run_runtime_owner_window_with_local_dirty_burst_summary_and_block_bytes,
     run_runtime_owner_window_with_local_dirty_summary_and_block_bytes,
+    run_runtime_owner_window_with_local_dirty_threshold_summary_and_block_bytes,
     run_runtime_owner_window_with_summary, run_runtime_owner_window_with_summary_and_block_bytes,
     service_config, RuntimeApplicationStats, RuntimeTraceBlock, QUEUE_CAPACITY_GROWTH_FACTOR,
     RUNTIME_INITIAL_QUEUE_CAPACITY,
 };
 use crate::remote_free_service_harness::{
     format_milli, CounterSummary, BURSTS, BURST_BLOCKS, BYTES_PER_BLOCK, QUEUE_CAPACITY, SAMPLES,
+    TARGET_PENDING_BLOCKS,
 };
 
 const SERVICE_WINDOW_STABLE_WINDOWS: u64 = 2;
@@ -49,6 +51,7 @@ enum ServiceWindowRunnerMode {
     DirtyEnqueueMark,
     DirtyLocalBuffer,
     DirtyLocalBurstFlush,
+    DirtyLocalThresholdFlush,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -195,6 +198,30 @@ pub(crate) fn benchmark_runtime_dirty_local_burst_collection_sequence(c: &mut Cr
             bench.iter(|| {
                 let stats = run_runtime_service_window_sequence(
                     ServiceWindowRunnerMode::DirtyLocalBurstFlush,
+                );
+                assert_service_window_stats(&stats);
+                black_box(stats);
+            });
+        },
+    );
+}
+
+pub(crate) fn benchmark_runtime_dirty_local_threshold_collection_sequence(c: &mut Criterion) {
+    print_service_window_sample(
+        ServiceWindowRunnerMode::DirtyLocalThresholdFlush,
+        "remote_free_service_runtime_dirty_local_threshold_collection_sample",
+    );
+    print_service_window_sample_summary(
+        ServiceWindowRunnerMode::DirtyLocalThresholdFlush,
+        "remote_free_service_runtime_dirty_local_threshold_collection_sample_summary",
+    );
+
+    c.bench_function(
+        "remote_free_service_runtime_dirty_local_threshold_collection_sequence",
+        |bench| {
+            bench.iter(|| {
+                let stats = run_runtime_service_window_sequence(
+                    ServiceWindowRunnerMode::DirtyLocalThresholdFlush,
                 );
                 assert_service_window_stats(&stats);
                 black_box(stats);
@@ -511,6 +538,9 @@ fn observe_window(
         ServiceWindowRunnerMode::DirtyLocalBurstFlush => {
             collect_dirty_local_burst_window(owners, owner_id, stats, block_bytes)
         }
+        ServiceWindowRunnerMode::DirtyLocalThresholdFlush => {
+            collect_dirty_local_threshold_window(owners, owner_id, stats, block_bytes)
+        }
     };
 
     assert_one_window_decision(window_stats, expected_decision);
@@ -605,6 +635,52 @@ fn collect_dirty_local_burst_window(
     stats
 }
 
+fn collect_dirty_local_threshold_window(
+    owners: &mut RemoteFreeServiceRuntimeRetuneOwners<RuntimeTraceBlock>,
+    owner_id: RemoteFreeServiceRuntimeOwnerId,
+    stats: &mut ServiceWindowSequenceStats,
+    block_bytes: u64,
+) -> RemoteFreeServiceRuntimeWindowStats {
+    let tracker = RemoteFreeServiceRuntimeDirtyOwnerTracker::new();
+    let (summary, flush_stats) =
+        run_runtime_owner_window_with_local_dirty_threshold_summary_and_block_bytes(
+            owners
+                .owner_mut(owner_id)
+                .expect("owner for local dirty threshold buffer"),
+            &mut stats.runtime,
+            block_bytes,
+            owner_id,
+            &tracker,
+            TARGET_PENDING_BLOCKS,
+        );
+    let total_marks = BURSTS.saturating_mul(BURST_BLOCKS);
+    let expected_flushes = total_marks.div_ceil(TARGET_PENDING_BLOCKS);
+    let expected_duplicate_marks =
+        expected_threshold_duplicate_marks(total_marks, TARGET_PENDING_BLOCKS);
+    assert_eq!(flush_stats.flush_count, expected_flushes);
+    assert_eq!(flush_stats.owner_count, expected_flushes);
+    assert_eq!(flush_stats.new_tracker_marks, 1);
+    assert_eq!(flush_stats.duplicate_local_marks, expected_duplicate_marks);
+    assert_eq!(tracker.owner_ids(), vec![owner_id]);
+
+    let stats = owners
+        .collect_tracked_dirty_service_window(&tracker, |_, _| Ok::<_, Infallible>(summary))
+        .expect("local dirty threshold service window stats");
+    assert!(tracker.is_empty());
+    stats
+}
+
+fn expected_threshold_duplicate_marks(total_marks: u64, threshold: u64) -> u64 {
+    assert!(threshold != 0);
+
+    let full_flushes = total_marks / threshold;
+    let remaining = total_marks % threshold;
+
+    full_flushes
+        .saturating_mul(threshold.saturating_sub(1))
+        .saturating_add(remaining.saturating_sub(1))
+}
+
 fn collect_runtime_summary(
     runtime: &mut RemoteFreeOwnerRuntime<RuntimeTraceBlock>,
     stats: &mut RuntimeApplicationStats,
@@ -678,6 +754,21 @@ fn assert_missing_owner(
             assert_eq!(tracker.owner_ids(), vec![missing]);
         }
         ServiceWindowRunnerMode::DirtyLocalBurstFlush => {
+            let tracker = RemoteFreeServiceRuntimeDirtyOwnerTracker::new();
+            let mut buffer = RemoteFreeServiceRuntimeDirtyOwnerLocalBuffer::new();
+            assert!(buffer.mark_dirty(missing));
+            let flush = buffer.flush_into(&tracker);
+            assert_eq!(flush.owner_count, 1);
+            assert_eq!(flush.new_tracker_marks, 1);
+            let error = owners
+                .collect_tracked_dirty_service_window(&tracker, |_, _| {
+                    Ok::<_, Infallible>(RemoteFreeServiceRetuneSummary::new())
+                })
+                .expect_err("missing owner");
+            assert_eq!(error.owner_id(), missing);
+            assert_eq!(tracker.owner_ids(), vec![missing]);
+        }
+        ServiceWindowRunnerMode::DirtyLocalThresholdFlush => {
             let tracker = RemoteFreeServiceRuntimeDirtyOwnerTracker::new();
             let mut buffer = RemoteFreeServiceRuntimeDirtyOwnerLocalBuffer::new();
             assert!(buffer.mark_dirty(missing));

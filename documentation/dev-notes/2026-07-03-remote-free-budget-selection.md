@@ -333,6 +333,18 @@ flushing measured 199.29 to 200.68 us, direct dirty-enqueue tracker marking
 measured 201.32 to 203.72 us, and burst flushing measured 204.32 to 207.50 us.
 Treat fixed per-burst flushing as rejected for the current owner-window shape.
 
+Experiment 0212 tested local dirty-buffer flushing at the configured
+`TARGET_PENDING_BLOCKS` retained-item window. The path preserved 2048
+submitted blocks, 2048 drained blocks, 9,437,440 released bytes, 12 policy
+drains, 36 drain rounds, 46 reports needing retune, two apply decisions, one
+confirm, one rollback, and one mutation-limit decision. It provided earlier
+tracker visibility than before-collection local flushing, but did not earn a
+default performance slot: before-collection local flushing measured 197.29 to
+198.02 us, threshold flushing measured 200.36 to 205.87 us, and direct
+dirty-enqueue tracker marking measured 203.45 to 205.38 us. Treat threshold
+flushing as a correctness-validated visibility option, not the measured
+default for this owner-window shape.
+
 ## Measured Thresholds
 
 | Path | Shape inputs | Budget | Matched counters |
@@ -429,6 +441,10 @@ Treat fixed per-burst flushing as rejected for the current owner-window shape.
     measured worker-owned enqueue shape. Do not use fixed end-of-burst
     flushing unless a workload-specific benchmark shows the earlier visibility
     is worth the extra tracker flush cost.
+30. Use retained-window threshold flushing only when earlier dirty-owner
+    visibility is required and same-session allocation benchmarks show that
+    the added tracker flush cadence is acceptable. It is not the current
+    default over before-collection local flushing.
 
 ## Guardrails
 
@@ -502,6 +518,9 @@ Treat fixed per-burst flushing as rejected for the current owner-window shape.
   showed fixed end-of-burst flushing was slower than both before-collection
   local flushing and direct dirty-enqueue tracker marking for the current real
   allocation service-window shape.
+- Do not promote retained-window threshold flushing from correctness alone.
+  Experiment 0212 preserved counters, but before-collection local flushing was
+  still faster for the current real allocation service-window shape.
 - Recheck thresholds when KV block size, request arena capacity, burst size,
   request concurrency, or batch size changes.
 - For heterogeneous traces, derive the budget from actual retained item sizes
@@ -550,12 +569,13 @@ Treat fixed per-burst flushing as rejected for the current owner-window shape.
 - `documentation/experiments/0209-remote-free-enqueue-dirty-owner-marks.md`
 - `documentation/experiments/0210-remote-free-local-dirty-mark-buffer.md`
 - `documentation/experiments/0211-remote-free-local-dirty-flush-cadence.md`
+- `documentation/experiments/0212-remote-free-local-dirty-threshold-flush.md`
 
 ## Open Questions
 
-- Can a pressure-triggered or service-demand-triggered local dirty-buffer
-  flush provide earlier dirty-owner visibility without paying the fixed cost of
-  one tracker flush per burst?
+- Can a service-demand-triggered local dirty-buffer flush fire only when the
+  collector is about to wait on dirty-owner visibility, instead of using a
+  fixed burst or retained-window cadence?
 - Which workload signal should set the retained item window in production:
   scheduler turn age, active request concurrency, KV cache pressure, or memory
   pressure from observability counters?
