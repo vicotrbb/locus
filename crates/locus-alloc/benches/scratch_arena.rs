@@ -157,12 +157,98 @@ fn vec_write_touch_1mib(c: &mut Criterion) {
 }
 
 #[cfg(target_os = "linux")]
-fn mapped_scratch_thp_write_touch_4mib(c: &mut Criterion) {
+#[derive(Debug, Clone, Copy)]
+enum MappedScratchThpBenchMode {
+    Default,
+    HugePage,
+    NoHugePage,
+}
+
+#[cfg(target_os = "linux")]
+impl MappedScratchThpBenchMode {
+    #[must_use]
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Default => "default",
+            Self::HugePage => "hugepage",
+            Self::NoHugePage => "no_hugepage",
+        }
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn mapped_scratch_thp_bench_arena(mode: MappedScratchThpBenchMode) -> MappedScratchArena {
     use locus_alloc::MappedScratchHugePageAdvice;
+
+    let arena = MappedScratchArena::new(NodeId(0), 4 * 1024 * 1024).expect("arena");
+    match mode {
+        MappedScratchThpBenchMode::Default => {}
+        MappedScratchThpBenchMode::HugePage => arena
+            .advise_transparent_huge_pages(MappedScratchHugePageAdvice::HugePage)
+            .expect("huge page advice"),
+        MappedScratchThpBenchMode::NoHugePage => arena
+            .advise_transparent_huge_pages(MappedScratchHugePageAdvice::NoHugePage)
+            .expect("no huge page advice"),
+    }
+    arena
+}
+
+#[cfg(target_os = "linux")]
+fn print_mapped_scratch_thp_fault_samples() {
+    use std::io::{self, Write};
+
+    use locus_observe::read_self_process_fault_counts;
+
+    const ITERATIONS: usize = 8;
+
+    for mode in [
+        MappedScratchThpBenchMode::Default,
+        MappedScratchThpBenchMode::HugePage,
+        MappedScratchThpBenchMode::NoHugePage,
+    ] {
+        let before = match read_self_process_fault_counts() {
+            Ok(counts) => counts,
+            Err(_) => {
+                println!("fault_sample={} status=unavailable", mode.as_str());
+                io::stdout().flush().expect("flush fault sample");
+                continue;
+            }
+        };
+
+        for _ in 0..ITERATIONS {
+            let mut arena = mapped_scratch_thp_bench_arena(mode);
+            black_box(arena.write_touch_pages().expect("touch pages"));
+        }
+
+        let after = match read_self_process_fault_counts() {
+            Ok(counts) => counts,
+            Err(_) => {
+                println!("fault_sample={} status=unavailable", mode.as_str());
+                io::stdout().flush().expect("flush fault sample");
+                continue;
+            }
+        };
+        let delta = after.delta_since(before);
+
+        println!(
+            "fault_sample={} status=available iterations={ITERATIONS} minor_faults_delta={} child_minor_faults_delta={} major_faults_delta={} child_major_faults_delta={}",
+            mode.as_str(),
+            delta.minor_faults_delta,
+            delta.child_minor_faults_delta,
+            delta.major_faults_delta,
+            delta.child_major_faults_delta
+        );
+        io::stdout().flush().expect("flush fault sample");
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn mapped_scratch_thp_write_touch_4mib(c: &mut Criterion) {
+    print_mapped_scratch_thp_fault_samples();
 
     c.bench_function("mapped_scratch_write_touch_4mib_default", |bench| {
         bench.iter_batched(
-            || MappedScratchArena::new(NodeId(0), 4 * 1024 * 1024).expect("arena"),
+            || mapped_scratch_thp_bench_arena(MappedScratchThpBenchMode::Default),
             |mut arena| black_box(arena.write_touch_pages().expect("touch pages")),
             BatchSize::SmallInput,
         );
@@ -170,13 +256,7 @@ fn mapped_scratch_thp_write_touch_4mib(c: &mut Criterion) {
 
     c.bench_function("mapped_scratch_write_touch_4mib_hugepage_advice", |bench| {
         bench.iter_batched(
-            || {
-                let arena = MappedScratchArena::new(NodeId(0), 4 * 1024 * 1024).expect("arena");
-                arena
-                    .advise_transparent_huge_pages(MappedScratchHugePageAdvice::HugePage)
-                    .expect("huge page advice");
-                arena
-            },
+            || mapped_scratch_thp_bench_arena(MappedScratchThpBenchMode::HugePage),
             |mut arena| black_box(arena.write_touch_pages().expect("touch pages")),
             BatchSize::SmallInput,
         );
@@ -186,13 +266,7 @@ fn mapped_scratch_thp_write_touch_4mib(c: &mut Criterion) {
         "mapped_scratch_write_touch_4mib_no_hugepage_advice",
         |bench| {
             bench.iter_batched(
-                || {
-                    let arena = MappedScratchArena::new(NodeId(0), 4 * 1024 * 1024).expect("arena");
-                    arena
-                        .advise_transparent_huge_pages(MappedScratchHugePageAdvice::NoHugePage)
-                        .expect("no huge page advice");
-                    arena
-                },
+                || mapped_scratch_thp_bench_arena(MappedScratchThpBenchMode::NoHugePage),
                 |mut arena| black_box(arena.write_touch_pages().expect("touch pages")),
                 BatchSize::SmallInput,
             );
