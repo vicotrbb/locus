@@ -169,6 +169,14 @@ benchmark. It restored the fixed queued-byte window after the one-owner
 end-drain baseline: zero reports needing retune, zero retained-window drift,
 32 `keep_config` reports, max wait 2 bursts, and mean wait 1.500 bursts.
 
+Experiment 0192 added the combined backpressure plus retained-window service
+case. The capacity-128 end-drain owner selected
+`increase_queue_capacity_and_drain_earlier` with four combined-action reports,
+four queue-backpressure reports, max pending over target 64, and max queued
+bytes over budget 262,144. The explicit capacity-plus-policy candidate
+restored zero drift, 32 `keep_config` reports, max wait 2 bursts, and mean
+wait 1.500 bursts.
+
 ## Measured Thresholds
 
 | Path | Shape inputs | Budget | Matched counters |
@@ -203,6 +211,8 @@ end-drain baseline: zero reports needing retune, zero retained-window drift,
    live policy.
 10. Benchmark the selected candidate as an explicit static case before
     introducing any adaptive mutation.
+11. Benchmark every planner-selected combined candidate as an explicit static
+    case before any dry-run or live adaptive policy.
 
 ## Guardrails
 
@@ -247,11 +257,12 @@ end-drain baseline: zero reports needing retune, zero retained-window drift,
 - `documentation/experiments/0189-remote-free-service-retune-telemetry.md`
 - `documentation/experiments/0190-remote-free-service-retune-candidate-planner.md`
 - `documentation/experiments/0191-remote-free-planner-candidate-drain-earlier.md`
+- `documentation/experiments/0192-remote-free-planner-candidate-capacity-and-drain.md`
 
 ## Open Questions
 
-- Should the combined `increase_queue_capacity_and_drain_earlier` service
-  candidate be benchmarked next?
+- Should the next step be a dry-run adaptive planner that records candidate
+  changes across service windows without applying them?
 - Which workload signal should set the retained item window in production:
   scheduler turn age, active request concurrency, KV cache pressure, or memory
   pressure from observability counters?

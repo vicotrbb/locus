@@ -23,8 +23,15 @@ const SAMPLES: u64 = 8;
 #[derive(Debug, Clone, Copy)]
 struct ServiceTelemetryCase {
     label: &'static str,
-    drifting_owner: Option<usize>,
+    owner_override: Option<ServiceOwnerOverride>,
     expected: ExpectedServiceTelemetry,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct ServiceOwnerOverride {
+    owner_index: usize,
+    queue_capacity: usize,
+    use_policy: bool,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -36,6 +43,7 @@ struct ExpectedServiceTelemetry {
     queue_backpressure_reports: u64,
     keep_config_reports: u64,
     drain_earlier_reports: u64,
+    increase_capacity_and_drain_reports: u64,
     retune_candidate: RemoteFreeServiceRetuneCandidate,
 }
 
@@ -68,7 +76,7 @@ impl ServiceTelemetryCase {
     fn fixed_policy_all_clean() -> Self {
         Self {
             label: "fixed_policy_all_clean",
-            drifting_owner: None,
+            owner_override: None,
             expected: ExpectedServiceTelemetry {
                 observed_reports: 32,
                 reports_needing_retune: 0,
@@ -77,6 +85,7 @@ impl ServiceTelemetryCase {
                 queue_backpressure_reports: 0,
                 keep_config_reports: 32,
                 drain_earlier_reports: 0,
+                increase_capacity_and_drain_reports: 0,
                 retune_candidate: RemoteFreeServiceRetuneCandidate::KeepConfig,
             },
         }
@@ -85,7 +94,11 @@ impl ServiceTelemetryCase {
     fn one_end_drain_owner() -> Self {
         Self {
             label: "one_end_drain_owner",
-            drifting_owner: Some(0),
+            owner_override: Some(ServiceOwnerOverride {
+                owner_index: 0,
+                queue_capacity: QUEUE_CAPACITY,
+                use_policy: false,
+            }),
             expected: ExpectedServiceTelemetry {
                 observed_reports: 32,
                 reports_needing_retune: 6,
@@ -94,6 +107,7 @@ impl ServiceTelemetryCase {
                 queue_backpressure_reports: 0,
                 keep_config_reports: 26,
                 drain_earlier_reports: 6,
+                increase_capacity_and_drain_reports: 0,
                 retune_candidate: RemoteFreeServiceRetuneCandidate::DrainEarlier,
             },
         }
@@ -102,7 +116,11 @@ impl ServiceTelemetryCase {
     fn planner_candidate_drain_earlier() -> Self {
         Self {
             label: "planner_candidate_drain_earlier",
-            drifting_owner: None,
+            owner_override: Some(ServiceOwnerOverride {
+                owner_index: 0,
+                queue_capacity: QUEUE_CAPACITY,
+                use_policy: true,
+            }),
             expected: ExpectedServiceTelemetry {
                 observed_reports: 32,
                 reports_needing_retune: 0,
@@ -111,6 +129,52 @@ impl ServiceTelemetryCase {
                 queue_backpressure_reports: 0,
                 keep_config_reports: 32,
                 drain_earlier_reports: 0,
+                increase_capacity_and_drain_reports: 0,
+                retune_candidate: RemoteFreeServiceRetuneCandidate::KeepConfig,
+            },
+        }
+    }
+
+    fn one_capacity128_end_drain_owner() -> Self {
+        Self {
+            label: "one_capacity128_end_drain_owner",
+            owner_override: Some(ServiceOwnerOverride {
+                owner_index: 0,
+                queue_capacity: 128,
+                use_policy: false,
+            }),
+            expected: ExpectedServiceTelemetry {
+                observed_reports: 32,
+                reports_needing_retune: 6,
+                max_pending_over_target: 64,
+                max_queued_bytes_over_budget: 262_144,
+                queue_backpressure_reports: 4,
+                keep_config_reports: 26,
+                drain_earlier_reports: 2,
+                increase_capacity_and_drain_reports: 4,
+                retune_candidate:
+                    RemoteFreeServiceRetuneCandidate::IncreaseQueueCapacityAndDrainEarlier,
+            },
+        }
+    }
+
+    fn planner_candidate_capacity_and_drain_earlier() -> Self {
+        Self {
+            label: "planner_candidate_capacity_and_drain_earlier",
+            owner_override: Some(ServiceOwnerOverride {
+                owner_index: 0,
+                queue_capacity: QUEUE_CAPACITY,
+                use_policy: true,
+            }),
+            expected: ExpectedServiceTelemetry {
+                observed_reports: 32,
+                reports_needing_retune: 0,
+                max_pending_over_target: 0,
+                max_queued_bytes_over_budget: 0,
+                queue_backpressure_reports: 0,
+                keep_config_reports: 32,
+                drain_earlier_reports: 0,
+                increase_capacity_and_drain_reports: 0,
                 retune_candidate: RemoteFreeServiceRetuneCandidate::KeepConfig,
             },
         }
@@ -181,6 +245,20 @@ fn remote_free_service_telemetry_planner_candidate_drain_earlier(c: &mut Criteri
     bench_service_case(c, case);
 }
 
+fn remote_free_service_telemetry_one_capacity128_end_drain_owner(c: &mut Criterion) {
+    let case = ServiceTelemetryCase::one_capacity128_end_drain_owner();
+    print_service_sample(case);
+    print_service_sample_summary(case);
+    bench_service_case(c, case);
+}
+
+fn remote_free_service_telemetry_planner_candidate_capacity_and_drain_earlier(c: &mut Criterion) {
+    let case = ServiceTelemetryCase::planner_candidate_capacity_and_drain_earlier();
+    print_service_sample(case);
+    print_service_sample_summary(case);
+    bench_service_case(c, case);
+}
+
 fn bench_service_case(c: &mut Criterion, case: ServiceTelemetryCase) {
     let label = format!("remote_free_service_telemetry_{}", case.label);
     c.bench_function(&label, |b| {
@@ -200,7 +278,7 @@ fn print_service_sample(case: ServiceTelemetryCase) {
     let label = case.label;
 
     println!(
-        "remote_free_service_telemetry_sample={label} owners={OWNERS} blocks_per_owner={BLOCKS_PER_OWNER} bursts={BURSTS} burst_blocks={BURST_BLOCKS} capacity={QUEUE_CAPACITY} batch_limit={BATCH_LIMIT} submitted_count={} drained_count={} released_bytes={} policy_drains={} drain_rounds={} max_wait_bursts={} mean_wait_bursts={} observed_reports={} reports_needing_retune={} max_pending_over_target={} max_queued_bytes_over_budget={} queue_backpressure_reports={} keep_config_reports={} drain_earlier_reports={} retune_candidate={}",
+        "remote_free_service_telemetry_sample={label} owners={OWNERS} blocks_per_owner={BLOCKS_PER_OWNER} bursts={BURSTS} burst_blocks={BURST_BLOCKS} default_capacity={QUEUE_CAPACITY} batch_limit={BATCH_LIMIT} submitted_count={} drained_count={} released_bytes={} policy_drains={} drain_rounds={} max_wait_bursts={} mean_wait_bursts={} observed_reports={} reports_needing_retune={} max_pending_over_target={} max_queued_bytes_over_budget={} queue_backpressure_reports={} keep_config_reports={} drain_earlier_reports={} increase_capacity_and_drain_reports={} retune_candidate={}",
         stats.submitted_count,
         stats.drained_count,
         stats.released_bytes,
@@ -215,6 +293,7 @@ fn print_service_sample(case: ServiceTelemetryCase) {
         stats.summary.queue_backpressure_reports(),
         counts.count(RemoteFreeQueuedByteRetuneAction::KeepConfig),
         counts.count(RemoteFreeQueuedByteRetuneAction::DrainEarlier),
+        counts.count(RemoteFreeQueuedByteRetuneAction::IncreaseQueueCapacityAndDrainEarlier),
         candidate.as_str()
     );
 }
@@ -225,6 +304,7 @@ fn print_service_sample_summary(case: ServiceTelemetryCase) {
     let mut max_queued_bytes_over_budget = CounterSummary::new();
     let mut keep_config_reports = CounterSummary::new();
     let mut drain_earlier_reports = CounterSummary::new();
+    let mut increase_capacity_and_drain_reports = CounterSummary::new();
     let mut max_wait = CounterSummary::new();
     let mut mean_wait = CounterSummary::new();
     let mut retune_candidate = case.expected.retune_candidate;
@@ -239,6 +319,9 @@ fn print_service_sample_summary(case: ServiceTelemetryCase) {
         max_queued_bytes_over_budget.observe(stats.summary.max_queued_bytes_over_budget());
         keep_config_reports.observe(counts.count(RemoteFreeQueuedByteRetuneAction::KeepConfig));
         drain_earlier_reports.observe(counts.count(RemoteFreeQueuedByteRetuneAction::DrainEarlier));
+        increase_capacity_and_drain_reports.observe(
+            counts.count(RemoteFreeQueuedByteRetuneAction::IncreaseQueueCapacityAndDrainEarlier),
+        );
         max_wait.observe(stats.max_wait_bursts);
         mean_wait.observe(stats.mean_wait_milli());
         retune_candidate = RemoteFreeServiceRetuneCandidate::from_summary(stats.summary);
@@ -246,7 +329,7 @@ fn print_service_sample_summary(case: ServiceTelemetryCase) {
 
     let label = case.label;
     println!(
-        "remote_free_service_telemetry_sample_summary={label} owners={OWNERS} blocks_per_owner={BLOCKS_PER_OWNER} bursts={BURSTS} burst_blocks={BURST_BLOCKS} capacity={QUEUE_CAPACITY} batch_limit={BATCH_LIMIT} retune_candidate={} samples={SAMPLES} reports_needing_retune_min={} reports_needing_retune_max={} reports_needing_retune_mean={} max_pending_over_target_min={} max_pending_over_target_max={} max_pending_over_target_mean={} max_queued_bytes_over_budget_min={} max_queued_bytes_over_budget_max={} max_queued_bytes_over_budget_mean={} keep_config_reports_min={} keep_config_reports_max={} keep_config_reports_mean={} drain_earlier_reports_min={} drain_earlier_reports_max={} drain_earlier_reports_mean={} max_wait_min={} max_wait_max={} max_wait_mean={} mean_wait_min={} mean_wait_max={} mean_wait_mean={}",
+        "remote_free_service_telemetry_sample_summary={label} owners={OWNERS} blocks_per_owner={BLOCKS_PER_OWNER} bursts={BURSTS} burst_blocks={BURST_BLOCKS} default_capacity={QUEUE_CAPACITY} batch_limit={BATCH_LIMIT} retune_candidate={} samples={SAMPLES} reports_needing_retune_min={} reports_needing_retune_max={} reports_needing_retune_mean={} max_pending_over_target_min={} max_pending_over_target_max={} max_pending_over_target_mean={} max_queued_bytes_over_budget_min={} max_queued_bytes_over_budget_max={} max_queued_bytes_over_budget_mean={} keep_config_reports_min={} keep_config_reports_max={} keep_config_reports_mean={} drain_earlier_reports_min={} drain_earlier_reports_max={} drain_earlier_reports_mean={} increase_capacity_and_drain_reports_min={} increase_capacity_and_drain_reports_max={} increase_capacity_and_drain_reports_mean={} max_wait_min={} max_wait_max={} max_wait_mean={} mean_wait_min={} mean_wait_max={} mean_wait_mean={}",
         retune_candidate.as_str(),
         reports_needing_retune.min,
         reports_needing_retune.max,
@@ -263,6 +346,9 @@ fn print_service_sample_summary(case: ServiceTelemetryCase) {
         drain_earlier_reports.min,
         drain_earlier_reports.max,
         format_milli(drain_earlier_reports.mean_milli(SAMPLES)),
+        increase_capacity_and_drain_reports.min,
+        increase_capacity_and_drain_reports.max,
+        format_milli(increase_capacity_and_drain_reports.mean_milli(SAMPLES)),
         max_wait.min,
         max_wait.max,
         format_milli(max_wait.mean_milli(SAMPLES)),
@@ -276,16 +362,27 @@ fn run_service_case(case: ServiceTelemetryCase) -> ServiceTelemetryStats {
     let mut stats = ServiceTelemetryStats::new();
 
     for owner_index in 0..OWNERS {
-        let use_policy = case.drifting_owner != Some(owner_index);
-        run_owner_loop(use_policy, &mut stats);
+        let owner_override = case
+            .owner_override
+            .filter(|owner_override| owner_override.owner_index == owner_index);
+        let queue_capacity = owner_override.map_or(QUEUE_CAPACITY, |owner_override| {
+            owner_override.queue_capacity
+        });
+        let use_policy = owner_override.map_or(true, |owner_override| owner_override.use_policy);
+
+        run_owner_loop(queue_capacity, use_policy, &mut stats);
     }
 
     stats
 }
 
-fn run_owner_loop(use_policy: bool, service_stats: &mut ServiceTelemetryStats) {
+fn run_owner_loop(
+    queue_capacity: usize,
+    use_policy: bool,
+    service_stats: &mut ServiceTelemetryStats,
+) {
     let config = RemoteFreeQueuedByteDrainConfig::from_item_shape(
-        QUEUE_CAPACITY,
+        queue_capacity,
         BATCH_LIMIT,
         TARGET_PENDING_BLOCKS,
         BYTES_PER_BLOCK,
@@ -297,7 +394,7 @@ fn run_owner_loop(use_policy: bool, service_stats: &mut ServiceTelemetryStats) {
         RemoteFreeDrainPolicy::new()
     };
     let mut controller = RemoteFreeDrainController::new(policy);
-    let mut queue = RemoteFreeQueue::new(QUEUE_CAPACITY, BATCH_LIMIT).expect("remote-free queue");
+    let mut queue = RemoteFreeQueue::new(queue_capacity, BATCH_LIMIT).expect("remote-free queue");
     let sink = queue.sink();
 
     for burst in 0..BURSTS {
@@ -417,6 +514,10 @@ fn assert_service_telemetry(case: ServiceTelemetryCase, stats: ServiceTelemetryS
         expected.drain_earlier_reports
     );
     assert_eq!(
+        counts.count(RemoteFreeQueuedByteRetuneAction::IncreaseQueueCapacityAndDrainEarlier),
+        expected.increase_capacity_and_drain_reports
+    );
+    assert_eq!(
         RemoteFreeServiceRetuneCandidate::from_summary(stats.summary),
         expected.retune_candidate
     );
@@ -430,6 +531,8 @@ criterion_group!(
     benches,
     remote_free_service_telemetry_fixed_policy,
     remote_free_service_telemetry_one_drifting_owner,
-    remote_free_service_telemetry_planner_candidate_drain_earlier
+    remote_free_service_telemetry_planner_candidate_drain_earlier,
+    remote_free_service_telemetry_one_capacity128_end_drain_owner,
+    remote_free_service_telemetry_planner_candidate_capacity_and_drain_earlier
 );
 criterion_main!(benches);
