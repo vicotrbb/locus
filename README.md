@@ -62,9 +62,10 @@ cargo run -p locus-validate --example pinned_scratch_validation_gate -- pinned-s
 cargo run -p locus-validate --example pinned_scratch_near_gpu_validation_gate -- near-gpu-pinned-scratch.out
 cargo run -p locus-validate --example mapped_scratch_thp_validation_gate -- mapped-scratch-thp.out
 cargo run -p locus-validate --example mapped_scratch_thp_fault_sample_validation_gate -- mapped-scratch-thp-bench.out
+cargo run -p locus-validate --example mapped_scratch_thp_fault_sample_report -- mapped-scratch-thp-fault-sample-validation.out
 ```
 
-The mapped scratch THP fault sample validation command prints both a sample availability gate and a comparison line for the process minor-fault deltas when counters are usable.
+The mapped scratch THP fault sample validation command prints both a sample availability gate and a comparison line for the process minor-fault deltas when counters are usable. The report command parses those two lines together and rejects contradictory saved output.
 
 Captured outputs from `mbind_region`, `locality_environment`, and `mapped_scratch_bind` can be combined with:
 
