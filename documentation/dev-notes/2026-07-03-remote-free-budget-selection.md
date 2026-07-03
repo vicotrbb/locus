@@ -816,6 +816,12 @@ verifier-summary verification rollup parser. The real repeated-check rollup
 reloads with two records, one matched check, one drifted check, and one
 `records` drift bucket.
 
+Experiment 0274 added drift checking for archived repeated-check rollup JSON
+against the saved repeated-check verdict JSON records it summarizes. The real
+mixed rollup matches the source log, while a controlled stale `records=1`
+rollup reports `field=records`, expected `2`, actual `1`, and strict
+verification rejects it with `CountDrift`.
+
 ## Measured Thresholds
 
 | Path | Shape inputs | Budget | Matched counters |
@@ -1224,6 +1230,7 @@ reloads with two records, one matched check, one drifted check, and one
 - `documentation/experiments/0271-remote-free-service-telemetry-rollup-check-log-summary-verdict-rollup-verification-summary-drift-json-rollup-drift-json-parser.md`
 - `documentation/experiments/0272-remote-free-service-telemetry-rollup-check-log-summary-verdict-rollup-verification-summary-drift-json-rollup-drift-json-rollup.md`
 - `documentation/experiments/0273-remote-free-service-telemetry-rollup-check-log-summary-verdict-rollup-verification-summary-drift-json-rollup-drift-json-rollup-parser.md`
+- `documentation/experiments/0274-remote-free-service-telemetry-rollup-check-log-summary-verdict-rollup-verification-summary-drift-json-rollup-drift-json-rollup-drift.md`
 
 ## Open Questions
 
