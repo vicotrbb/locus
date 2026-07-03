@@ -7,6 +7,7 @@ mod budget;
 mod config;
 mod controller;
 mod drift;
+mod guard;
 mod planner;
 mod telemetry;
 
@@ -21,6 +22,10 @@ pub use controller::{
 pub use drift::{
     RemoteFreeQueuedByteDriftReport, RemoteFreeQueuedByteRetuneAction,
     RemoteFreeQueuedByteRetuneHint,
+};
+pub use guard::{
+    RemoteFreeServiceRetuneGuard, RemoteFreeServiceRetuneGuardDecision,
+    RemoteFreeServiceRetuneGuardError,
 };
 pub use planner::{
     RemoteFreeServiceRetuneCandidate, RemoteFreeServiceRetuneDryRunPlanner,

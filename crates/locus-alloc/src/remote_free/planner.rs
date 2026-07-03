@@ -162,6 +162,14 @@ impl RemoteFreeServiceRetuneDryRunPlanner {
         self.would_apply_candidate
     }
 
+    /// Resets observed service-window state.
+    pub fn reset(&mut self) {
+        self.observed_windows = 0;
+        self.current_candidate = RemoteFreeServiceRetuneCandidate::CollectTelemetry;
+        self.consecutive_candidate_windows = 0;
+        self.would_apply_candidate = None;
+    }
+
     fn observe_candidate(&mut self, candidate: RemoteFreeServiceRetuneCandidate) {
         self.observed_windows = self.observed_windows.saturating_add(1);
 

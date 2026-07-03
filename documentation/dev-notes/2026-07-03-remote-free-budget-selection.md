@@ -195,6 +195,14 @@ windows produced zero would-apply windows for both candidates while preserving
 6144 submitted blocks, 6144 drained blocks, 25,165,824 released bytes, max
 wait 8 bursts, and mean wait 1.875 bursts.
 
+Experiment 0195 added `RemoteFreeServiceRetuneGuard` as the first guarded
+planning layer after dry-run telemetry. The confirming benchmark emitted two
+apply decisions, confirmed both with clean candidate windows, and preserved
+7168 submitted blocks, 7168 drained blocks, and 29,360,128 released bytes. The
+rollback benchmark emitted one apply decision, rejected a non-clean validation
+window with one rollback, and preserved 4096 submitted blocks, 4096 drained
+blocks, and 16,777,216 released bytes.
+
 ## Measured Thresholds
 
 | Path | Shape inputs | Budget | Matched counters |
@@ -235,6 +243,9 @@ wait 8 bursts, and mean wait 1.875 bursts.
     service windows before considering live mutation. Treat `would_apply` as
     evidence for the next guarded benchmark, not as permission to mutate by
     itself.
+13. Use `RemoteFreeServiceRetuneGuard` when translating stable dry-run signals
+    into explicit apply, confirm, rollback, or mutation-limit decisions. The
+    guard still does not mutate policy directly.
 
 ## Guardrails
 
@@ -257,6 +268,8 @@ wait 8 bursts, and mean wait 1.875 bursts.
 - Do not treat oscillating actionable candidates as stable evidence. Experiment
   0194 showed that alternating `drain_earlier` and combined candidates should
   keep `would_apply` at none.
+- Do not apply a guarded candidate without feeding the next service window back
+  to the guard for confirmation or rollback.
 - Recheck thresholds when KV block size, request arena capacity, burst size,
   request concurrency, or batch size changes.
 - For heterogeneous traces, derive the budget from actual retained item sizes
@@ -288,11 +301,12 @@ wait 8 bursts, and mean wait 1.875 bursts.
 - `documentation/experiments/0192-remote-free-planner-candidate-capacity-and-drain.md`
 - `documentation/experiments/0193-remote-free-dry-run-service-planner.md`
 - `documentation/experiments/0194-remote-free-dry-run-oscillation.md`
+- `documentation/experiments/0195-remote-free-guarded-retune-plan.md`
 
 ## Open Questions
 
-- What mutation limits and rollback conditions should the first guarded live
-  adaptive policy benchmark require?
+- Should the next benchmark exercise the guarded mutation-limit path before a
+  production-facing policy application API is introduced?
 - Which workload signal should set the retained item window in production:
   scheduler turn age, active request concurrency, KV cache pressure, or memory
   pressure from observability counters?
