@@ -801,6 +801,12 @@ rollup checks. The real matched check emits `status=matched` with `drift=null`,
 while a controlled stale `records=1` archived rollup emits `status=drifted`
 with `drift.field=records`, expected `2`, and actual `1`.
 
+Experiment 0271 added parsers for verifier-summary drift verdict rollup check
+JSON. The real matched check artifact reloads as `status=matched`, while the
+controlled stale `records=1` artifact reloads as `status=drifted` with
+`field=records`, expected `2`, and actual `1`. The parser rejects status drift,
+drift payload drift, and nested grouped rollup drift.
+
 ## Measured Thresholds
 
 | Path | Shape inputs | Budget | Matched counters |
@@ -1206,6 +1212,7 @@ with `drift.field=records`, expected `2`, and actual `1`.
 - `documentation/experiments/0268-remote-free-service-telemetry-rollup-check-log-summary-verdict-rollup-verification-summary-drift-json-rollup-parser.md`
 - `documentation/experiments/0269-remote-free-service-telemetry-rollup-check-log-summary-verdict-rollup-verification-summary-drift-json-rollup-drift.md`
 - `documentation/experiments/0270-remote-free-service-telemetry-rollup-check-log-summary-verdict-rollup-verification-summary-drift-json-rollup-drift-json.md`
+- `documentation/experiments/0271-remote-free-service-telemetry-rollup-check-log-summary-verdict-rollup-verification-summary-drift-json-rollup-drift-json-parser.md`
 
 ## Open Questions
 
