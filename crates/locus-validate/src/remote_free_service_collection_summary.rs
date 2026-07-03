@@ -8090,6 +8090,86 @@ mod tests {
     }
 
     #[test]
+    fn formats_rollup_check_log_summary_json_verification_rollup_verdict_summary_verdict_rollup_verification_rollup_verification_rollup_match_json(
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let (source_log, rollup_json) =
+            sample_rollup_check_log_summary_json_verification_rollup_verdict_summary_verdict_rollup_verification_inputs(
+            )?;
+        let rollup_log = format!("repeated verdict rollup\n{rollup_json}\n");
+
+        let report =
+            check_remote_free_service_telemetry_collection_summary_rollup_check_log_summary_verification_rollup_verification_summary_verification_rollup_verification_rollup_json_log(
+                &source_log,
+                &rollup_log,
+            )?;
+        let verdict_json =
+            format_remote_free_service_telemetry_collection_summary_rollup_check_log_summary_verification_rollup_verification_summary_verification_rollup_verification_json_line(
+                &report,
+            )?;
+        let value = serde_json::from_str::<serde_json::Value>(&verdict_json)?;
+
+        assert_eq!(
+            value["schema"],
+            json!(REMOTE_FREE_SERVICE_TELEMETRY_COLLECTION_SUMMARY_ROLLUP_CHECK_LOG_SUMMARY_VERIFICATION_ROLLUP_VERIFICATION_SUMMARY_VERIFICATION_ROLLUP_VERIFICATION_SCHEMA)
+        );
+        assert_eq!(value["status"], json!("matched"));
+        assert_eq!(value["matched"], json!(true));
+        assert!(value["drift"].is_null());
+        assert_eq!(value["expected"]["records"], json!(2));
+        assert_eq!(value["expected"]["status_coverage"]["matched"], json!(1));
+        assert_eq!(value["expected"]["status_coverage"]["drifted"], json!(1));
+        assert_eq!(value["actual"]["records"], json!(2));
+        assert_eq!(value["actual"]["drift_fields"]["records"], json!(1));
+        Ok(())
+    }
+
+    #[test]
+    fn formats_rollup_check_log_summary_json_verification_rollup_verdict_summary_verdict_rollup_verification_rollup_verification_rollup_drift_json(
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let (source_log, rollup_json) =
+            sample_rollup_check_log_summary_json_verification_rollup_verdict_summary_verdict_rollup_verification_inputs(
+            )?;
+        let mut value = serde_json::from_str::<serde_json::Value>(&rollup_json)?;
+        value["records"] = json!(1);
+        let rollup_log = serde_json::to_string(&value)?;
+
+        let report =
+            check_remote_free_service_telemetry_collection_summary_rollup_check_log_summary_verification_rollup_verification_summary_verification_rollup_verification_rollup_json_log(
+                &source_log,
+                &rollup_log,
+            )?;
+        let strict_error =
+            verify_remote_free_service_telemetry_collection_summary_rollup_check_log_summary_verification_rollup_verification_summary_verification_rollup_verification_rollup_json_log(
+                &source_log,
+                &rollup_log,
+            )
+            .expect_err("strict verifier rejects records drift");
+        let verdict_json =
+            format_remote_free_service_telemetry_collection_summary_rollup_check_log_summary_verification_rollup_verification_summary_verification_rollup_verification_json_line(
+                &report,
+            )?;
+        let value = serde_json::from_str::<serde_json::Value>(&verdict_json)?;
+
+        assert_eq!(value["status"], json!("drifted"));
+        assert_eq!(value["matched"], json!(false));
+        assert_eq!(value["drift"]["field"], json!("records"));
+        assert_eq!(value["drift"]["expected"], json!(2));
+        assert_eq!(value["drift"]["actual"], json!(1));
+        assert_eq!(value["expected"]["records"], json!(2));
+        assert_eq!(value["actual"]["records"], json!(1));
+        assert_eq!(value["actual"]["drift_fields"]["records"], json!(1));
+        assert!(matches!(
+            strict_error,
+            RemoteFreeServiceTelemetryCollectionSummaryRollupError::CountDrift {
+                field: "records",
+                expected: 2,
+                actual: 1
+            }
+        ));
+        Ok(())
+    }
+
+    #[test]
     fn rejects_rollup_check_log_summary_json_verification_rollup_verdict_summary_verdict_rollup_verification_log_without_records(
     ) {
         let error =

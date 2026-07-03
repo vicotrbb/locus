@@ -848,6 +848,12 @@ the saved verdict records, while a controlled stale `records=1` rollup reports
 `field=records`, expected `2`, actual `1`, and strict verification rejects it
 with `CountDrift`.
 
+Experiment 0280 added compact verdict JSON for repeated-check rollup drift
+verdict rollup checks. The real matched check emits `status=matched` with
+`drift=null`, while a controlled stale `records=1` repeated verdict rollup
+emits `status=drifted` with `drift.field=records`, expected `2`, and actual
+`1`.
+
 ## Measured Thresholds
 
 | Path | Shape inputs | Budget | Matched counters |
@@ -1262,6 +1268,7 @@ with `CountDrift`.
 - `documentation/experiments/0277-remote-free-service-telemetry-rollup-check-log-summary-verdict-rollup-verification-summary-drift-json-rollup-drift-json-rollup-drift-json-rollup.md`
 - `documentation/experiments/0278-remote-free-service-telemetry-rollup-check-log-summary-verdict-rollup-verification-summary-drift-json-rollup-drift-json-rollup-drift-json-rollup-parser.md`
 - `documentation/experiments/0279-remote-free-service-telemetry-rollup-check-log-summary-verdict-rollup-verification-summary-drift-json-rollup-drift-json-rollup-drift-json-rollup-drift.md`
+- `documentation/experiments/0280-remote-free-service-telemetry-rollup-check-log-summary-verdict-rollup-verification-summary-drift-json-rollup-drift-json-rollup-drift-json-rollup-drift-json.md`
 
 ## Open Questions
 
