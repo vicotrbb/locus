@@ -13,6 +13,7 @@ locus-sys = { path = "../locus-sys" }
 [dev-dependencies]
 criterion = "0.5"
 locus-observe = { path = "../locus-observe" }
+locus-topology = { path = "../locus-topology" }
 mimalloc = "0.1.52"
 tikv-jemallocator = "0.7.0"
 
