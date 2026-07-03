@@ -1512,6 +1512,9 @@ and rejected a controlled stale `records=1` archive with `CountDrift`.
 Experiment 0338 preserved both the matched and stale aggregate rollup recheck
 cohort rollup recheck verdict rollup drift recheck outcomes as compact JSON
 verdicts, then reloaded them through the parser path.
+Experiment 0339 made that parser-only recheck explicit for the saved matched
+and stale aggregate rollup recheck cohort rollup recheck verdict rollup drift
+recheck JSON verdict records.
 
 ## Open Questions
 
