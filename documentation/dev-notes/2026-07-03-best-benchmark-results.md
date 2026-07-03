@@ -29,6 +29,7 @@ These are best observed local microbenchmark results, not final claims about pro
 | --- | --- | --- | --- |
 | Mapped scratch THP benchmark evidence | Docker `scratch_arena` benchmark emitted repeated compact report lines with page samples, fault samples, and Criterion timing. The run summary reported `reports=2`, `page_evidence_cohort=consistent`, `policy_candidate=false`, `policy_candidate_reason=no_hugepage_adoption`, and hugepage-vs-default estimate deltas from -781411000 ps to -749085000 ps | Strong negative evidence for that environment: advice was accepted for the hugepage mode, pages were touched, and the sampled mappings still used base pages | `documentation/experiments/0162-thp-run-summary-policy-candidate.md` |
 | Remote-free controller behavior preservation | `RemoteFreeDrainController` preserved mixed-size policy counters exactly: peak queued bytes 2,621,440 to 655,360, max pending 256 to 64, max wait 8 to 2, and `full_count=0` in both policies | Behavior-preserving runtime API evidence, not a new timing best | `documentation/experiments/0152-mixed-size-remote-free-controller-wiring.md` |
+| Queued-byte remote-free policy | `RemoteFreeDrainPolicy::with_max_queued_bytes` matched max-wait-2 counters on mixed-size allocations, real KV block handles, and request-affine arena returns. The queued-byte policy held peak queued bytes to 655,360 for mixed-size traces, 262,144 for KV handles, and 262,144 for request arenas while keeping `full_count=0` and max wait 2 bursts | Cross-domain counter evidence for retained-byte policy. This is validation evidence, not a new timing best | `documentation/experiments/0166-remote-free-queued-byte-policy.md`, `documentation/experiments/0168-kv-remote-free-queued-byte-policy.md`, `documentation/experiments/0169-request-remote-free-queued-byte-policy.md` |
 
 ## Current Interpretation
 
@@ -37,7 +38,7 @@ These are best observed local microbenchmark results, not final claims about pro
 - The remote-free results show that batching and owner-side draining are worth keeping in the runtime design, but latency and scheduler policy still need mixed-trace benchmarks.
 - The nonblocking backpressure matrix suggests queue capacity should be tested before drain batch size when trying to reduce `full_count`.
 - The mixed-trace remote-free result shows that larger queue capacity can hide release latency, so capacity should not become a default policy knob without a release-latency or queued-byte guard.
-- The mixed-size queued-byte policy result is the strongest evidence so far that owner drain policy should consider retained bytes, not only queue capacity or producer backpressure.
+- The queued-byte remote-free policy result is now cross-domain: mixed-size traces, KV block handles, and request arenas all show that retained-byte thresholds can match max-wait-2 counter behavior without relying directly on scheduler burst age.
 - The THP-advised mapped scratch result is the largest single timing delta observed, but the newest same-log Docker benchmark evidence observed base pages in the page-size samples. Treat the timing as a lead for controlled THP environments, not as current proof of huge page adoption.
 - The best THP validation result is currently negative evidence: `smaps` evidence now appears directly in the benchmark log beside fault samples and Criterion timing.
 
