@@ -53,6 +53,50 @@ pub mod linux {
         }
     }
 
+    /// Transparent huge page advice for a mapped region.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    pub enum LinuxTransparentHugePageAdvice {
+        /// Ask the kernel to consider the region for transparent huge pages.
+        HugePage,
+        /// Ask the kernel to avoid transparent huge pages for the region.
+        NoHugePage,
+    }
+
+    impl LinuxTransparentHugePageAdvice {
+        fn madvise_value(self) -> libc::c_int {
+            match self {
+                Self::HugePage => libc::MADV_HUGEPAGE,
+                Self::NoHugePage => libc::MADV_NOHUGEPAGE,
+            }
+        }
+    }
+
+    /// Applies transparent huge page advice to an owned mapped region.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the operating system rejects the advice.
+    pub fn advise_region_transparent_huge_pages(
+        region: &MappedRegion,
+        advice: LinuxTransparentHugePageAdvice,
+    ) -> Result<(), LinuxTransparentHugePageAdviceError> {
+        let rc = unsafe {
+            libc::madvise(
+                region.as_ptr().cast::<libc::c_void>(),
+                region.len(),
+                advice.madvise_value(),
+            )
+        };
+
+        if rc == -1 {
+            Err(LinuxTransparentHugePageAdviceError::Madvise(
+                io::Error::last_os_error(),
+            ))
+        } else {
+            Ok(())
+        }
+    }
+
     /// Linux NUMA policy failures.
     #[derive(Debug)]
     pub enum LinuxNumaPolicyError {
@@ -60,6 +104,13 @@ pub mod linux {
         InvalidNode(u32),
         /// `mbind` failed.
         Syscall(io::Error),
+    }
+
+    /// Linux transparent huge page advice failures.
+    #[derive(Debug)]
+    pub enum LinuxTransparentHugePageAdviceError {
+        /// `madvise` failed.
+        Madvise(io::Error),
     }
 
     impl fmt::Display for LinuxNumaPolicyError {
@@ -76,6 +127,24 @@ pub mod linux {
             match self {
                 Self::InvalidNode(_) => None,
                 Self::Syscall(source) => Some(source),
+            }
+        }
+    }
+
+    impl fmt::Display for LinuxTransparentHugePageAdviceError {
+        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+            match self {
+                Self::Madvise(source) => {
+                    write!(f, "transparent huge page madvise failed: {source}")
+                }
+            }
+        }
+    }
+
+    impl std::error::Error for LinuxTransparentHugePageAdviceError {
+        fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+            match self {
+                Self::Madvise(source) => Some(source),
             }
         }
     }
@@ -565,12 +634,14 @@ pub mod linux {
         use std::io::ErrorKind;
 
         use super::{
-            node_mask_words, parse_linux_numa_policy_readiness_line,
-            parse_linux_numa_policy_readiness_output, LinuxNumaPolicyError,
-            LinuxNumaPolicyReadiness, LinuxNumaPolicyReadinessLineParseError,
+            advise_region_transparent_huge_pages, node_mask_words,
+            parse_linux_numa_policy_readiness_line, parse_linux_numa_policy_readiness_output,
+            LinuxNumaPolicyError, LinuxNumaPolicyReadiness, LinuxNumaPolicyReadinessLineParseError,
             LinuxNumaPolicyReadinessOutputParseError, LinuxNumaPolicyReadinessReason,
             LinuxNumaPolicyReadinessStatus, LinuxProcessStatusDiagnostics, LinuxSeccompMode,
+            LinuxTransparentHugePageAdvice, LinuxTransparentHugePageAdviceError,
         };
+        use crate::MappedRegion;
 
         #[test]
         fn builds_single_word_node_mask() {
@@ -594,6 +665,31 @@ pub mod linux {
             let error = node_mask_words(4096).expect_err("invalid node");
 
             assert!(matches!(error, LinuxNumaPolicyError::InvalidNode(4096)));
+        }
+
+        #[test]
+        fn applies_transparent_huge_page_advice() {
+            let region = MappedRegion::anonymous(4096).expect("mapped region");
+
+            advise_region_transparent_huge_pages(&region, LinuxTransparentHugePageAdvice::HugePage)
+                .expect("huge page advice");
+            advise_region_transparent_huge_pages(
+                &region,
+                LinuxTransparentHugePageAdvice::NoHugePage,
+            )
+            .expect("no huge page advice");
+        }
+
+        #[test]
+        fn reports_transparent_huge_page_advice_errors() {
+            let error = LinuxTransparentHugePageAdviceError::Madvise(io::Error::from_raw_os_error(
+                libc::EINVAL,
+            ));
+
+            assert!(error
+                .to_string()
+                .starts_with("transparent huge page madvise failed:"));
+            assert!(std::error::Error::source(&error).is_some());
         }
 
         #[test]
