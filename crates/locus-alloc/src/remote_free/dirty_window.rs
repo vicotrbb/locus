@@ -3,8 +3,10 @@ use std::sync::{Arc, Mutex};
 
 use super::{
     RemoteFreeOwnerRuntime, RemoteFreeServiceRetuneSummary,
-    RemoteFreeServiceRuntimeDirtyOwnerFlushStats, RemoteFreeServiceRuntimeDirtyOwnerLocalBuffers,
-    RemoteFreeServiceRuntimeOwnerId, RemoteFreeServiceRuntimeRetuneOwners,
+    RemoteFreeServiceRuntimeDirtyOwnerFlushStats,
+    RemoteFreeServiceRuntimeDirtyOwnerLocalBufferGroupError,
+    RemoteFreeServiceRuntimeDirtyOwnerLocalBuffers, RemoteFreeServiceRuntimeOwnerId,
+    RemoteFreeServiceRuntimeRetuneOwners, RemoteFreeServiceRuntimeValidatedDirtyOwner,
     RemoteFreeServiceRuntimeWindowCollectionError, RemoteFreeServiceRuntimeWindowStats,
     RemoteFreeSink,
 };
@@ -322,6 +324,24 @@ impl DirtyOwnerTrackerState {
 }
 
 impl<T> RemoteFreeServiceRuntimeRetuneOwners<T> {
+    /// Validates an owner ID for local dirty-buffer group access.
+    ///
+    /// The returned handle can be used with local dirty-buffer group methods
+    /// without passing the current owner limit through each call site.
+    ///
+    /// # Errors
+    ///
+    /// Returns `OwnerOutOfRange` when the owner ID is not registered.
+    pub fn validate_local_dirty_owner(
+        &self,
+        owner_id: RemoteFreeServiceRuntimeOwnerId,
+    ) -> Result<
+        RemoteFreeServiceRuntimeValidatedDirtyOwner,
+        RemoteFreeServiceRuntimeDirtyOwnerLocalBufferGroupError,
+    > {
+        RemoteFreeServiceRuntimeDirtyOwnerLocalBuffers::validate_owner(owner_id, self.len())
+    }
+
     /// Collects and processes all currently marked dirty owners.
     ///
     /// Dirty marks are cleared only after a successful collection window. If an
@@ -418,9 +438,9 @@ mod tests {
         RemoteFreeQueuedByteDrainConfig, RemoteFreeQueuedByteDriftReport,
         RemoteFreeServiceRetuneCandidate, RemoteFreeServiceRetuneGuard,
         RemoteFreeServiceRetunePolicyApplicator, RemoteFreeServiceRetuneSummary,
-        RemoteFreeServiceRuntimeOwnerId, RemoteFreeServiceRuntimeRetuneCoordinator,
-        RemoteFreeServiceRuntimeRetuneOwners, RemoteFreeServiceRuntimeWindowCollectionError,
-        RemoteFreeTryEnqueueErrorKind,
+        RemoteFreeServiceRuntimeDirtyOwnerLocalBufferGroupError, RemoteFreeServiceRuntimeOwnerId,
+        RemoteFreeServiceRuntimeRetuneCoordinator, RemoteFreeServiceRuntimeRetuneOwners,
+        RemoteFreeServiceRuntimeWindowCollectionError, RemoteFreeTryEnqueueErrorKind,
     };
 
     fn config(queue_capacity: usize) -> RemoteFreeQueuedByteDrainConfig {
@@ -674,6 +694,39 @@ mod tests {
             .local_buffer(owner_id)
             .expect("local buffer")
             .is_empty());
+    }
+
+    #[test]
+    fn owner_registry_validates_local_dirty_owner_handle() {
+        let mut owners = owners(2);
+        let owner_id = owners
+            .register_owner(RemoteFreeOwnerRuntime::<usize>::new(config(256)).expect("runtime"));
+
+        let owner = owners
+            .validate_local_dirty_owner(owner_id)
+            .expect("validated local dirty owner");
+
+        assert_eq!(owner.owner_id(), owner_id);
+    }
+
+    #[test]
+    fn owner_registry_rejects_missing_local_dirty_owner_handle() {
+        let mut owners = owners(2);
+        let owner_id = RemoteFreeServiceRuntimeOwnerId::new(1);
+        let dirty_buffers = RemoteFreeServiceRuntimeDirtyOwnerLocalBuffers::new();
+
+        owners.register_owner(RemoteFreeOwnerRuntime::<usize>::new(config(256)).expect("runtime"));
+
+        assert_eq!(
+            owners.validate_local_dirty_owner(owner_id),
+            Err(
+                RemoteFreeServiceRuntimeDirtyOwnerLocalBufferGroupError::OwnerOutOfRange {
+                    owner_id,
+                    owner_limit: 1,
+                }
+            )
+        );
+        assert!(dirty_buffers.local_buffer(owner_id).is_none());
     }
 
     #[test]

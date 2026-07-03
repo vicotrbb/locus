@@ -23,6 +23,12 @@ pub struct RemoteFreeServiceRuntimeDirtyOwnerLocalMarker<'a> {
     buffer: &'a mut RemoteFreeServiceRuntimeDirtyOwnerLocalBuffer,
 }
 
+/// Owner ID validated for local dirty-buffer group access.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct RemoteFreeServiceRuntimeValidatedDirtyOwner {
+    owner_id: RemoteFreeServiceRuntimeOwnerId,
+}
+
 /// Error from bounded local dirty-owner buffer group access.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RemoteFreeServiceRuntimeDirtyOwnerLocalBufferGroupError {
@@ -170,8 +176,19 @@ impl RemoteFreeServiceRuntimeDirtyOwnerLocalBuffers {
         owner_id: RemoteFreeServiceRuntimeOwnerId,
         owner_limit: usize,
     ) -> Result<bool, RemoteFreeServiceRuntimeDirtyOwnerLocalBufferGroupError> {
-        Self::validate_owner_limit(owner_id, owner_limit)?;
-        Ok(self.mark_dirty(owner_id))
+        let owner = Self::validate_owner(owner_id, owner_limit)?;
+        Ok(self.mark_validated_dirty(owner))
+    }
+
+    /// Marks a registry-validated owner dirty in its local buffer.
+    ///
+    /// Returns true when the local owner mark was not already pending.
+    #[must_use]
+    pub fn mark_validated_dirty(
+        &mut self,
+        owner: RemoteFreeServiceRuntimeValidatedDirtyOwner,
+    ) -> bool {
+        self.mark_dirty(owner.owner_id())
     }
 
     /// Borrows a hot-path local marker for one owner.
@@ -202,8 +219,17 @@ impl RemoteFreeServiceRuntimeDirtyOwnerLocalBuffers {
         RemoteFreeServiceRuntimeDirtyOwnerLocalMarker<'_>,
         RemoteFreeServiceRuntimeDirtyOwnerLocalBufferGroupError,
     > {
-        Self::validate_owner_limit(owner_id, owner_limit)?;
-        Ok(self.local_marker(owner_id))
+        let owner = Self::validate_owner(owner_id, owner_limit)?;
+        Ok(self.validated_local_marker(owner))
+    }
+
+    /// Borrows a hot-path local marker for a registry-validated owner.
+    #[must_use]
+    pub fn validated_local_marker(
+        &mut self,
+        owner: RemoteFreeServiceRuntimeValidatedDirtyOwner,
+    ) -> RemoteFreeServiceRuntimeDirtyOwnerLocalMarker<'_> {
+        self.local_marker(owner.owner_id())
     }
 
     /// Flushes one owner's local buffer into the shared dirty-owner tracker.
@@ -250,12 +276,20 @@ impl RemoteFreeServiceRuntimeDirtyOwnerLocalBuffers {
         }
     }
 
-    fn validate_owner_limit(
+    /// Validates an owner ID against an owner-index limit.
+    ///
+    /// # Errors
+    ///
+    /// Returns `OwnerOutOfRange` when the owner ID is outside `owner_limit`.
+    pub fn validate_owner(
         owner_id: RemoteFreeServiceRuntimeOwnerId,
         owner_limit: usize,
-    ) -> Result<(), RemoteFreeServiceRuntimeDirtyOwnerLocalBufferGroupError> {
+    ) -> Result<
+        RemoteFreeServiceRuntimeValidatedDirtyOwner,
+        RemoteFreeServiceRuntimeDirtyOwnerLocalBufferGroupError,
+    > {
         if owner_id.index() < owner_limit {
-            Ok(())
+            Ok(RemoteFreeServiceRuntimeValidatedDirtyOwner { owner_id })
         } else {
             Err(
                 RemoteFreeServiceRuntimeDirtyOwnerLocalBufferGroupError::OwnerOutOfRange {
@@ -264,6 +298,14 @@ impl RemoteFreeServiceRuntimeDirtyOwnerLocalBuffers {
                 },
             )
         }
+    }
+}
+
+impl RemoteFreeServiceRuntimeValidatedDirtyOwner {
+    /// Returns the validated owner ID.
+    #[must_use]
+    pub const fn owner_id(self) -> RemoteFreeServiceRuntimeOwnerId {
+        self.owner_id
     }
 }
 
@@ -495,6 +537,22 @@ mod tests {
     }
 
     #[test]
+    fn local_buffer_group_validated_owner_marks_without_rechecking_limit() {
+        let owner_id = RemoteFreeServiceRuntimeOwnerId::new(1);
+        let mut buffers = RemoteFreeServiceRuntimeDirtyOwnerLocalBuffers::new();
+        let owner = RemoteFreeServiceRuntimeDirtyOwnerLocalBuffers::validate_owner(owner_id, 2)
+            .expect("validated owner");
+
+        assert_eq!(owner.owner_id(), owner_id);
+        assert!(buffers.mark_validated_dirty(owner));
+        assert!(!buffers.mark_validated_dirty(owner));
+
+        let buffer = buffers.local_buffer(owner_id).expect("owner buffer");
+        assert_eq!(buffer.owner_ids(), &[owner_id]);
+        assert_eq!(buffer.duplicate_marks(), 1);
+    }
+
+    #[test]
     fn local_buffer_group_try_local_marker_rejects_out_of_range_owner_without_allocation() {
         let owner_id = RemoteFreeServiceRuntimeOwnerId::new(7);
         let mut buffers = RemoteFreeServiceRuntimeDirtyOwnerLocalBuffers::new();
@@ -520,6 +578,24 @@ mod tests {
             let mut marker = buffers
                 .try_local_marker(owner_id, 5)
                 .expect("bounded local marker");
+            assert!(marker.mark_dirty());
+            assert!(!marker.mark_dirty());
+        }
+
+        let buffer = buffers.local_buffer(owner_id).expect("owner buffer");
+        assert_eq!(buffer.owner_ids(), &[owner_id]);
+        assert_eq!(buffer.duplicate_marks(), 1);
+    }
+
+    #[test]
+    fn local_buffer_group_validated_local_marker_marks_without_owner_limit() {
+        let owner_id = RemoteFreeServiceRuntimeOwnerId::new(3);
+        let mut buffers = RemoteFreeServiceRuntimeDirtyOwnerLocalBuffers::new();
+        let owner = RemoteFreeServiceRuntimeDirtyOwnerLocalBuffers::validate_owner(owner_id, 4)
+            .expect("validated owner");
+
+        {
+            let mut marker = buffers.validated_local_marker(owner);
             assert!(marker.mark_dirty());
             assert!(!marker.mark_dirty());
         }

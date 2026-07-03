@@ -398,6 +398,19 @@ second run, while the manual and integrated baselines were noisier in the same
 sessions. Treat bounded marking as the default when a caller has the current
 owner count or the owner ID may be stale or externally supplied.
 
+Experiment 0217 added `RemoteFreeServiceRuntimeValidatedDirtyOwner` and
+`RemoteFreeServiceRuntimeRetuneOwners::validate_local_dirty_owner` so callers
+can obtain a registry-validated handle instead of passing owner limits
+manually. The validated path preserved 2048 submitted blocks, 2048 drained
+blocks, 9,437,440 released bytes, 12 policy drains, 36 drain rounds, 46
+reports needing retune, two apply decisions, one confirm, one rollback, and
+one mutation-limit decision. The first timing run favored the validated path:
+bounded measured 203.40 to 205.16 us and validated measured 197.83 to 198.27
+us. The second timing run was mixed: bounded measured 200.07 to 201.61 us and
+validated measured 201.58 to 208.39 us with high outliers. Treat the validated
+handle as the cleaner production API for avoiding manual owner-limit plumbing,
+but do not claim it is faster than the bounded path.
+
 ## Measured Thresholds
 
 | Path | Shape inputs | Budget | Matched counters |
@@ -515,6 +528,11 @@ owner count or the owner ID may be stale or externally supplied.
     The bounded methods reject out-of-range owner IDs before vector growth.
     Keep `local_marker` for the tightest hot path after owner IDs have already
     been validated.
+35. Prefer `validate_local_dirty_owner` when a service loop already owns the
+    runtime owner registry. Use the returned
+    `RemoteFreeServiceRuntimeValidatedDirtyOwner` with
+    `mark_validated_dirty` or `validated_local_marker` so call sites avoid
+    manual owner-limit plumbing.
 
 ## Guardrails
 
@@ -608,6 +626,9 @@ owner count or the owner ID may be stale or externally supplied.
   or otherwise untrusted owner IDs. Experiment 0216 added bounded direct
   marking for those paths while retaining unbounded markers only for already
   validated hot loops.
+- Do not claim the registry-validated local dirty handle is faster than the
+  bounded owner-limit path. Experiment 0217 preserved counters but produced
+  mixed timing evidence.
 - Recheck thresholds when KV block size, request arena capacity, burst size,
   request concurrency, or batch size changes.
 - For heterogeneous traces, derive the budget from actual retained item sizes
@@ -661,11 +682,13 @@ owner count or the owner ID may be stale or externally supplied.
 - `documentation/experiments/0214-remote-free-local-dirty-buffer-group.md`
 - `documentation/experiments/0215-remote-free-local-dirty-buffer-group-collection.md`
 - `documentation/experiments/0216-remote-free-bounded-local-dirty-buffer-group-marking.md`
+- `documentation/experiments/0217-remote-free-validated-local-dirty-owner-handle.md`
 
 ## Open Questions
 
-- Can owner registration expose a small reusable validated local dirty marker
-  handle so call sites do not need to pass owner limits manually?
+- Can the service-window benchmark factor shared local dirty-buffer group
+  collection assertions so manual, integrated, bounded, and validated paths are
+  less noisy and easier to compare?
 - Which workload signal should set the retained item window in production:
   scheduler turn age, active request concurrency, KV cache pressure, or memory
   pressure from observability counters?

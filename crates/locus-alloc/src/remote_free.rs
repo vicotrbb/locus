@@ -38,6 +38,7 @@ pub use dirty_buffer::{
     RemoteFreeServiceRuntimeDirtyOwnerFlushStats, RemoteFreeServiceRuntimeDirtyOwnerLocalBuffer,
     RemoteFreeServiceRuntimeDirtyOwnerLocalBufferGroupError,
     RemoteFreeServiceRuntimeDirtyOwnerLocalBuffers, RemoteFreeServiceRuntimeDirtyOwnerLocalMarker,
+    RemoteFreeServiceRuntimeValidatedDirtyOwner,
 };
 pub use dirty_window::{
     RemoteFreeServiceRuntimeDirtyOwnerSnapshot, RemoteFreeServiceRuntimeDirtyOwnerTracker,
