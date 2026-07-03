@@ -1475,6 +1475,9 @@ and stale aggregate rollup recheck JSON verdict records.
 Experiment 0326 aggregated those saved matched and stale JSON verdict records
 into a compact dashboard rollup with one matched record, one drifted record,
 and one `records` drift bucket.
+Experiment 0327 made that saved aggregate rollup recheck cohort rollup JSON
+artifact reloadable through the parser-only path and strict source recheck,
+preserving the same two-record cohort counters.
 
 ## Open Questions
 
