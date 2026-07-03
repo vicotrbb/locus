@@ -1483,6 +1483,10 @@ cohort rollup recheck outcomes as compact JSON verdicts, then reloaded them
 through the parser path.
 Experiment 0329 made that parser-only recheck explicit for the saved matched
 and stale aggregate rollup recheck cohort rollup recheck JSON verdict records.
+Experiment 0330 aggregated those saved matched and stale JSON verdict records
+into a compact dashboard rollup with one matched record, one drifted record,
+and one `records` drift bucket. It also recorded a failed over-deep mode
+suffix before rerunning with the accepted aggregate mode.
 
 ## Open Questions
 
