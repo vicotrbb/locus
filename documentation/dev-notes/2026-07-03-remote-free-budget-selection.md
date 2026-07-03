@@ -790,6 +790,12 @@ The real mixed artifact reloads with two records, one matched artifact, one
 drifted artifact, and one `records` drift bucket. The parser rejects grouped
 status and drift-field counter inconsistencies.
 
+Experiment 0269 added drift checking for archived verifier-summary drift
+verdict rollup JSON against the saved verifier-summary drift verdict records
+it summarizes. The real mixed rollup matches the source log, while a
+controlled stale `records=1` rollup reports `field=records`, expected `2`,
+actual `1`, and strict verification rejects it with `CountDrift`.
+
 ## Measured Thresholds
 
 | Path | Shape inputs | Budget | Matched counters |
@@ -1193,6 +1199,7 @@ status and drift-field counter inconsistencies.
 - `documentation/experiments/0266-remote-free-service-telemetry-rollup-check-log-summary-verdict-rollup-verification-summary-drift-json-parser.md`
 - `documentation/experiments/0267-remote-free-service-telemetry-rollup-check-log-summary-verdict-rollup-verification-summary-drift-json-rollup.md`
 - `documentation/experiments/0268-remote-free-service-telemetry-rollup-check-log-summary-verdict-rollup-verification-summary-drift-json-rollup-parser.md`
+- `documentation/experiments/0269-remote-free-service-telemetry-rollup-check-log-summary-verdict-rollup-verification-summary-drift-json-rollup-drift.md`
 
 ## Open Questions
 

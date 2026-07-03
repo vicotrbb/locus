@@ -322,6 +322,22 @@ pub struct RemoteFreeServiceTelemetryCollectionSummaryRollupCheckLogSummaryVerif
     pub summary: RemoteFreeServiceTelemetryCollectionSummaryRollupCheckLogSummaryVerificationRollupVerificationSummary,
 }
 
+/// Verification report for an archived verifier-summary verification rollup checked against source records.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RemoteFreeServiceTelemetryCollectionSummaryRollupCheckLogSummaryVerificationRollupVerificationSummaryVerificationRollupVerification
+{
+    /// Rollup recomputed from the saved verifier-summary verification records.
+    pub expected:
+        RemoteFreeServiceTelemetryCollectionSummaryRollupCheckLogSummaryVerificationRollupVerificationSummaryVerificationRollup,
+    /// Rollup parsed from the archived verifier-summary verification rollup JSON line.
+    pub actual:
+        RemoteFreeServiceTelemetryCollectionSummaryRollupCheckLogSummaryVerificationRollupVerificationSummaryVerificationRollup,
+    /// First counter drift, when the archived rollup does not match.
+    pub drift: Option<
+        RemoteFreeServiceTelemetryCollectionSummaryRollupCheckLogSummaryVerificationRollupVerificationSummaryDrift,
+    >,
+}
+
 impl RemoteFreeServiceTelemetryCollectionSummaryRollupCheckLogSummaryVerification {
     /// Returns true when the archived summary matches the recomputed source-log summary.
     #[must_use]
@@ -364,6 +380,26 @@ impl
     RemoteFreeServiceTelemetryCollectionSummaryRollupCheckLogSummaryVerificationRollupVerificationSummaryVerification
 {
     /// Returns true when the archived verifier summary matches the recomputed source-log summary.
+    #[must_use]
+    pub fn is_matched(&self) -> bool {
+        self.drift.is_none()
+    }
+
+    /// Stable status label for compact logs and JSON.
+    #[must_use]
+    pub fn status_str(&self) -> &'static str {
+        if self.is_matched() {
+            "matched"
+        } else {
+            "drifted"
+        }
+    }
+}
+
+impl
+    RemoteFreeServiceTelemetryCollectionSummaryRollupCheckLogSummaryVerificationRollupVerificationSummaryVerificationRollupVerification
+{
+    /// Returns true when the archived rollup matches the recomputed source-log rollup.
     #[must_use]
     pub fn is_matched(&self) -> bool {
         self.drift.is_none()
@@ -710,6 +746,45 @@ impl fmt::Display
             summary.drift_drift_status_missing_artifacts,
             summary.drift_drift_status_other_failures
         )
+    }
+}
+
+impl fmt::Display
+    for RemoteFreeServiceTelemetryCollectionSummaryRollupCheckLogSummaryVerificationRollupVerificationSummaryVerificationRollupVerification
+{
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        if let Some(drift) = &self.drift {
+            write!(
+                f,
+                "remote_free_service_telemetry_collection_summary_rollup_check_log_summary_json_verification_rollup_verification_summary_verification_rollup_verification=drifted field={} expected={} actual={} expected_records={} actual_records={}",
+                drift.field,
+                drift.expected,
+                drift.actual,
+                self.expected.summary.records,
+                self.actual.summary.records
+            )
+        } else {
+            let summary = &self.actual.summary;
+            write!(
+                f,
+                "remote_free_service_telemetry_collection_summary_rollup_check_log_summary_json_verification_rollup_verification_summary_verification_rollup_verification=matched records={} matched={} drifted={} drift_records={} drift_matched={} drift_drifted={} drift_drift_records={} drift_drift_rollup_hosts_present={} drift_drift_rollup_hosts_missing={} drift_drift_bundle_hosts={} drift_drift_bundle_hosts_missing={} drift_drift_status_valid_bundles={} drift_drift_status_drifted_summaries={} drift_drift_status_missing_artifacts={} drift_drift_status_other_failures={}",
+                summary.records,
+                summary.matched,
+                summary.drifted,
+                summary.drift_records,
+                summary.drift_matched,
+                summary.drift_drifted,
+                summary.drift_drift_records,
+                summary.drift_drift_rollup_hosts_present,
+                summary.drift_drift_rollup_hosts_missing,
+                summary.drift_drift_bundle_hosts,
+                summary.drift_drift_bundle_hosts_missing,
+                summary.drift_drift_status_valid_bundles,
+                summary.drift_drift_status_drifted_summaries,
+                summary.drift_drift_status_missing_artifacts,
+                summary.drift_drift_status_other_failures
+            )
+        }
     }
 }
 
@@ -2282,6 +2357,71 @@ pub fn parse_remote_free_service_telemetry_collection_summary_rollup_check_log_s
     )
 }
 
+/// Verifies an archived verifier-summary verification rollup JSON line against source records.
+///
+/// The source log is summarized from saved verifier-summary verification JSON
+/// records, then compared with the archived rollup JSON line found in
+/// `rollup_input`.
+///
+/// # Errors
+///
+/// Returns an error when either input is malformed or any rollup counter
+/// differs between the recomputed source-log rollup and the archived rollup.
+pub fn verify_remote_free_service_telemetry_collection_summary_rollup_check_log_summary_verification_rollup_verification_summary_verification_rollup_json_log(
+    source_input: &str,
+    rollup_input: &str,
+) -> Result<
+    RemoteFreeServiceTelemetryCollectionSummaryRollupCheckLogSummaryVerificationRollupVerificationSummaryVerificationRollup,
+    RemoteFreeServiceTelemetryCollectionSummaryRollupError,
+>{
+    let report =
+        check_remote_free_service_telemetry_collection_summary_rollup_check_log_summary_verification_rollup_verification_summary_verification_rollup_json_log(
+            source_input,
+            rollup_input,
+        )?;
+    require_rollup_check_log_summary_verification_rollup_verification_summary_verification_rollup_match(
+        &report,
+    )?;
+    Ok(report.actual)
+}
+
+/// Builds a verification report for an archived verifier-summary verification rollup JSON line.
+///
+/// The source log is summarized from saved verifier-summary verification JSON
+/// records, then compared with the archived rollup JSON line found in
+/// `rollup_input`.
+///
+/// # Errors
+///
+/// Returns an error when either input is malformed.
+pub fn check_remote_free_service_telemetry_collection_summary_rollup_check_log_summary_verification_rollup_verification_summary_verification_rollup_json_log(
+    source_input: &str,
+    rollup_input: &str,
+) -> Result<
+    RemoteFreeServiceTelemetryCollectionSummaryRollupCheckLogSummaryVerificationRollupVerificationSummaryVerificationRollupVerification,
+    RemoteFreeServiceTelemetryCollectionSummaryRollupError,
+>{
+    let expected =
+        summarize_remote_free_service_telemetry_collection_summary_rollup_check_log_summary_verification_rollup_verification_summary_verification_json_log(
+            source_input,
+        )?;
+    let actual =
+        parse_remote_free_service_telemetry_collection_summary_rollup_check_log_summary_verification_rollup_verification_summary_verification_rollup_json_log(
+            rollup_input,
+        )?;
+    let drift = first_rollup_check_log_summary_verification_rollup_verification_summary_drift(
+        &expected.summary,
+        &actual.summary,
+    );
+    Ok(
+        RemoteFreeServiceTelemetryCollectionSummaryRollupCheckLogSummaryVerificationRollupVerificationSummaryVerificationRollupVerification {
+            expected,
+            actual,
+            drift,
+        },
+    )
+}
+
 /// Parses a compact JSON line emitted for a saved verdict rollup verification summary.
 ///
 /// # Errors
@@ -3549,6 +3689,21 @@ fn require_rollup_check_log_summary_verification_rollup_verification_summary_mat
     Ok(())
 }
 
+fn require_rollup_check_log_summary_verification_rollup_verification_summary_verification_rollup_match(
+    report: &RemoteFreeServiceTelemetryCollectionSummaryRollupCheckLogSummaryVerificationRollupVerificationSummaryVerificationRollupVerification,
+) -> Result<(), RemoteFreeServiceTelemetryCollectionSummaryRollupError> {
+    if let Some(drift) = &report.drift {
+        return Err(
+            RemoteFreeServiceTelemetryCollectionSummaryRollupError::CountDrift {
+                field: drift.field,
+                expected: drift.expected,
+                actual: drift.actual,
+            },
+        );
+    }
+    Ok(())
+}
+
 fn rollup_check_log_summary_verification_rollup_json_value(
     rollup: &RemoteFreeServiceTelemetryCollectionSummaryRollupCheckLogSummaryVerificationRollup,
 ) -> Value {
@@ -4414,6 +4569,7 @@ mod tests {
         check_remote_free_service_telemetry_collection_summary_rollup_check_log_summary_json_log,
         check_remote_free_service_telemetry_collection_summary_rollup_check_log_summary_verification_rollup_json_log,
         check_remote_free_service_telemetry_collection_summary_rollup_check_log_summary_verification_rollup_verification_summary_json_log,
+        check_remote_free_service_telemetry_collection_summary_rollup_check_log_summary_verification_rollup_verification_summary_verification_rollup_json_log,
         collect_remote_free_service_telemetry_collection_summary_paths,
         format_remote_free_service_telemetry_collection_summary_rollup_check_json_line,
         format_remote_free_service_telemetry_collection_summary_rollup_check_log_summary_json_line,
@@ -4450,6 +4606,7 @@ mod tests {
         verify_remote_free_service_telemetry_collection_summary_rollup_check_log_summary_json_log,
         verify_remote_free_service_telemetry_collection_summary_rollup_check_log_summary_verification_rollup_json_log,
         verify_remote_free_service_telemetry_collection_summary_rollup_check_log_summary_verification_rollup_verification_summary_json_log,
+        verify_remote_free_service_telemetry_collection_summary_rollup_check_log_summary_verification_rollup_verification_summary_verification_rollup_json_log,
         write_remote_free_service_telemetry_collection_summary_rollup_artifact,
         RemoteFreeServiceTelemetryCollectionSummaryBundleValidation,
         RemoteFreeServiceTelemetryCollectionSummaryError,
@@ -6813,6 +6970,125 @@ mod tests {
                 "rollup_check_log_summary_verification_rollup_verification_summary_verification_rollup_json_line"
             )
         ));
+    }
+
+    #[test]
+    fn verifies_rollup_check_log_summary_json_verification_rollup_verdict_summary_verdict_rollup_against_source(
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let source_log =
+            sample_rollup_check_log_summary_json_verification_rollup_verdict_summary_verdict_log()?;
+        let rollup =
+            summarize_remote_free_service_telemetry_collection_summary_rollup_check_log_summary_verification_rollup_verification_summary_verification_json_log(
+                &source_log,
+            )?;
+        let json_line =
+            format_remote_free_service_telemetry_collection_summary_rollup_check_log_summary_verification_rollup_verification_summary_verification_rollup_json_line(
+                &rollup,
+            )?;
+        let rollup_log = format!("dashboard rollup\n{json_line}\n");
+
+        let verified =
+            verify_remote_free_service_telemetry_collection_summary_rollup_check_log_summary_verification_rollup_verification_summary_verification_rollup_json_log(
+                &source_log,
+                &rollup_log,
+            )?;
+        let report =
+            check_remote_free_service_telemetry_collection_summary_rollup_check_log_summary_verification_rollup_verification_summary_verification_rollup_json_log(
+                &source_log,
+                &rollup_log,
+            )?;
+
+        assert_eq!(verified.summary.records, 2);
+        assert_eq!(verified.summary.matched, 1);
+        assert_eq!(verified.summary.drifted, 1);
+        assert_eq!(verified.summary.drift_records, 1);
+        assert_eq!(report.drift, None);
+        assert!(report.is_matched());
+        assert_eq!(report.status_str(), "matched");
+        Ok(())
+    }
+
+    #[test]
+    fn reports_rollup_check_log_summary_json_verification_rollup_verdict_summary_verdict_rollup_record_drift(
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let source_log =
+            sample_rollup_check_log_summary_json_verification_rollup_verdict_summary_verdict_log()?;
+        let rollup =
+            summarize_remote_free_service_telemetry_collection_summary_rollup_check_log_summary_verification_rollup_verification_summary_verification_json_log(
+                &source_log,
+            )?;
+        let json_line =
+            format_remote_free_service_telemetry_collection_summary_rollup_check_log_summary_verification_rollup_verification_summary_verification_rollup_json_line(
+                &rollup,
+            )?;
+        let mut value = serde_json::from_str::<serde_json::Value>(&json_line)?;
+        value["records"] = json!(1);
+        let rollup_log = serde_json::to_string(&value)?;
+
+        let report =
+            check_remote_free_service_telemetry_collection_summary_rollup_check_log_summary_verification_rollup_verification_summary_verification_rollup_json_log(
+                &source_log,
+                &rollup_log,
+            )?;
+        let strict_error =
+            verify_remote_free_service_telemetry_collection_summary_rollup_check_log_summary_verification_rollup_verification_summary_verification_rollup_json_log(
+                &source_log,
+                &rollup_log,
+            )
+            .expect_err("strict verifier rejects records drift");
+
+        assert!(!report.is_matched());
+        assert_eq!(report.status_str(), "drifted");
+        assert_eq!(
+            report.drift.as_ref().map(|drift| drift.field),
+            Some("records")
+        );
+        assert_eq!(report.expected.summary.records, 2);
+        assert_eq!(report.actual.summary.records, 1);
+        assert!(matches!(
+            strict_error,
+            RemoteFreeServiceTelemetryCollectionSummaryRollupError::CountDrift {
+                field: "records",
+                expected: 2,
+                actual: 1
+            }
+        ));
+        Ok(())
+    }
+
+    #[test]
+    fn rejects_rollup_check_log_summary_json_verification_rollup_verdict_summary_verdict_rollup_group_drift_before_compare(
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let source_log =
+            sample_rollup_check_log_summary_json_verification_rollup_verdict_summary_verdict_log()?;
+        let rollup =
+            summarize_remote_free_service_telemetry_collection_summary_rollup_check_log_summary_verification_rollup_verification_summary_verification_json_log(
+                &source_log,
+            )?;
+        let json_line =
+            format_remote_free_service_telemetry_collection_summary_rollup_check_log_summary_verification_rollup_verification_summary_verification_rollup_json_line(
+                &rollup,
+            )?;
+        let mut value = serde_json::from_str::<serde_json::Value>(&json_line)?;
+        value["drift_fields"]["records"] = json!(0);
+        let rollup_log = serde_json::to_string(&value)?;
+
+        let error =
+            check_remote_free_service_telemetry_collection_summary_rollup_check_log_summary_verification_rollup_verification_summary_verification_rollup_json_log(
+                &source_log,
+                &rollup_log,
+            )
+            .expect_err("grouped parser drift");
+
+        assert!(matches!(
+            error,
+            RemoteFreeServiceTelemetryCollectionSummaryRollupError::CountDrift {
+                field: "drift_fields.records",
+                expected: 1,
+                actual: 0
+            }
+        ));
+        Ok(())
     }
 
     #[test]
