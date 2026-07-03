@@ -184,6 +184,11 @@ cases recorded one stable `drain_earlier` would-apply window, one stable
 `keep_config` with final streak 0 and no final would-apply candidate after a
 clean window.
 
+The service telemetry benchmark harness was then split into a small Criterion
+entrypoint plus static-service and dry-run support modules under
+`crates/locus-alloc/benches/remote_free_service/` so future service-window
+experiments do not keep growing one large benchmark file.
+
 ## Measured Thresholds
 
 | Path | Shape inputs | Budget | Matched counters |
