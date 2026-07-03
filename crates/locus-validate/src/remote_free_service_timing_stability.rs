@@ -1,6 +1,6 @@
 use std::{
     collections::{BTreeMap, BTreeSet},
-    fmt,
+    fmt::{self, Write as _},
 };
 
 use crate::remote_free_service_sample_compare::{
@@ -304,6 +304,46 @@ impl fmt::Display for RemoteFreeServiceTelemetryTimingStabilityManifestParseErro
 
 impl std::error::Error for RemoteFreeServiceTelemetryTimingStabilityManifestParseError {}
 
+/// Error returned when formatting a repeated-run timing stability manifest.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum RemoteFreeServiceTelemetryTimingStabilityManifestFormatError {
+    /// A label was empty.
+    EmptyLabel,
+    /// A label contained an unsupported character.
+    InvalidLabel(String),
+    /// A run label appeared more than once.
+    DuplicateRunLabel(String),
+    /// No candidate entries were provided.
+    MissingCandidates,
+}
+
+impl fmt::Display for RemoteFreeServiceTelemetryTimingStabilityManifestFormatError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::EmptyLabel => {
+                f.write_str("empty remote-free service telemetry stability manifest label")
+            }
+            Self::InvalidLabel(label) => {
+                write!(
+                    f,
+                    "invalid remote-free service telemetry stability manifest label: {label}"
+                )
+            }
+            Self::DuplicateRunLabel(label) => {
+                write!(
+                    f,
+                    "duplicate remote-free service telemetry stability manifest label: {label}"
+                )
+            }
+            Self::MissingCandidates => {
+                f.write_str("missing remote-free service telemetry stability manifest candidates")
+            }
+        }
+    }
+}
+
+impl std::error::Error for RemoteFreeServiceTelemetryTimingStabilityManifestFormatError {}
+
 /// Parses a repeated-run timing stability manifest.
 ///
 /// Blank lines and `#` comments are ignored. Each data row must contain
@@ -408,6 +448,48 @@ pub fn parse_remote_free_service_telemetry_timing_stability_manifest(
         baseline,
         candidates,
     })
+}
+
+/// Formats a repeated-run timing stability manifest with label-derived paths.
+///
+/// Paths are emitted as `<label>.txt`, so labels are restricted to ASCII
+/// alphanumeric characters plus `.`, `_`, and `-`. This prevents path
+/// traversal and keeps the manifest whitespace-separated.
+///
+/// # Errors
+///
+/// Returns an error when labels are empty, invalid, duplicated, or when no
+/// candidates are provided.
+pub fn format_remote_free_service_telemetry_timing_stability_manifest(
+    baseline_label: &str,
+    candidate_labels: &[String],
+) -> Result<String, RemoteFreeServiceTelemetryTimingStabilityManifestFormatError> {
+    validate_manifest_label(baseline_label)?;
+    if candidate_labels.is_empty() {
+        return Err(
+            RemoteFreeServiceTelemetryTimingStabilityManifestFormatError::MissingCandidates,
+        );
+    }
+
+    let mut labels = BTreeSet::from([baseline_label.to_owned()]);
+    let mut output = String::from("# role label path\n");
+    let _ = writeln!(
+        &mut output,
+        "baseline {baseline_label} {baseline_label}.txt"
+    );
+    for label in candidate_labels {
+        validate_manifest_label(label)?;
+        if !labels.insert(label.clone()) {
+            return Err(
+                RemoteFreeServiceTelemetryTimingStabilityManifestFormatError::DuplicateRunLabel(
+                    label.clone(),
+                ),
+            );
+        }
+        let _ = writeln!(&mut output, "candidate {label} {label}.txt");
+    }
+
+    Ok(output)
 }
 
 /// Summarizes repeated remote-free service telemetry timing evidence.
@@ -550,6 +632,28 @@ fn validate_run_labels(
     Ok(())
 }
 
+fn validate_manifest_label(
+    label: &str,
+) -> Result<(), RemoteFreeServiceTelemetryTimingStabilityManifestFormatError> {
+    if label.is_empty() {
+        return Err(RemoteFreeServiceTelemetryTimingStabilityManifestFormatError::EmptyLabel);
+    }
+    if label != "."
+        && label != ".."
+        && label
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'_' | b'-'))
+    {
+        Ok(())
+    } else {
+        Err(
+            RemoteFreeServiceTelemetryTimingStabilityManifestFormatError::InvalidLabel(
+                label.to_owned(),
+            ),
+        )
+    }
+}
+
 fn record_timing_delta(
     ranges: &mut BTreeMap<String, TimingRangeAccumulator>,
     delta: &RemoteFreeServiceTelemetryTimingDelta,
@@ -568,9 +672,11 @@ fn record_timing_delta(
 #[cfg(test)]
 mod tests {
     use super::{
+        format_remote_free_service_telemetry_timing_stability_manifest,
         parse_remote_free_service_telemetry_timing_stability_manifest,
         summarize_remote_free_service_telemetry_timing_stability,
         RemoteFreeServiceTelemetryTimingStabilityError,
+        RemoteFreeServiceTelemetryTimingStabilityManifestFormatError,
         RemoteFreeServiceTelemetryTimingStabilityManifestParseError,
         RemoteFreeServiceTelemetryTimingStabilityManifestRole,
         RemoteFreeServiceTelemetryTimingStabilityRun,
@@ -712,6 +818,55 @@ mod tests {
         assert!(matches!(
             error,
             RemoteFreeServiceTelemetryTimingStabilityManifestParseError::InvalidLine { .. }
+        ));
+    }
+
+    #[test]
+    fn formats_timing_stability_manifest() {
+        let manifest = format_remote_free_service_telemetry_timing_stability_manifest(
+            "apply-confirm-a",
+            &[
+                "apply-confirm-b".to_owned(),
+                "apply-confirm-drift".to_owned(),
+            ],
+        )
+        .expect("manifest");
+
+        assert_eq!(
+            manifest,
+            "# role label path\nbaseline apply-confirm-a apply-confirm-a.txt\ncandidate apply-confirm-b apply-confirm-b.txt\ncandidate apply-confirm-drift apply-confirm-drift.txt\n"
+        );
+        let parsed = parse_remote_free_service_telemetry_timing_stability_manifest(&manifest)
+            .expect("parse");
+        assert_eq!(parsed.baseline.label, "apply-confirm-a");
+        assert_eq!(parsed.candidates.len(), 2);
+    }
+
+    #[test]
+    fn rejects_invalid_manifest_format_labels() {
+        let error = format_remote_free_service_telemetry_timing_stability_manifest(
+            "../baseline",
+            &["candidate".to_owned()],
+        )
+        .expect_err("invalid label");
+
+        assert!(matches!(
+            error,
+            RemoteFreeServiceTelemetryTimingStabilityManifestFormatError::InvalidLabel(_)
+        ));
+    }
+
+    #[test]
+    fn rejects_duplicate_manifest_format_labels() {
+        let error = format_remote_free_service_telemetry_timing_stability_manifest(
+            "same",
+            &["same".to_owned()],
+        )
+        .expect_err("duplicate label");
+
+        assert!(matches!(
+            error,
+            RemoteFreeServiceTelemetryTimingStabilityManifestFormatError::DuplicateRunLabel(_)
         ));
     }
 

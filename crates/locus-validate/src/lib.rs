@@ -45,12 +45,14 @@ pub use remote_free_service_sample_compare::{
     RemoteFreeServiceTelemetryTimingInterval, RemoteFreeServiceTelemetryTimingParseError,
 };
 pub use remote_free_service_timing_stability::{
+    format_remote_free_service_telemetry_timing_stability_manifest,
     parse_remote_free_service_telemetry_timing_stability_manifest,
     summarize_remote_free_service_telemetry_timing_stability,
     RemoteFreeServiceTelemetryTimingStabilityDiscard,
     RemoteFreeServiceTelemetryTimingStabilityError,
     RemoteFreeServiceTelemetryTimingStabilityManifest,
     RemoteFreeServiceTelemetryTimingStabilityManifestEntry,
+    RemoteFreeServiceTelemetryTimingStabilityManifestFormatError,
     RemoteFreeServiceTelemetryTimingStabilityManifestParseError,
     RemoteFreeServiceTelemetryTimingStabilityManifestRole,
     RemoteFreeServiceTelemetryTimingStabilityRange,
