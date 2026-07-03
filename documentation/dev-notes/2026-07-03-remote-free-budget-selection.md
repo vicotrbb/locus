@@ -245,6 +245,14 @@ released bytes, 12 runtime-collected reports needing retune before apply, a
 clean validation window after apply, final capacity 256, and no rollback
 config.
 
+Experiment 0202 extended runtime-collected guarded telemetry to a three-owner
+mutation-limit sequence. One service guard consumed runtime reports from three
+`RemoteFreeOwnerRuntime` instances, allowed two apply-confirm mutations, then
+returned one `mutation_limit_reached` decision for the third stable owner
+candidate while preserving 2048 submitted blocks, 2048 drained blocks,
+8,388,608 released bytes, two installs, two confirms, zero rollbacks, and four
+runtime no-change outcomes.
+
 ## Measured Thresholds
 
 | Path | Shape inputs | Budget | Matched counters |
@@ -305,6 +313,9 @@ config.
 19. Prefer `RemoteFreeOwnerRuntime::drift_report` when guarded decisions can be
     driven by runtime-collected owner telemetry. Use controlled summaries only
     for paths that do not yet have a measured runtime-collected equivalent.
+20. Treat the service guard as the owner-spanning mutation budget when multiple
+    runtimes report drift. A later drifting owner must hold when the service
+    mutation budget is exhausted.
 
 ## Guardrails
 
@@ -343,6 +354,9 @@ config.
 - Do not treat the runtime initial-policy override as a production shortcut.
   It is a measured way to compare runtime telemetry against a diagnostic config
   while the applied config still restores the config's queued-byte policy.
+- Do not reset the service guard per owner when enforcing a service-wide
+  mutation budget. The mutation limit is only meaningful across owners when the
+  guard state is shared.
 - Recheck thresholds when KV block size, request arena capacity, burst size,
   request concurrency, or batch size changes.
 - For heterogeneous traces, derive the budget from actual retained item sizes
@@ -381,13 +395,14 @@ config.
 - `documentation/experiments/0199-remote-free-owner-runtime-confirm.md`
 - `documentation/experiments/0200-remote-free-guarded-runtime-sequence.md`
 - `documentation/experiments/0201-remote-free-runtime-collected-guarded-confirm.md`
+- `documentation/experiments/0202-remote-free-runtime-collected-multi-owner-mutation-limit.md`
 
 ## Open Questions
 
-- How should runtime-collected telemetry drive rollback and mutation-limit
-  guarded runtime paths?
-- How should the guarded runtime sequence lift to multi-owner runtime
-  orchestration?
+- How should runtime-collected telemetry drive rollback after a failed
+  validation window without synthetic summaries?
+- How should the guarded runtime sequence move from benchmark orchestration to
+  reusable multi-owner runtime orchestration?
 - Which workload signal should set the retained item window in production:
   scheduler turn age, active request concurrency, KV cache pressure, or memory
   pressure from observability counters?
