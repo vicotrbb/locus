@@ -6,9 +6,10 @@ use criterion::{black_box, Criterion};
 use locus_alloc::{
     RemoteFreeDrainPolicy, RemoteFreeOwnerRuntime, RemoteFreeServiceRetuneCandidate,
     RemoteFreeServiceRetuneGuard, RemoteFreeServiceRetunePolicyApplicator,
-    RemoteFreeServiceRetuneSummary, RemoteFreeServiceRuntimeOwnerId,
-    RemoteFreeServiceRuntimeRetuneCoordinator, RemoteFreeServiceRuntimeRetuneOwners,
-    RemoteFreeServiceRuntimeWindowObservation, RemoteFreeServiceRuntimeWindowStats,
+    RemoteFreeServiceRetuneSummary, RemoteFreeServiceRuntimeDirtyOwners,
+    RemoteFreeServiceRuntimeOwnerId, RemoteFreeServiceRuntimeRetuneCoordinator,
+    RemoteFreeServiceRuntimeRetuneOwners, RemoteFreeServiceRuntimeWindowObservation,
+    RemoteFreeServiceRuntimeWindowStats,
 };
 
 use crate::remote_free_service_application_harness::{
@@ -40,6 +41,7 @@ enum ServiceWindowDecisionKind {
 enum ServiceWindowRunnerMode {
     RoutedObservation,
     CollectedOwnerBorrow,
+    DirtyOwnerBorrow,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -94,6 +96,29 @@ pub(crate) fn benchmark_runtime_window_collection_sequence(c: &mut Criterion) {
                 let stats = run_runtime_service_window_sequence(
                     ServiceWindowRunnerMode::CollectedOwnerBorrow,
                 );
+                assert_service_window_stats(&stats);
+                black_box(stats);
+            });
+        },
+    );
+}
+
+pub(crate) fn benchmark_runtime_dirty_window_collection_sequence(c: &mut Criterion) {
+    print_service_window_sample(
+        ServiceWindowRunnerMode::DirtyOwnerBorrow,
+        "remote_free_service_runtime_dirty_window_collection_sample",
+    );
+    print_service_window_sample_summary(
+        ServiceWindowRunnerMode::DirtyOwnerBorrow,
+        "remote_free_service_runtime_dirty_window_collection_sample_summary",
+    );
+
+    c.bench_function(
+        "remote_free_service_runtime_dirty_window_collection_sequence",
+        |bench| {
+            bench.iter(|| {
+                let stats =
+                    run_runtime_service_window_sequence(ServiceWindowRunnerMode::DirtyOwnerBorrow);
                 assert_service_window_stats(&stats);
                 black_box(stats);
             });
@@ -384,6 +409,22 @@ fn observe_window(
                 ))
             })
             .expect("collected service window stats"),
+        ServiceWindowRunnerMode::DirtyOwnerBorrow => {
+            let mut dirty_owners = RemoteFreeServiceRuntimeDirtyOwners::new();
+            assert!(dirty_owners.mark_dirty(owner_id));
+            assert!(!dirty_owners.mark_dirty(owner_id));
+            let stats = owners
+                .collect_dirty_service_window(&mut dirty_owners, |_, runtime| {
+                    Ok::<_, Infallible>(collect_runtime_summary(
+                        runtime,
+                        &mut stats.runtime,
+                        block_bytes,
+                    ))
+                })
+                .expect("dirty service window stats");
+            assert!(dirty_owners.is_empty());
+            stats
+        }
     };
 
     assert_one_window_decision(window_stats, expected_decision);
@@ -424,6 +465,17 @@ fn assert_missing_owner(
                 })
                 .expect_err("missing owner");
             assert_eq!(error.owner_id(), missing);
+        }
+        ServiceWindowRunnerMode::DirtyOwnerBorrow => {
+            let mut dirty_owners = RemoteFreeServiceRuntimeDirtyOwners::new();
+            assert!(dirty_owners.mark_dirty(missing));
+            let error = owners
+                .collect_dirty_service_window(&mut dirty_owners, |_, _| {
+                    Ok::<_, Infallible>(RemoteFreeServiceRetuneSummary::new())
+                })
+                .expect_err("missing owner");
+            assert_eq!(error.owner_id(), missing);
+            assert_eq!(dirty_owners.owner_ids(), &[missing]);
         }
     }
 }

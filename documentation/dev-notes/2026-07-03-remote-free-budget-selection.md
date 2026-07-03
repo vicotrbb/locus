@@ -296,6 +296,15 @@ owner borrows, preserved the same 2048 submitted blocks, 2048 drained blocks,
 9,437,440 released bytes, two installs, one confirm, one rollback, one
 mutation-limit decision, four no-change outcomes, and one missing-owner check.
 
+Experiment 0208 added `RemoteFreeServiceRuntimeDirtyOwners` and
+`RemoteFreeServiceRuntimeRetuneOwners::collect_dirty_service_window` as the
+first dirty-owner selection helper over registered owner runtimes. A real
+allocation benchmark marked only active owners dirty, deduplicated repeated
+marks, collected eight dirty owner windows, preserved the same 2048 submitted
+blocks, 2048 drained blocks, 9,437,440 released bytes, two installs, one
+confirm, one rollback, one mutation-limit decision, four no-change outcomes,
+and one missing-owner check.
+
 ## Measured Thresholds
 
 | Path | Shape inputs | Budget | Matched counters |
@@ -375,6 +384,10 @@ mutation-limit decision, four no-change outcomes, and one missing-owner check.
 25. Use `collect_service_window` when the service loop owns registered owner
     runtimes and needs to collect summaries through short mutable owner borrows
     before routing them through the shared service-window runner.
+26. Use `RemoteFreeServiceRuntimeDirtyOwners` and
+    `collect_dirty_service_window` when a service loop can mark owners with new
+    remote-free activity and wants to avoid scanning every registered owner on
+    each service window.
 
 ## Guardrails
 
@@ -430,6 +443,9 @@ mutation-limit decision, four no-change outcomes, and one missing-owner check.
 - Do not hold mutable owner runtime borrows across service coordinator
   application, confirmation, or rollback. Use the collection helper when
   collection and routing happen in the same service loop.
+- Do not clear dirty-owner marks before a service window has completed
+  successfully. Keep marks available for retry or inspection when collection
+  or routing fails.
 - Recheck thresholds when KV block size, request arena capacity, burst size,
   request concurrency, or batch size changes.
 - For heterogeneous traces, derive the budget from actual retained item sizes
@@ -474,12 +490,13 @@ mutation-limit decision, four no-change outcomes, and one missing-owner check.
 - `documentation/experiments/0205-remote-free-runtime-retune-owner-registry.md`
 - `documentation/experiments/0206-remote-free-runtime-service-window-runner.md`
 - `documentation/experiments/0207-remote-free-runtime-window-collection.md`
+- `documentation/experiments/0208-remote-free-dirty-owner-window-collection.md`
 
 ## Open Questions
 
-- Should live service loops collect summaries from every registered owner each
-  window, or should collection be driven by a dirty-owner queue to avoid
-  scanning owners that have no new remote-free activity?
+- Where should dirty-owner marks be emitted in a live runtime: directly from
+  remote enqueue handles, from owner control-loop drain observations, or from a
+  separate service scheduler event queue?
 - Which workload signal should set the retained item window in production:
   scheduler turn age, active request concurrency, KV cache pressure, or memory
   pressure from observability counters?
