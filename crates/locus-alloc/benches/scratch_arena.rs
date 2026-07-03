@@ -156,6 +156,53 @@ fn vec_write_touch_1mib(c: &mut Criterion) {
     });
 }
 
+#[cfg(target_os = "linux")]
+fn mapped_scratch_thp_write_touch_4mib(c: &mut Criterion) {
+    use locus_alloc::MappedScratchHugePageAdvice;
+
+    c.bench_function("mapped_scratch_write_touch_4mib_default", |bench| {
+        bench.iter_batched(
+            || MappedScratchArena::new(NodeId(0), 4 * 1024 * 1024).expect("arena"),
+            |mut arena| black_box(arena.write_touch_pages().expect("touch pages")),
+            BatchSize::SmallInput,
+        );
+    });
+
+    c.bench_function("mapped_scratch_write_touch_4mib_hugepage_advice", |bench| {
+        bench.iter_batched(
+            || {
+                let arena = MappedScratchArena::new(NodeId(0), 4 * 1024 * 1024).expect("arena");
+                arena
+                    .advise_transparent_huge_pages(MappedScratchHugePageAdvice::HugePage)
+                    .expect("huge page advice");
+                arena
+            },
+            |mut arena| black_box(arena.write_touch_pages().expect("touch pages")),
+            BatchSize::SmallInput,
+        );
+    });
+
+    c.bench_function(
+        "mapped_scratch_write_touch_4mib_no_hugepage_advice",
+        |bench| {
+            bench.iter_batched(
+                || {
+                    let arena = MappedScratchArena::new(NodeId(0), 4 * 1024 * 1024).expect("arena");
+                    arena
+                        .advise_transparent_huge_pages(MappedScratchHugePageAdvice::NoHugePage)
+                        .expect("no huge page advice");
+                    arena
+                },
+                |mut arena| black_box(arena.write_touch_pages().expect("touch pages")),
+                BatchSize::SmallInput,
+            );
+        },
+    );
+}
+
+#[cfg(not(target_os = "linux"))]
+fn mapped_scratch_thp_write_touch_4mib(_c: &mut Criterion) {}
+
 fn request_scratch_cycle(c: &mut Criterion) {
     c.bench_function("request_scratch_cycle_16x64x256b", |bench| {
         let homes = (0..16)
@@ -625,6 +672,7 @@ criterion_group!(
     pinned_scratch_pool_reuse_cycle,
     mapped_scratch_write_touch_1mib,
     vec_write_touch_1mib,
+    mapped_scratch_thp_write_touch_4mib,
     request_scratch_cycle,
     request_vec_allocation_cycle,
     request_scratch_pool_cycle,

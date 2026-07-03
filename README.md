@@ -26,6 +26,7 @@ Run the scratch arena benchmark harness, including a default `Vec<u8>` allocatio
 
 ```sh
 cargo bench -p locus-alloc --bench scratch_arena
+docker run --rm -v "$PWD":/work -w /work rust:1.96 cargo bench -p locus-alloc --bench scratch_arena -- mapped_scratch_write_touch_4mib --sample-size 10
 ```
 
 Run the current Linux-oriented sys probes through Docker:
