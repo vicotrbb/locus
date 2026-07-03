@@ -764,6 +764,12 @@ real summary archive reloads as two records, one matched artifact, one drifted
 artifact, and one `records` drift bucket. The parser rejects schema drift,
 missing grouped fields, grouped status drift, and grouped drift-field drift.
 
+Experiment 0264 added drift checking for archived verifier-summary JSON against
+the saved verifier JSON records it summarizes. The real archive matches the
+saved verifier log, while a controlled stale `records=1` summary reports
+`field=records`, expected `2`, actual `1`, and strict verification rejects it
+with `CountDrift`.
+
 ## Measured Thresholds
 
 | Path | Shape inputs | Budget | Matched counters |
@@ -1162,6 +1168,7 @@ missing grouped fields, grouped status drift, and grouped drift-field drift.
 - `documentation/experiments/0261-remote-free-service-telemetry-rollup-check-log-summary-verdict-rollup-drift-json-parser.md`
 - `documentation/experiments/0262-remote-free-service-telemetry-rollup-check-log-summary-verdict-rollup-verification-summary.md`
 - `documentation/experiments/0263-remote-free-service-telemetry-rollup-check-log-summary-verdict-rollup-verification-summary-parser.md`
+- `documentation/experiments/0264-remote-free-service-telemetry-rollup-check-log-summary-verdict-rollup-verification-summary-drift.md`
 
 ## Open Questions
 

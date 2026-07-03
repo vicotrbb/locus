@@ -12,6 +12,7 @@ use locus_validate::{
     build_remote_free_service_telemetry_collection_summary_directory_rollup,
     check_remote_free_service_telemetry_collection_summary_rollup_check_log_summary_json_log,
     check_remote_free_service_telemetry_collection_summary_rollup_check_log_summary_verification_rollup_json_log,
+    check_remote_free_service_telemetry_collection_summary_rollup_check_log_summary_verification_rollup_verification_summary_json_log,
     format_remote_free_service_telemetry_collection_summary_rollup_check_json_line,
     format_remote_free_service_telemetry_collection_summary_rollup_check_log_summary_json_line,
     format_remote_free_service_telemetry_collection_summary_rollup_check_log_summary_verification_json_line,
@@ -35,6 +36,7 @@ use locus_validate::{
     verify_remote_free_service_telemetry_collection_summary_artifacts,
     verify_remote_free_service_telemetry_collection_summary_rollup_check_log_summary_json_log,
     verify_remote_free_service_telemetry_collection_summary_rollup_check_log_summary_verification_rollup_json_log,
+    verify_remote_free_service_telemetry_collection_summary_rollup_check_log_summary_verification_rollup_verification_summary_json_log,
     write_remote_free_service_telemetry_collection_summary_rollup_artifact,
     RemoteFreeServiceTelemetryCollectionSummaryBundleValidation,
     RemoteFreeServiceTelemetryCollectionSummaryHost,
@@ -105,6 +107,16 @@ fn run_mode(
         }
         "--rollup-check-json-summary-verdict-rollup-verify-against-json-summary-verify" => {
             run_rollup_check_json_summary_verdict_rollup_verify_against_json_summary_verify_mode(
+                program, args,
+            )?;
+        }
+        "--rollup-check-json-summary-verdict-rollup-verify-against-json-summary-verify-against" => {
+            run_rollup_check_json_summary_verdict_rollup_verify_against_json_summary_verify_against_mode(
+                program, args,
+            )?;
+        }
+        "--rollup-check-json-summary-verdict-rollup-verify-against-json-summary-verify-against-report" => {
+            run_rollup_check_json_summary_verdict_rollup_verify_against_json_summary_verify_against_report_mode(
                 program, args,
             )?;
         }
@@ -341,6 +353,38 @@ fn run_rollup_check_json_summary_verdict_rollup_verify_against_json_summary_veri
             &log_text,
         )?;
     println!("{summary}");
+    Ok(())
+}
+
+fn run_rollup_check_json_summary_verdict_rollup_verify_against_json_summary_verify_against_mode(
+    program: &str,
+    args: &mut impl Iterator<Item = String>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let (source_log_path, summary_log_path) = two_args(program, args)?;
+    let source_log_text = fs::read_to_string(&source_log_path)?;
+    let summary_log_text = fs::read_to_string(&summary_log_path)?;
+    let summary =
+        verify_remote_free_service_telemetry_collection_summary_rollup_check_log_summary_verification_rollup_verification_summary_json_log(
+            &source_log_text,
+            &summary_log_text,
+        )?;
+    println!("{summary}");
+    Ok(())
+}
+
+fn run_rollup_check_json_summary_verdict_rollup_verify_against_json_summary_verify_against_report_mode(
+    program: &str,
+    args: &mut impl Iterator<Item = String>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let (source_log_path, summary_log_path) = two_args(program, args)?;
+    let source_log_text = fs::read_to_string(&source_log_path)?;
+    let summary_log_text = fs::read_to_string(&summary_log_path)?;
+    let report =
+        check_remote_free_service_telemetry_collection_summary_rollup_check_log_summary_verification_rollup_verification_summary_json_log(
+            &source_log_text,
+            &summary_log_text,
+        )?;
+    println!("{report}");
     Ok(())
 }
 
@@ -718,7 +762,7 @@ fn usage_error(program: &str) -> io::Error {
     io::Error::new(
         io::ErrorKind::InvalidInput,
         format!(
-            "usage: {program} <collection-summary.json>\n       {program} --dir <evidence-root> [--write-rollup]\n       {program} --rollup <collection-summary-rollup.json>\n       {program} --rollup-check-json <saved-log.txt>\n       {program} --rollup-check-json-summary <saved-log.txt>\n       {program} --rollup-check-json-summary-verify <saved-log.txt>\n       {program} --rollup-check-json-summary-verify-against <saved-rollup-check-log.txt> <saved-summary-log.txt>\n       {program} --rollup-check-json-summary-verify-against-json <saved-rollup-check-log.txt> <saved-summary-log.txt>\n       {program} --rollup-check-json-summary-verdict-rollup <saved-verdict-log.txt>\n       {program} --rollup-check-json-summary-verdict-rollup-verify <saved-verdict-rollup-log.txt>\n       {program} --rollup-check-json-summary-verdict-rollup-verify-against <saved-verdict-log.txt> <saved-verdict-rollup-log.txt>\n       {program} --rollup-check-json-summary-verdict-rollup-verify-against-json <saved-verdict-log.txt> <saved-verdict-rollup-log.txt>\n       {program} --rollup-check-json-summary-verdict-rollup-verify-against-json-verify <saved-verdict-rollup-verification-log.txt>\n       {program} --rollup-check-json-summary-verdict-rollup-verify-against-json-summary <saved-verdict-rollup-verification-log.txt>\n       {program} --rollup-check-json-summary-verdict-rollup-verify-against-json-summary-verify <saved-verdict-rollup-verification-summary-log.txt>"
+            "usage: {program} <collection-summary.json>\n       {program} --dir <evidence-root> [--write-rollup]\n       {program} --rollup <collection-summary-rollup.json>\n       {program} --rollup-check-json <saved-log.txt>\n       {program} --rollup-check-json-summary <saved-log.txt>\n       {program} --rollup-check-json-summary-verify <saved-log.txt>\n       {program} --rollup-check-json-summary-verify-against <saved-rollup-check-log.txt> <saved-summary-log.txt>\n       {program} --rollup-check-json-summary-verify-against-json <saved-rollup-check-log.txt> <saved-summary-log.txt>\n       {program} --rollup-check-json-summary-verdict-rollup <saved-verdict-log.txt>\n       {program} --rollup-check-json-summary-verdict-rollup-verify <saved-verdict-rollup-log.txt>\n       {program} --rollup-check-json-summary-verdict-rollup-verify-against <saved-verdict-log.txt> <saved-verdict-rollup-log.txt>\n       {program} --rollup-check-json-summary-verdict-rollup-verify-against-json <saved-verdict-log.txt> <saved-verdict-rollup-log.txt>\n       {program} --rollup-check-json-summary-verdict-rollup-verify-against-json-verify <saved-verdict-rollup-verification-log.txt>\n       {program} --rollup-check-json-summary-verdict-rollup-verify-against-json-summary <saved-verdict-rollup-verification-log.txt>\n       {program} --rollup-check-json-summary-verdict-rollup-verify-against-json-summary-verify <saved-verdict-rollup-verification-summary-log.txt>\n       {program} --rollup-check-json-summary-verdict-rollup-verify-against-json-summary-verify-against <saved-verdict-rollup-verification-log.txt> <saved-verdict-rollup-verification-summary-log.txt>\n       {program} --rollup-check-json-summary-verdict-rollup-verify-against-json-summary-verify-against-report <saved-verdict-rollup-verification-log.txt> <saved-verdict-rollup-verification-summary-log.txt>"
         ),
     )
 }
