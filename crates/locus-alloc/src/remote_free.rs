@@ -70,6 +70,39 @@ pub struct RemoteFreeDrainPolicy {
 }
 
 /// Owner-side controller for remote-free policy and drain accounting.
+///
+/// The controller owns policy and byte accounting, while domain allocators keep
+/// their release logic explicit in the queue drain closure.
+///
+/// ```
+/// use std::num::NonZeroU64;
+///
+/// use locus_alloc::{RemoteFreeDrainController, RemoteFreeDrainPolicy, RemoteFreeQueue};
+///
+/// let mut queue = RemoteFreeQueue::new(8, 2).expect("queue");
+/// let sink = queue.sink();
+/// let mut controller = RemoteFreeDrainController::new(
+///     RemoteFreeDrainPolicy::new()
+///         .with_max_pending_age(NonZeroU64::new(2).expect("non-zero")),
+/// );
+///
+/// sink.enqueue(vec![0_u8; 4096]).expect("enqueue");
+/// controller.record_submit(0, 4096);
+///
+/// if controller
+///     .should_drain_queue(&queue, 2)
+///     .expect("controller status")
+/// {
+///     queue.drain_batch(|buffer| {
+///         let released_bytes = u64::try_from(buffer.len()).expect("buffer length fits u64");
+///         controller
+///             .record_drain(released_bytes)
+///             .expect("tracked drain");
+///     });
+/// }
+///
+/// assert!(controller.tracker().is_empty());
+/// ```
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RemoteFreeDrainController {
     policy: RemoteFreeDrainPolicy,
@@ -1028,6 +1061,48 @@ mod tests {
                 .expect("empty decision"),
             RemoteFreeDrainDecision::Defer
         );
+    }
+
+    #[test]
+    fn remote_free_drain_controller_owner_loop_releases_allocated_buffers() {
+        let mut controller = RemoteFreeDrainController::new(
+            RemoteFreeDrainPolicy::new()
+                .with_max_pending_age(NonZeroU64::new(2).expect("non-zero")),
+        );
+        let mut queue = RemoteFreeQueue::new(4, 2).expect("queue");
+        let sink = queue.sink();
+
+        sink.enqueue(vec![0_u8; 4096]).expect("enqueue first");
+        controller.record_submit(0, 4096);
+        sink.enqueue(vec![0_u8; 8192]).expect("enqueue second");
+        controller.record_submit(1, 8192);
+
+        let policy_status = controller
+            .status_for_queue(&queue, 2)
+            .expect("controller status");
+        assert_eq!(
+            policy_status.decision,
+            RemoteFreeDrainDecision::Drain(RemoteFreeDrainReason::PendingAge)
+        );
+
+        let mut released_bytes = 0_u64;
+        let drain_stats = queue.drain_batch(|buffer| {
+            let buffer_len = u64::try_from(buffer.len()).expect("buffer length fits u64");
+            let tracked = controller.record_drain(buffer_len).expect("tracked drain");
+            assert_eq!(tracked.released_bytes, buffer_len);
+            released_bytes = released_bytes.saturating_add(buffer_len);
+        });
+
+        assert_eq!(drain_stats.drained, 2);
+        assert_eq!(released_bytes, 12_288);
+        assert_eq!(
+            controller
+                .status_for_queue(&queue, 3)
+                .expect("empty status")
+                .decision,
+            RemoteFreeDrainDecision::Defer
+        );
+        assert!(controller.tracker().is_empty());
     }
 
     #[test]
