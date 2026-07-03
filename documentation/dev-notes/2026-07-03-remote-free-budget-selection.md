@@ -1404,6 +1404,7 @@ artifact reloads as `status=drifted` with `field=records`.
 - `documentation/experiments/0312-remote-free-service-telemetry-rollup-drift-json-rollup-drift-json-rollup.md`
 - `documentation/experiments/0313-remote-free-service-telemetry-rollup-drift-json-rollup-drift-json-rollup-parser.md`
 - `documentation/experiments/0314-remote-free-service-telemetry-rollup-drift-json-rollup-drift-json-rollup-drift-json.md`
+- `documentation/experiments/0315-remote-free-service-telemetry-rollup-drift-json-rollup-drift-json-rollup-drift-json-parser.md`
 
 Do not rely only on console text for archive drift checks. Preserve the compact
 JSON verdict beside the human report, then parse the saved JSON back through
@@ -1431,6 +1432,8 @@ controlled stale `records=1` rollup with `CountDrift`.
 Experiment 0314 preserved the matched and stale dashboard rollup recheck
 outcomes as compact JSON verdicts, then reloaded both verdict artifacts
 through the parser path.
+Experiment 0315 made that parser-only recheck explicit for the saved matched
+and stale rollup recheck JSON verdict records.
 
 ## Open Questions
 
