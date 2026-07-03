@@ -5,10 +5,10 @@ use std::thread;
 use criterion::{black_box, Criterion};
 use locus_alloc::{
     RemoteFreeOwnerRuntime, RemoteFreeOwnerRuntimeApplyOutcome,
-    RemoteFreeOwnerRuntimeRollbackOutcome, RemoteFreeQueuedByteDrainConfig,
-    RemoteFreeServiceRetuneCandidate, RemoteFreeServiceRetuneGuardDecision,
-    RemoteFreeServiceRetunePolicyApplication, RemoteFreeServiceRetunePolicyApplicator,
-    RemoteFreeTryEnqueueErrorKind,
+    RemoteFreeOwnerRuntimeConfirmOutcome, RemoteFreeOwnerRuntimeRollbackOutcome,
+    RemoteFreeQueuedByteDrainConfig, RemoteFreeServiceRetuneCandidate,
+    RemoteFreeServiceRetuneGuardDecision, RemoteFreeServiceRetunePolicyApplication,
+    RemoteFreeServiceRetunePolicyApplicator, RemoteFreeTryEnqueueErrorKind,
 };
 
 use crate::remote_free_service_harness::{
@@ -36,6 +36,7 @@ struct RuntimeApplicationStats {
     max_wait_bursts: u64,
     total_wait_bursts: u64,
     install_count: u64,
+    confirm_count: u64,
     rollback_count: u64,
     final_queue_capacity: usize,
     final_previous_config_present: bool,
@@ -48,6 +49,16 @@ pub(crate) fn benchmark_runtime_application(c: &mut Criterion) {
         b.iter(|| {
             let stats = run_runtime_application_sequence();
             assert_runtime_application_stats(stats);
+            black_box(stats);
+        });
+    });
+
+    print_runtime_confirm_sample();
+    print_runtime_confirm_sample_summary();
+    c.bench_function("remote_free_service_runtime_apply_confirm", |b| {
+        b.iter(|| {
+            let stats = run_runtime_confirm_sequence();
+            assert_runtime_confirm_stats(stats);
             black_box(stats);
         });
     });
@@ -143,6 +154,7 @@ impl RuntimeApplicationStats {
             max_wait_bursts: 0,
             total_wait_bursts: 0,
             install_count: 0,
+            confirm_count: 0,
             rollback_count: 0,
             final_queue_capacity: 0,
             final_previous_config_present: false,
@@ -178,6 +190,27 @@ fn print_runtime_application_sample() {
     );
 }
 
+fn print_runtime_confirm_sample() {
+    let stats = run_runtime_confirm_sequence();
+    assert_runtime_confirm_stats(stats);
+
+    println!(
+        "remote_free_service_runtime_apply_confirm_sample windows={RUNTIME_WINDOWS} initial_queue_capacity={RUNTIME_INITIAL_QUEUE_CAPACITY} installed_queue_capacity={QUEUE_CAPACITY} final_queue_capacity={} submitted_count={} drained_count={} released_bytes={} policy_drains={} drain_rounds={} install_count={} confirm_count={} rollback_count={} max_wait_bursts={} mean_wait_bursts={} final_previous_config_present={}",
+        stats.final_queue_capacity,
+        stats.submitted_count,
+        stats.drained_count,
+        stats.released_bytes,
+        stats.policy_drains,
+        stats.drain_rounds,
+        stats.install_count,
+        stats.confirm_count,
+        stats.rollback_count,
+        stats.max_wait_bursts,
+        format_milli(stats.mean_wait_milli()),
+        stats.final_previous_config_present,
+    );
+}
+
 fn print_runtime_application_sample_summary() {
     let mut policy_drains = CounterSummary::new();
     let mut drain_rounds = CounterSummary::new();
@@ -196,6 +229,39 @@ fn print_runtime_application_sample_summary() {
 
     println!(
         "remote_free_service_runtime_apply_rollback_sample_summary windows={RUNTIME_WINDOWS} samples={SAMPLES} policy_drains_min={} policy_drains_max={} policy_drains_mean={} drain_rounds_min={} drain_rounds_max={} drain_rounds_mean={} max_wait_min={} max_wait_max={} max_wait_mean={} mean_wait_min={} mean_wait_max={} mean_wait_mean={}",
+        policy_drains.min,
+        policy_drains.max,
+        format_milli(policy_drains.mean_milli(SAMPLES)),
+        drain_rounds.min,
+        drain_rounds.max,
+        format_milli(drain_rounds.mean_milli(SAMPLES)),
+        max_wait.min,
+        max_wait.max,
+        format_milli(max_wait.mean_milli(SAMPLES)),
+        format_milli(mean_wait.min),
+        format_milli(mean_wait.max),
+        format_milli(mean_wait.mean_milli(SAMPLES) / 1000),
+    );
+}
+
+fn print_runtime_confirm_sample_summary() {
+    let mut policy_drains = CounterSummary::new();
+    let mut drain_rounds = CounterSummary::new();
+    let mut max_wait = CounterSummary::new();
+    let mut mean_wait = CounterSummary::new();
+
+    for _ in 0..SAMPLES {
+        let stats = run_runtime_confirm_sequence();
+        assert_runtime_confirm_stats(stats);
+
+        policy_drains.observe(stats.policy_drains);
+        drain_rounds.observe(stats.drain_rounds);
+        max_wait.observe(stats.max_wait_bursts);
+        mean_wait.observe(stats.mean_wait_milli());
+    }
+
+    println!(
+        "remote_free_service_runtime_apply_confirm_sample_summary windows={RUNTIME_WINDOWS} samples={SAMPLES} policy_drains_min={} policy_drains_max={} policy_drains_mean={} drain_rounds_min={} drain_rounds_max={} drain_rounds_mean={} max_wait_min={} max_wait_max={} max_wait_mean={} mean_wait_min={} mean_wait_max={} mean_wait_mean={}",
         policy_drains.min,
         policy_drains.max,
         format_milli(policy_drains.mean_milli(SAMPLES)),
@@ -248,6 +314,51 @@ fn run_runtime_application_sequence() -> RuntimeApplicationStats {
         })
     );
     stats.rollback_count = stats.rollback_count.saturating_add(1);
+
+    run_runtime_owner_window(&mut runtime, &mut stats);
+
+    stats.final_queue_capacity = runtime.config().queue_capacity();
+    stats.final_previous_config_present = runtime.previous_config().is_some();
+    stats
+}
+
+fn run_runtime_confirm_sequence() -> RuntimeApplicationStats {
+    let mut runtime = RemoteFreeOwnerRuntime::new(service_config(RUNTIME_INITIAL_QUEUE_CAPACITY))
+        .expect("owner runtime");
+    let mut stats = RuntimeApplicationStats::new();
+
+    run_runtime_owner_window(&mut runtime, &mut stats);
+
+    let applicator = RemoteFreeServiceRetunePolicyApplicator::try_new(QUEUE_CAPACITY_GROWTH_FACTOR)
+        .expect("policy applicator");
+    let application = applicator
+        .plan(
+            runtime.config(),
+            RemoteFreeServiceRetuneGuardDecision::Apply {
+                candidate: RemoteFreeServiceRetuneCandidate::IncreaseQueueCapacityAndDrainEarlier,
+            },
+        )
+        .expect("application plan");
+    assert_eq!(
+        runtime.apply(application),
+        Ok(RemoteFreeOwnerRuntimeApplyOutcome::Installed {
+            candidate: RemoteFreeServiceRetuneCandidate::IncreaseQueueCapacityAndDrainEarlier,
+            previous_config: service_config(RUNTIME_INITIAL_QUEUE_CAPACITY),
+            current_config: service_config(QUEUE_CAPACITY),
+        })
+    );
+    stats.install_count = stats.install_count.saturating_add(1);
+
+    run_runtime_owner_window(&mut runtime, &mut stats);
+
+    assert_eq!(
+        runtime.confirm(),
+        Ok(RemoteFreeOwnerRuntimeConfirmOutcome {
+            confirmed_config: service_config(QUEUE_CAPACITY),
+            cleared_previous_config: Some(service_config(RUNTIME_INITIAL_QUEUE_CAPACITY)),
+        })
+    );
+    stats.confirm_count = stats.confirm_count.saturating_add(1);
 
     run_runtime_owner_window(&mut runtime, &mut stats);
 
@@ -344,9 +455,31 @@ fn assert_runtime_application_stats(stats: RuntimeApplicationStats) {
     assert_eq!(stats.policy_drains, RUNTIME_WINDOWS * 4);
     assert_eq!(stats.drain_rounds, RUNTIME_WINDOWS * 4);
     assert_eq!(stats.install_count, 1);
+    assert_eq!(stats.confirm_count, 0);
     assert_eq!(stats.rollback_count, 1);
     assert_eq!(stats.max_wait_bursts, 2);
     assert_eq!(stats.mean_wait_milli(), 1_500);
     assert_eq!(stats.final_queue_capacity, RUNTIME_INITIAL_QUEUE_CAPACITY);
+    assert!(!stats.final_previous_config_present);
+}
+
+fn assert_runtime_confirm_stats(stats: RuntimeApplicationStats) {
+    assert_eq!(
+        stats.submitted_count,
+        RUNTIME_WINDOWS * BURSTS * BURST_BLOCKS
+    );
+    assert_eq!(stats.drained_count, stats.submitted_count);
+    assert_eq!(
+        stats.released_bytes,
+        stats.submitted_count.saturating_mul(BYTES_PER_BLOCK)
+    );
+    assert_eq!(stats.policy_drains, RUNTIME_WINDOWS * 4);
+    assert_eq!(stats.drain_rounds, RUNTIME_WINDOWS * 4);
+    assert_eq!(stats.install_count, 1);
+    assert_eq!(stats.confirm_count, 1);
+    assert_eq!(stats.rollback_count, 0);
+    assert_eq!(stats.max_wait_bursts, 2);
+    assert_eq!(stats.mean_wait_milli(), 1_500);
+    assert_eq!(stats.final_queue_capacity, QUEUE_CAPACITY);
     assert!(!stats.final_previous_config_present);
 }

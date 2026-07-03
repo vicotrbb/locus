@@ -44,6 +44,15 @@ pub struct RemoteFreeOwnerRuntimeRollbackOutcome {
     pub restored_config: RemoteFreeQueuedByteDrainConfig,
 }
 
+/// Result of confirming an owner runtime config.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RemoteFreeOwnerRuntimeConfirmOutcome {
+    /// Config that remains active after confirmation.
+    pub confirmed_config: RemoteFreeQueuedByteDrainConfig,
+    /// Rollback config cleared by confirmation, if any.
+    pub cleared_previous_config: Option<RemoteFreeQueuedByteDrainConfig>,
+}
+
 /// Failure while applying or rolling back owner runtime config.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RemoteFreeOwnerRuntimeError {
@@ -197,6 +206,23 @@ impl<T> RemoteFreeOwnerRuntime<T> {
         })
     }
 
+    /// Confirms the active config and clears rollback state.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the owner has pending work.
+    pub fn confirm(
+        &mut self,
+    ) -> Result<RemoteFreeOwnerRuntimeConfirmOutcome, RemoteFreeOwnerRuntimeError> {
+        self.ensure_empty_boundary()?;
+        let cleared_previous_config = self.previous_config.take();
+
+        Ok(RemoteFreeOwnerRuntimeConfirmOutcome {
+            confirmed_config: self.config,
+            cleared_previous_config,
+        })
+    }
+
     fn install_config(
         &mut self,
         candidate: RemoteFreeServiceRetuneCandidate,
@@ -278,7 +304,8 @@ impl std::error::Error for RemoteFreeOwnerRuntimeError {
 #[cfg(test)]
 mod tests {
     use super::{
-        RemoteFreeOwnerRuntime, RemoteFreeOwnerRuntimeApplyOutcome, RemoteFreeOwnerRuntimeError,
+        RemoteFreeOwnerRuntime, RemoteFreeOwnerRuntimeApplyOutcome,
+        RemoteFreeOwnerRuntimeConfirmOutcome, RemoteFreeOwnerRuntimeError,
         RemoteFreeOwnerRuntimeRollbackOutcome,
     };
     use crate::{
@@ -379,6 +406,42 @@ mod tests {
     }
 
     #[test]
+    fn owner_runtime_confirms_active_config_at_empty_boundary() {
+        let mut runtime = RemoteFreeOwnerRuntime::<usize>::new(config(128)).expect("runtime");
+        let application = application(
+            runtime.config(),
+            RemoteFreeServiceRetuneCandidate::IncreaseQueueCapacity,
+        );
+        runtime.apply(application).expect("install");
+
+        assert_eq!(
+            runtime.confirm(),
+            Ok(RemoteFreeOwnerRuntimeConfirmOutcome {
+                confirmed_config: config(256),
+                cleared_previous_config: Some(config(128)),
+            })
+        );
+        assert_eq!(runtime.config(), config(256));
+        assert_eq!(runtime.previous_config(), None);
+        assert_eq!(runtime.queue_stats().capacity, 256);
+    }
+
+    #[test]
+    fn owner_runtime_confirm_without_previous_config_is_noop() {
+        let mut runtime = RemoteFreeOwnerRuntime::<usize>::new(config(128)).expect("runtime");
+
+        assert_eq!(
+            runtime.confirm(),
+            Ok(RemoteFreeOwnerRuntimeConfirmOutcome {
+                confirmed_config: config(128),
+                cleared_previous_config: None,
+            })
+        );
+        assert_eq!(runtime.config(), config(128));
+        assert_eq!(runtime.previous_config(), None);
+    }
+
+    #[test]
     fn owner_runtime_rejects_missing_rollback_config() {
         let mut runtime = RemoteFreeOwnerRuntime::<usize>::new(config(128)).expect("runtime");
 
@@ -401,6 +464,29 @@ mod tests {
 
         assert_eq!(
             runtime.apply(application),
+            Err(RemoteFreeOwnerRuntimeError::NonEmptyBoundary {
+                queue_pending_count: 1,
+                controller_pending_count: 1,
+                controller_queued_bytes: 4096,
+            })
+        );
+    }
+
+    #[test]
+    fn owner_runtime_rejects_confirm_with_pending_work() {
+        let mut runtime = RemoteFreeOwnerRuntime::new(config(128)).expect("runtime");
+        let application = application(
+            runtime.config(),
+            RemoteFreeServiceRetuneCandidate::IncreaseQueueCapacity,
+        );
+        runtime.apply(application).expect("install");
+
+        let sink = runtime.sink();
+        sink.enqueue(vec![0_u8; 4096]).expect("enqueue");
+        runtime.record_submit(0, 4096);
+
+        assert_eq!(
+            runtime.confirm(),
             Err(RemoteFreeOwnerRuntimeError::NonEmptyBoundary {
                 queue_pending_count: 1,
                 controller_pending_count: 1,

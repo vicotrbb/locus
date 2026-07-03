@@ -38,7 +38,8 @@ pub use planner::{
     RemoteFreeServiceRetuneDryRunPlannerError,
 };
 pub use runtime::{
-    RemoteFreeOwnerRuntime, RemoteFreeOwnerRuntimeApplyOutcome, RemoteFreeOwnerRuntimeError,
+    RemoteFreeOwnerRuntime, RemoteFreeOwnerRuntimeApplyOutcome,
+    RemoteFreeOwnerRuntimeConfirmOutcome, RemoteFreeOwnerRuntimeError,
     RemoteFreeOwnerRuntimeRollbackOutcome,
 };
 pub use telemetry::{RemoteFreeRetuneActionCounts, RemoteFreeServiceRetuneSummary};

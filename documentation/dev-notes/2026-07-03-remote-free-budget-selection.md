@@ -223,6 +223,13 @@ capacity 256, rolled back to capacity 128, and preserved 768 submitted blocks,
 768 drained blocks, 3,145,728 released bytes, 12 policy drains, one install,
 one rollback, max wait 2 bursts, and mean wait 1.500 bursts.
 
+Experiment 0199 added `RemoteFreeOwnerRuntime::confirm` so successful
+validation windows can clear rollback state at empty owner boundaries. A real
+allocation benchmark installed capacity 256, confirmed it, and preserved 768
+submitted blocks, 768 drained blocks, 3,145,728 released bytes, 12 policy
+drains, one install, one confirm, zero rollbacks, final capacity 256, and no
+remaining rollback config.
+
 ## Measured Thresholds
 
 | Path | Shape inputs | Budget | Matched counters |
@@ -275,6 +282,8 @@ one rollback, max wait 2 bursts, and mean wait 1.500 bursts.
 16. Install or roll back configs through `RemoteFreeOwnerRuntime` only at empty
     owner boundaries. Do not migrate pending remote-free work across queue
     reconstruction without a separate measured design.
+17. Confirm successfully validated runtime configs at an empty owner boundary
+    so stale rollback configs cannot be applied after acceptance.
 
 ## Guardrails
 
@@ -306,6 +315,8 @@ one rollback, max wait 2 bursts, and mean wait 1.500 bursts.
   Guard decisions must pass through the typed policy applicator.
 - Do not rebuild a live owner queue while queue or controller pending work is
   non-empty. Runtime install and rollback are empty-boundary operations.
+- Do not keep rollback state after a validation window has confirmed the active
+  runtime config.
 - Recheck thresholds when KV block size, request arena capacity, burst size,
   request concurrency, or batch size changes.
 - For heterogeneous traces, derive the budget from actual retained item sizes
@@ -341,6 +352,7 @@ one rollback, max wait 2 bursts, and mean wait 1.500 bursts.
 - `documentation/experiments/0196-remote-free-guarded-mutation-limit.md`
 - `documentation/experiments/0197-remote-free-guarded-policy-application.md`
 - `documentation/experiments/0198-remote-free-owner-runtime-rollback.md`
+- `documentation/experiments/0199-remote-free-owner-runtime-confirm.md`
 
 ## Open Questions
 
