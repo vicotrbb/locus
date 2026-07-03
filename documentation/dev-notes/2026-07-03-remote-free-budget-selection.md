@@ -1154,6 +1154,10 @@ artifact reloads as `status=drifted` with `field=records`.
   rollup without recomputing it from the source verdict records. Experiment
   0284 showed a controlled stale `records=1` rollup fails strict verification
   with `CountDrift` against expected `records=2`.
+- Do not rely only on console text for repeated-check rollup drift verdict
+  rollup check rollup drift checks. Experiment 0285 showed the same checks
+  emit compact JSON verdict artifacts for matched and controlled stale
+  `records=1` archives.
 - Do not archive remote-free service telemetry output copies without the
   matching manifest and validation summary. Use the collector so copied
   outputs and the counter-gated summary stay together.
@@ -1290,6 +1294,7 @@ artifact reloads as `status=drifted` with `field=records`.
 - `documentation/experiments/0282-remote-free-service-telemetry-rollup-check-log-summary-verdict-rollup-verification-summary-drift-json-rollup-drift-json-rollup-drift-json-rollup-drift-json-rollup.md`
 - `documentation/experiments/0283-remote-free-service-telemetry-rollup-check-log-summary-verdict-rollup-verification-summary-drift-json-rollup-drift-json-rollup-drift-json-rollup-drift-json-rollup-parser.md`
 - `documentation/experiments/0284-remote-free-service-telemetry-rollup-check-log-summary-verdict-rollup-verification-summary-drift-json-rollup-drift-json-rollup-drift-json-rollup-drift-json-rollup-drift.md`
+- `documentation/experiments/0285-remote-free-service-telemetry-rollup-check-log-summary-verdict-rollup-verification-summary-drift-json-rollup-drift-json-rollup-drift-json-rollup-drift-json-rollup-drift-json.md`
 
 ## Open Questions
 
