@@ -141,6 +141,8 @@ pub struct RemoteFreeServiceTelemetryCollectionSummaryRollupHost {
 pub struct RemoteFreeServiceTelemetryCollectionSummaryBundleValidation {
     /// Run id when the summary could be parsed.
     pub run_id: Option<String>,
+    /// Capture host metadata when the summary could be parsed and carried it.
+    pub host: Option<RemoteFreeServiceTelemetryCollectionSummaryHost>,
     /// Bundle validation status.
     pub status: RemoteFreeServiceTelemetryCollectionSummaryRollupBundleStatus,
     /// Number of timing ranges for this bundle.
@@ -154,6 +156,8 @@ pub struct RemoteFreeServiceTelemetryCollectionSummaryRollupBundle {
     pub summary: String,
     /// Run id when the summary could be parsed.
     pub run_id: Option<String>,
+    /// Capture host metadata for the bundle, when available.
+    pub host: Option<RemoteFreeServiceTelemetryCollectionSummaryHost>,
     /// Bundle validation status.
     pub status: RemoteFreeServiceTelemetryCollectionSummaryRollupBundleStatus,
     /// Number of timing ranges for this bundle.
@@ -734,6 +738,7 @@ pub fn build_remote_free_service_telemetry_collection_summary_directory_rollup(
             .push(RemoteFreeServiceTelemetryCollectionSummaryRollupBundle {
                 summary,
                 run_id: validation.run_id,
+                host: validation.host,
                 status: validation.status,
                 timing_ranges,
             });
@@ -755,12 +760,18 @@ pub fn write_remote_free_service_telemetry_collection_summary_rollup_artifact(
         .bundles
         .iter()
         .map(|bundle| {
-            json!({
+            let mut bundle_json = json!({
                 "summary": bundle.summary.as_str(),
                 "run_id": bundle.run_id.as_deref(),
                 "status": bundle.status.as_str(),
                 "timing_ranges": bundle.timing_ranges,
-            })
+            });
+            if let Some(host) = &bundle.host {
+                if let Some(object) = bundle_json.as_object_mut() {
+                    object.insert("host".to_owned(), summary_host_json(host));
+                }
+            }
+            bundle_json
         })
         .collect::<Vec<_>>();
     let mut artifact = json!({
@@ -929,6 +940,14 @@ fn parse_source(
         label: required_str(value, "label")?.to_owned(),
         input: required_str(value, "input")?.to_owned(),
         artifact: required_str(value, "artifact")?.to_owned(),
+    })
+}
+
+fn summary_host_json(host: &RemoteFreeServiceTelemetryCollectionSummaryHost) -> Value {
+    json!({
+        "os": host.os.as_str(),
+        "arch": host.arch.as_str(),
+        "hostname": host.hostname.as_deref(),
     })
 }
 
@@ -1196,6 +1215,7 @@ mod tests {
         write_remote_free_service_telemetry_collection_summary_rollup_artifact,
         RemoteFreeServiceTelemetryCollectionSummaryBundleValidation,
         RemoteFreeServiceTelemetryCollectionSummaryError,
+        RemoteFreeServiceTelemetryCollectionSummaryHost,
         RemoteFreeServiceTelemetryCollectionSummaryRollup,
         RemoteFreeServiceTelemetryCollectionSummaryRollupBundle,
         RemoteFreeServiceTelemetryCollectionSummaryRollupBundleStatus,
@@ -1312,6 +1332,11 @@ mod tests {
                 "hostname": "bench-host-01"
             }),
         );
+        artifact["bundles"][0]["host"] = json!({
+            "os": "linux",
+            "arch": "x86_64",
+            "hostname": "bench-host-01"
+        });
         format!(
             "{}\n",
             serde_json::to_string_pretty(&artifact).expect("json")
@@ -1327,6 +1352,43 @@ mod tests {
         ));
         fs::create_dir(&dir)?;
         Ok(dir)
+    }
+
+    fn rollup_validation_for_bundle(
+        bundle: &str,
+    ) -> RemoteFreeServiceTelemetryCollectionSummaryBundleValidation {
+        match bundle {
+            "valid" => RemoteFreeServiceTelemetryCollectionSummaryBundleValidation {
+                run_id: Some("valid".to_owned()),
+                host: Some(RemoteFreeServiceTelemetryCollectionSummaryHost {
+                    os: "linux".to_owned(),
+                    arch: "x86_64".to_owned(),
+                    hostname: Some("bench-host-01".to_owned()),
+                }),
+                status: RemoteFreeServiceTelemetryCollectionSummaryRollupBundleStatus::Valid,
+                timing_ranges: 2,
+            },
+            "drifted" => RemoteFreeServiceTelemetryCollectionSummaryBundleValidation {
+                run_id: Some("drifted".to_owned()),
+                host: None,
+                status:
+                    RemoteFreeServiceTelemetryCollectionSummaryRollupBundleStatus::DriftedSummary,
+                timing_ranges: 0,
+            },
+            "missing" => RemoteFreeServiceTelemetryCollectionSummaryBundleValidation {
+                run_id: Some("missing".to_owned()),
+                host: None,
+                status:
+                    RemoteFreeServiceTelemetryCollectionSummaryRollupBundleStatus::MissingArtifact,
+                timing_ranges: 0,
+            },
+            _ => RemoteFreeServiceTelemetryCollectionSummaryBundleValidation {
+                run_id: None,
+                host: None,
+                status: RemoteFreeServiceTelemetryCollectionSummaryRollupBundleStatus::OtherFailure,
+                timing_ranges: 0,
+            },
+        }
     }
 
     #[test]
@@ -1438,28 +1500,7 @@ mod tests {
                     .and_then(|path| path.file_name())
                     .and_then(|name| name.to_str())
                     .expect("bundle name");
-                match bundle {
-                    "valid" => RemoteFreeServiceTelemetryCollectionSummaryBundleValidation {
-                        run_id: Some("valid".to_owned()),
-                        status: RemoteFreeServiceTelemetryCollectionSummaryRollupBundleStatus::Valid,
-                        timing_ranges: 2,
-                    },
-                    "drifted" => RemoteFreeServiceTelemetryCollectionSummaryBundleValidation {
-                        run_id: Some("drifted".to_owned()),
-                        status: RemoteFreeServiceTelemetryCollectionSummaryRollupBundleStatus::DriftedSummary,
-                        timing_ranges: 0,
-                    },
-                    "missing" => RemoteFreeServiceTelemetryCollectionSummaryBundleValidation {
-                        run_id: Some("missing".to_owned()),
-                        status: RemoteFreeServiceTelemetryCollectionSummaryRollupBundleStatus::MissingArtifact,
-                        timing_ranges: 0,
-                    },
-                    _ => RemoteFreeServiceTelemetryCollectionSummaryBundleValidation {
-                        run_id: None,
-                        status: RemoteFreeServiceTelemetryCollectionSummaryRollupBundleStatus::OtherFailure,
-                        timing_ranges: 0,
-                    },
-                }
+                rollup_validation_for_bundle(bundle)
             },
         )?;
 
@@ -1504,9 +1545,18 @@ mod tests {
                     "missing_artifact",
                     0
                 ),
-                ("valid/collection-summary.json", Some("valid"), "valid", 2),
+                ("valid/collection-summary.json", Some("valid"), "valid", 2,),
             ]
         );
+        let valid_bundle = rollup
+            .bundles
+            .iter()
+            .find(|bundle| bundle.summary == "valid/collection-summary.json")
+            .expect("valid bundle");
+        let host = valid_bundle.host.as_ref().expect("host metadata");
+        assert_eq!(host.os, "linux");
+        assert_eq!(host.arch, "x86_64");
+        assert_eq!(host.hostname.as_deref(), Some("bench-host-01"));
         fs::remove_dir_all(dir)?;
         Ok(())
     }
@@ -1667,6 +1717,11 @@ mod tests {
             bundles: vec![RemoteFreeServiceTelemetryCollectionSummaryRollupBundle {
                 summary: "run-1/collection-summary.json".to_owned(),
                 run_id: Some("run-1".to_owned()),
+                host: Some(RemoteFreeServiceTelemetryCollectionSummaryHost {
+                    os: "linux".to_owned(),
+                    arch: "x86_64".to_owned(),
+                    hostname: Some("bench-host-01".to_owned()),
+                }),
                 status: RemoteFreeServiceTelemetryCollectionSummaryRollupBundleStatus::Valid,
                 timing_ranges: 1,
             }],
@@ -1682,6 +1737,9 @@ mod tests {
             "locus.remote_free_service.telemetry.collection_summary_rollup.v2"
         );
         assert_eq!(artifact["bundles"][0]["status"], "valid");
+        assert_eq!(artifact["bundles"][0]["host"]["os"], "linux");
+        assert_eq!(artifact["bundles"][0]["host"]["arch"], "x86_64");
+        assert_eq!(artifact["bundles"][0]["host"]["hostname"], "bench-host-01");
         assert_eq!(artifact["host"]["os"], "linux");
         assert_eq!(artifact["host"]["arch"], "x86_64");
         assert_eq!(artifact["host"]["hostname"], "bench-host-01");

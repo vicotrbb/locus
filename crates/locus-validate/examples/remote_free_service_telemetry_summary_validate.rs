@@ -185,13 +185,19 @@ fn validate_summary_directory(
         |summary_path| match validate_summary_path(summary_path) {
             Ok(report) => RemoteFreeServiceTelemetryCollectionSummaryBundleValidation {
                 run_id: Some(report.run_id),
+                host: report.host,
                 status: RemoteFreeServiceTelemetryCollectionSummaryRollupBundleStatus::Valid,
                 timing_ranges: report.timing_ranges,
             },
             Err(error) => {
                 let message = error.to_string();
+                let (run_id, host) = read_summary_identity(summary_path)
+                    .map_or((None, None), |identity| {
+                        (Some(identity.run_id), identity.host)
+                    });
                 RemoteFreeServiceTelemetryCollectionSummaryBundleValidation {
-                    run_id: read_summary_run_id(summary_path).ok(),
+                    run_id,
+                    host,
                     status: classify_validation_error(&message),
                     timing_ranges: 0,
                 }
@@ -229,10 +235,18 @@ fn classify_validation_error(
     }
 }
 
-fn read_summary_run_id(summary_path: &Path) -> Result<String, Box<dyn Error>> {
+struct SummaryIdentity {
+    run_id: String,
+    host: Option<RemoteFreeServiceTelemetryCollectionSummaryHost>,
+}
+
+fn read_summary_identity(summary_path: &Path) -> Result<SummaryIdentity, Box<dyn Error>> {
     let summary_text = fs::read_to_string(summary_path)?;
     let summary = parse_remote_free_service_telemetry_collection_summary(&summary_text)?;
-    Ok(summary.run_id)
+    Ok(SummaryIdentity {
+        run_id: summary.run_id,
+        host: summary.host,
+    })
 }
 
 fn write_directory_rollup_artifact(
@@ -430,6 +444,11 @@ mod tests {
             "schema": "locus.remote_free_service.telemetry.collection_summary.v1",
             "collection_mode": "saved_output",
             "run_id": name,
+            "host": {
+                "os": "linux",
+                "arch": "x86_64",
+                "hostname": "bench-host-01"
+            },
             "output_count": 2,
             "criterion_args": [],
             "sources": [
@@ -562,6 +581,14 @@ mod tests {
         let host = rollup.host.as_ref().expect("host metadata");
         assert_eq!(host.os, std::env::consts::OS);
         assert_eq!(host.arch, std::env::consts::ARCH);
+        assert!(rollup
+            .bundles
+            .iter()
+            .all(|bundle| bundle.host.as_ref().is_some_and(|host| {
+                host.os == "linux"
+                    && host.arch == "x86_64"
+                    && host.hostname.as_deref() == Some("bench-host-01")
+            })));
         let bundle_rows = rollup
             .bundles
             .iter()
@@ -608,6 +635,9 @@ mod tests {
         assert_eq!(artifact["timing_ranges"], 1);
         assert_eq!(artifact["host"]["os"], std::env::consts::OS);
         assert_eq!(artifact["host"]["arch"], std::env::consts::ARCH);
+        assert_eq!(artifact["bundles"][0]["host"]["os"], "linux");
+        assert_eq!(artifact["bundles"][0]["host"]["arch"], "x86_64");
+        assert_eq!(artifact["bundles"][0]["host"]["hostname"], "bench-host-01");
         assert_eq!(
             artifact["bundles"].as_array().expect("bundle rows").len(),
             1

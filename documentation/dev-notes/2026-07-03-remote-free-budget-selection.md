@@ -623,6 +623,13 @@ one-line success output. Older no-host evidence now reports
 `host_present=true host_os=macos host_arch=aarch64 host_hostname=none` without
 changing artifact byte-count or stability validation.
 
+Experiment 0244 copied optional capture host metadata into directory rollup
+bundle rows. The host-bearing evidence root now writes a 694-byte rollup with
+bundle `host` metadata, while the older no-host root still writes a 591-byte
+rollup without bundle `host`. Both artifacts pass the same release check,
+which remains focused on counts, statuses, timing ranges, and bundle rows.
+Treat bundle host coverage as triage context, not verdict input.
+
 ## Measured Thresholds
 
 | Path | Shape inputs | Budget | Matched counters |
@@ -1001,6 +1008,7 @@ changing artifact byte-count or stability validation.
 - `documentation/experiments/0241-remote-free-service-telemetry-rollup-host-metadata.md`
 - `documentation/experiments/0242-remote-free-service-telemetry-summary-host-metadata.md`
 - `documentation/experiments/0243-remote-free-service-telemetry-summary-host-output.md`
+- `documentation/experiments/0244-remote-free-service-telemetry-rollup-bundle-host.md`
 
 ## Open Questions
 
