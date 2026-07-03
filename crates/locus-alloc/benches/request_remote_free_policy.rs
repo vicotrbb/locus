@@ -20,6 +20,8 @@ const ALLOC_ALIGN: usize = 64;
 const QUEUE_CAPACITY: usize = 16;
 const BATCH_LIMIT: usize = 8;
 const TOTAL_TRACKED_BYTES: u64 = REQUESTS_U64 * ARENA_CAPACITY_U64;
+const TARGET_PENDING_REQUESTS: u64 = 8;
+const TARGET_QUEUED_BYTES: u64 = TARGET_PENDING_REQUESTS * ARENA_CAPACITY_U64;
 
 enum RemoteCompletionCommand {
     Run(Vec<RequestId>),
@@ -47,6 +49,13 @@ struct RequestPolicyStats {
     total_wait_bursts: u64,
 }
 
+#[derive(Debug, Clone, Copy)]
+struct CounterSummary {
+    min: u64,
+    max: u64,
+    sum: u64,
+}
+
 impl RequestPolicyCase {
     fn end_drain() -> Self {
         Self {
@@ -61,6 +70,38 @@ impl RequestPolicyCase {
             drain_policy: RemoteFreeDrainPolicy::new()
                 .with_max_pending_age(NonZeroU64::new(2).expect("non-zero")),
         }
+    }
+
+    fn max_queued256kib() -> Self {
+        Self {
+            label: "max_queued256kib",
+            drain_policy: RemoteFreeDrainPolicy::new()
+                .with_max_queued_bytes(NonZeroU64::new(TARGET_QUEUED_BYTES).expect("non-zero")),
+        }
+    }
+}
+
+impl CounterSummary {
+    fn new() -> Self {
+        Self {
+            min: u64::MAX,
+            max: 0,
+            sum: 0,
+        }
+    }
+
+    fn observe(&mut self, value: u64) {
+        self.min = self.min.min(value);
+        self.max = self.max.max(value);
+        self.sum = self.sum.saturating_add(value);
+    }
+
+    fn mean_milli(self, samples: u64) -> u64 {
+        self.sum.saturating_mul(1000) / samples
+    }
+
+    fn mean(self, samples: u64) -> u64 {
+        self.sum / samples
     }
 }
 
@@ -106,6 +147,16 @@ fn request_remote_free_tracker_max_wait2(c: &mut Criterion) {
     request_remote_free_tracker_benchmark(
         c,
         "request_remote_free_tracker_capacity16_batch8_max_wait2_16x64x256b",
+        case,
+    );
+}
+
+fn request_remote_free_tracker_max_queued256kib(c: &mut Criterion) {
+    let case = RequestPolicyCase::max_queued256kib();
+    print_request_policy_sample(case);
+    request_remote_free_tracker_benchmark(
+        c,
+        "request_remote_free_tracker_capacity16_batch8_max_queued256kib_16x64x256b",
         case,
     );
 }
@@ -188,6 +239,82 @@ fn print_request_policy_sample(case: RequestPolicyCase) {
         .send(RemoteCompletionCommand::Stop)
         .expect("send stop");
     remote_completion.join().expect("remote completion thread");
+
+    print_request_policy_sample_summary(case);
+}
+
+fn print_request_policy_sample_summary(case: RequestPolicyCase) {
+    const SAMPLES: u64 = 8;
+
+    let mut full = CounterSummary::new();
+    let mut policy_drains = CounterSummary::new();
+    let mut drain_rounds = CounterSummary::new();
+    let mut max_pending = CounterSummary::new();
+    let mut max_queued_bytes = CounterSummary::new();
+    let mut max_wait = CounterSummary::new();
+    let mut mean_wait = CounterSummary::new();
+
+    for _ in 0..SAMPLES {
+        let homes = request_homes();
+        let layout = request_layout();
+        let mut pool = RequestScratchPool::new();
+        let mut queue = RemoteFreeQueue::new(QUEUE_CAPACITY, BATCH_LIMIT).expect("queue");
+        let (command_sender, ack_receiver, remote_completion) = spawn_remote_completion(&queue);
+        let stats = run_request_policy_iteration(
+            &homes,
+            layout,
+            &mut pool,
+            &mut queue,
+            &command_sender,
+            &ack_receiver,
+            case,
+        );
+
+        full.observe(stats.full_count);
+        policy_drains.observe(stats.policy_drains);
+        drain_rounds.observe(stats.drain_rounds);
+        max_pending.observe(stats.max_pending_count);
+        max_queued_bytes.observe(stats.max_queued_bytes);
+        max_wait.observe(stats.max_wait_bursts);
+        mean_wait.observe(stats.mean_wait_milli());
+
+        assert_eq!(stats.submitted_count, REQUESTS_U64);
+        assert_eq!(stats.drained_count, REQUESTS_U64);
+        assert_eq!(stats.queued_bytes, 0);
+        assert_eq!(stats.released_bytes, TOTAL_TRACKED_BYTES);
+        assert_eq!(pool.pool_stats().active_requests, 0);
+
+        command_sender
+            .send(RemoteCompletionCommand::Stop)
+            .expect("send stop");
+        remote_completion.join().expect("remote completion thread");
+    }
+
+    let label = case.label;
+    println!(
+        "request_remote_free_policy_sample_summary={label} requests={REQUESTS_U64} bursts={BURSTS} burst_requests={BURST_REQUESTS_U64} capacity={QUEUE_CAPACITY} batch_limit={BATCH_LIMIT} samples={SAMPLES} full_min={} full_max={} full_mean={} policy_drains_min={} policy_drains_max={} policy_drains_mean={} drain_rounds_min={} drain_rounds_max={} drain_rounds_mean={} max_pending_min={} max_pending_max={} max_pending_mean={} max_queued_bytes_min={} max_queued_bytes_max={} max_queued_bytes_mean={} max_wait_min={} max_wait_max={} max_wait_mean={} mean_wait_min={} mean_wait_max={} mean_wait_mean={}",
+        full.min,
+        full.max,
+        format_milli(full.mean_milli(SAMPLES)),
+        policy_drains.min,
+        policy_drains.max,
+        format_milli(policy_drains.mean_milli(SAMPLES)),
+        drain_rounds.min,
+        drain_rounds.max,
+        format_milli(drain_rounds.mean_milli(SAMPLES)),
+        max_pending.min,
+        max_pending.max,
+        format_milli(max_pending.mean_milli(SAMPLES)),
+        max_queued_bytes.min,
+        max_queued_bytes.max,
+        max_queued_bytes.mean(SAMPLES),
+        max_wait.min,
+        max_wait.max,
+        format_milli(max_wait.mean_milli(SAMPLES)),
+        format_milli(mean_wait.min),
+        format_milli(mean_wait.max),
+        format_milli(mean_wait.mean(SAMPLES))
+    );
 }
 
 fn request_homes() -> Vec<RequestHome> {
@@ -352,6 +479,7 @@ fn format_milli(value: u64) -> String {
 criterion_group!(
     benches,
     request_remote_free_tracker_end_drain,
-    request_remote_free_tracker_max_wait2
+    request_remote_free_tracker_max_wait2,
+    request_remote_free_tracker_max_queued256kib
 );
 criterion_main!(benches);
