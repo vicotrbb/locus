@@ -78,6 +78,20 @@ non-zero pending over-target, queued bytes over-budget, or queue backpressure
 as evidence that the config needs review, a larger queue, a different drain
 cadence, or more workload-specific measurement.
 
+`RemoteFreeQueuedByteDriftReport::retune_hint()` classifies the first
+diagnostic response:
+
+| Hint | Meaning |
+| --- | --- |
+| `keep_config` | no drift signal was observed |
+| `increase_queue_capacity` | queue backpressure was the only signal |
+| `review_drain_cadence` | pending items exceeded the target window |
+| `review_queued_byte_budget` | queued bytes exceeded the budget |
+| `review_multiple_signals` | more than one drift signal was observed |
+
+The hint is still diagnostic. Benchmark the candidate change before changing
+production policy.
+
 ## Measured Thresholds
 
 | Path | Shape inputs | Budget | Matched counters |
@@ -130,6 +144,7 @@ cadence, or more workload-specific measurement.
 - `documentation/experiments/0173-remote-free-heterogeneous-budget-helper.md`
 - `documentation/experiments/0178-remote-free-queued-byte-drift-report.md`
 - `documentation/experiments/0179-remote-free-positive-drift-matrix.md`
+- `documentation/experiments/0180-remote-free-drift-retune-hint.md`
 
 ## Open Questions
 

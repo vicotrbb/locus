@@ -16,7 +16,7 @@ pub use controller::{
     RemoteFreeDrainReason, RemoteFreeDrainTracker, RemoteFreeDrainTrackerError,
     RemoteFreeTrackedDrain,
 };
-pub use drift::RemoteFreeQueuedByteDriftReport;
+pub use drift::{RemoteFreeQueuedByteDriftReport, RemoteFreeQueuedByteRetuneHint};
 
 /// Owner-drained queue for batching remote frees back to an owning worker.
 pub struct RemoteFreeQueue<T> {

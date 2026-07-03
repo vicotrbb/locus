@@ -6,7 +6,7 @@ use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use locus_alloc::{
     RemoteFreeDrainController, RemoteFreeDrainPolicy, RemoteFreeQueue, RemoteFreeQueuedByteBudget,
     RemoteFreeQueuedByteDrainConfig, RemoteFreeQueuedByteDriftReport,
-    RemoteFreeTryEnqueueErrorKind,
+    RemoteFreeQueuedByteRetuneHint, RemoteFreeTryEnqueueErrorKind,
 };
 
 const TRACE_BURSTS: u64 = 8;
@@ -33,6 +33,7 @@ struct ExpectedDrift {
     max_queued_bytes_over_budget: u64,
     queue_backpressure_observed: u64,
     full_count: u64,
+    retune_hint: RemoteFreeQueuedByteRetuneHint,
 }
 
 #[derive(Debug)]
@@ -55,6 +56,7 @@ struct DriftTraceStats {
     max_pending_over_target: u64,
     max_queued_bytes_over_budget: u64,
     queue_backpressure_observed: u64,
+    retune_hint: RemoteFreeQueuedByteRetuneHint,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -82,6 +84,7 @@ fn matched_end_drain_case() -> DriftCase {
             max_queued_bytes_over_budget: 0,
             queue_backpressure_observed: 0,
             full_count: 0,
+            retune_hint: RemoteFreeQueuedByteRetuneHint::KeepConfig,
         },
     }
 }
@@ -97,6 +100,7 @@ fn pending_drift_case() -> DriftCase {
             max_queued_bytes_over_budget: 0,
             queue_backpressure_observed: 0,
             full_count: 0,
+            retune_hint: RemoteFreeQueuedByteRetuneHint::ReviewDrainCadence,
         },
     }
 }
@@ -112,6 +116,7 @@ fn queued_byte_drift_case() -> DriftCase {
             max_queued_bytes_over_budget: TRACE_TOTAL_BYTES - TRACE_TWO_BURST_BYTES,
             queue_backpressure_observed: 0,
             full_count: 0,
+            retune_hint: RemoteFreeQueuedByteRetuneHint::ReviewQueuedByteBudget,
         },
     }
 }
@@ -127,6 +132,7 @@ fn backpressure_drift_case() -> DriftCase {
             max_queued_bytes_over_budget: 0,
             queue_backpressure_observed: 1,
             full_count: 3,
+            retune_hint: RemoteFreeQueuedByteRetuneHint::IncreaseQueueCapacity,
         },
     }
 }
@@ -162,6 +168,7 @@ impl DriftTraceStats {
             max_pending_over_target: 0,
             max_queued_bytes_over_budget: 0,
             queue_backpressure_observed: 0,
+            retune_hint: RemoteFreeQueuedByteRetuneHint::KeepConfig,
         }
     }
 
@@ -175,6 +182,7 @@ impl DriftTraceStats {
         if report.has_queue_backpressure() {
             self.queue_backpressure_observed = 1;
         }
+        self.retune_hint = report.retune_hint();
     }
 }
 
@@ -243,11 +251,12 @@ fn print_drift_case_summary(case: DriftCase) {
 
     let label = case.label;
     println!(
-        "remote_free_drift_matrix_sample_summary={label} blocks={TRACE_BLOCKS} bursts={TRACE_BURSTS} burst_blocks={TRACE_BURST_BLOCKS} capacity={} batch_limit={} target_pending={} queued_byte_budget={} samples={SAMPLES} max_pending_over_target_min={} max_pending_over_target_max={} max_pending_over_target_mean={} max_queued_bytes_over_budget_min={} max_queued_bytes_over_budget_max={} max_queued_bytes_over_budget_mean={} queue_backpressure_observed_min={} queue_backpressure_observed_max={} queue_backpressure_observed_mean={} full_min={} full_max={} full_mean={} max_pending_min={} max_pending_max={} max_pending_mean={} max_queued_bytes_min={} max_queued_bytes_max={} max_queued_bytes_mean={}",
+        "remote_free_drift_matrix_sample_summary={label} blocks={TRACE_BLOCKS} bursts={TRACE_BURSTS} burst_blocks={TRACE_BURST_BLOCKS} capacity={} batch_limit={} target_pending={} queued_byte_budget={} retune_hint={} samples={SAMPLES} max_pending_over_target_min={} max_pending_over_target_max={} max_pending_over_target_mean={} max_queued_bytes_over_budget_min={} max_queued_bytes_over_budget_max={} max_queued_bytes_over_budget_mean={} queue_backpressure_observed_min={} queue_backpressure_observed_max={} queue_backpressure_observed_mean={} full_min={} full_max={} full_mean={} max_pending_min={} max_pending_max={} max_pending_mean={} max_queued_bytes_min={} max_queued_bytes_max={} max_queued_bytes_mean={}",
         case.queue_capacity,
         case.drain_batch_limit,
         case.config.target_pending_items(),
         case.config.queued_byte_budget().bytes(),
+        case.expected.retune_hint.as_str(),
         pending_over.min,
         pending_over.max,
         format_milli(pending_over.mean_milli(SAMPLES)),
@@ -380,6 +389,7 @@ fn assert_drift_case(case: DriftCase, stats: DriftTraceStats) {
         case.expected.queue_backpressure_observed
     );
     assert_eq!(stats.full_count, case.expected.full_count);
+    assert_eq!(stats.retune_hint, case.expected.retune_hint);
 }
 
 fn format_milli(value: u64) -> String {

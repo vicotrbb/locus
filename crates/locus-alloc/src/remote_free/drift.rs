@@ -19,6 +19,24 @@ pub struct RemoteFreeQueuedByteDriftReport {
     queued_bytes_over_budget: u64,
 }
 
+/// Diagnostic first-response hint for queued-byte drift observations.
+///
+/// This is not an adaptive policy. It classifies the observed drift signal so
+/// callers can choose what to benchmark next.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RemoteFreeQueuedByteRetuneHint {
+    /// No drift signal was observed.
+    KeepConfig,
+    /// Queue backpressure was observed without pending or byte-budget drift.
+    IncreaseQueueCapacity,
+    /// Pending items exceeded the target window without byte or queue drift.
+    ReviewDrainCadence,
+    /// Queued bytes exceeded the budget without pending or queue drift.
+    ReviewQueuedByteBudget,
+    /// More than one drift signal was observed.
+    ReviewMultipleSignals,
+}
+
 impl RemoteFreeQueuedByteDriftReport {
     /// Builds a report from a controller status snapshot.
     #[must_use]
@@ -121,11 +139,41 @@ impl RemoteFreeQueuedByteDriftReport {
             || self.has_queued_byte_drift()
             || self.has_queue_backpressure()
     }
+
+    /// Returns the diagnostic retune hint for the observed drift signal.
+    #[must_use]
+    pub const fn retune_hint(self) -> RemoteFreeQueuedByteRetuneHint {
+        let pending = self.has_pending_item_drift();
+        let bytes = self.has_queued_byte_drift();
+        let backpressure = self.has_queue_backpressure();
+
+        match (pending, bytes, backpressure) {
+            (false, false, false) => RemoteFreeQueuedByteRetuneHint::KeepConfig,
+            (false, false, true) => RemoteFreeQueuedByteRetuneHint::IncreaseQueueCapacity,
+            (true, false, false) => RemoteFreeQueuedByteRetuneHint::ReviewDrainCadence,
+            (false, true, false) => RemoteFreeQueuedByteRetuneHint::ReviewQueuedByteBudget,
+            _ => RemoteFreeQueuedByteRetuneHint::ReviewMultipleSignals,
+        }
+    }
+}
+
+impl RemoteFreeQueuedByteRetuneHint {
+    /// Returns a stable label for logs and benchmark output.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::KeepConfig => "keep_config",
+            Self::IncreaseQueueCapacity => "increase_queue_capacity",
+            Self::ReviewDrainCadence => "review_drain_cadence",
+            Self::ReviewQueuedByteBudget => "review_queued_byte_budget",
+            Self::ReviewMultipleSignals => "review_multiple_signals",
+        }
+    }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::RemoteFreeQueuedByteDriftReport;
+    use super::{RemoteFreeQueuedByteDriftReport, RemoteFreeQueuedByteRetuneHint};
     use crate::{
         RemoteFreeDrainControllerStatus, RemoteFreeDrainDecision, RemoteFreeDrainObservation,
         RemoteFreeQueueStats, RemoteFreeQueuedByteDrainConfig,
@@ -167,6 +215,10 @@ mod tests {
         assert!(!report.has_queued_byte_drift());
         assert!(!report.has_queue_backpressure());
         assert!(!report.needs_retuning());
+        assert_eq!(
+            report.retune_hint(),
+            RemoteFreeQueuedByteRetuneHint::KeepConfig
+        );
     }
 
     #[test]
@@ -186,11 +238,19 @@ mod tests {
         assert_eq!(pending_only.queued_bytes_over_budget(), 0);
         assert!(pending_only.has_pending_item_drift());
         assert!(!pending_only.has_queued_byte_drift());
+        assert_eq!(
+            pending_only.retune_hint(),
+            RemoteFreeQueuedByteRetuneHint::ReviewDrainCadence
+        );
 
         assert_eq!(bytes_only.pending_items_over_target(), 0);
         assert_eq!(bytes_only.queued_bytes_over_budget(), 37_856);
         assert!(!bytes_only.has_pending_item_drift());
         assert!(bytes_only.has_queued_byte_drift());
+        assert_eq!(
+            bytes_only.retune_hint(),
+            RemoteFreeQueuedByteRetuneHint::ReviewQueuedByteBudget
+        );
     }
 
     #[test]
@@ -204,6 +264,10 @@ mod tests {
         assert_eq!(report.observed_full_count(), 3);
         assert!(report.has_queue_backpressure());
         assert!(report.needs_retuning());
+        assert_eq!(
+            report.retune_hint(),
+            RemoteFreeQueuedByteRetuneHint::IncreaseQueueCapacity
+        );
     }
 
     #[test]
@@ -220,5 +284,33 @@ mod tests {
         assert_eq!(report.queued_bytes_over_budget(), 37_856);
         assert_eq!(report.observed_full_count(), 2);
         assert!(report.needs_retuning());
+        assert_eq!(
+            report.retune_hint(),
+            RemoteFreeQueuedByteRetuneHint::ReviewMultipleSignals
+        );
+    }
+
+    #[test]
+    fn queued_byte_retune_hint_exposes_stable_labels() {
+        assert_eq!(
+            RemoteFreeQueuedByteRetuneHint::KeepConfig.as_str(),
+            "keep_config"
+        );
+        assert_eq!(
+            RemoteFreeQueuedByteRetuneHint::IncreaseQueueCapacity.as_str(),
+            "increase_queue_capacity"
+        );
+        assert_eq!(
+            RemoteFreeQueuedByteRetuneHint::ReviewDrainCadence.as_str(),
+            "review_drain_cadence"
+        );
+        assert_eq!(
+            RemoteFreeQueuedByteRetuneHint::ReviewQueuedByteBudget.as_str(),
+            "review_queued_byte_budget"
+        );
+        assert_eq!(
+            RemoteFreeQueuedByteRetuneHint::ReviewMultipleSignals.as_str(),
+            "review_multiple_signals"
+        );
     }
 }
