@@ -2,7 +2,7 @@
 
 use std::collections::BTreeSet;
 
-use crate::topology::NodeId;
+use crate::topology::{NodeId, Topology};
 
 /// Memory class used to separate placement and lifetime behavior.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -148,13 +148,47 @@ pub fn choose_initial_policy(request: &PlacementRequest) -> LocalityDecision {
     }
 }
 
+/// Resolves topology-dependent placement policies to concrete host policies.
+///
+/// `NearGpu` is a logical policy until topology discovery can map the GPU BDF
+/// to a NUMA node. This helper performs that deterministic lowering without
+/// calling the operating system or applying memory policy.
+#[must_use]
+pub fn resolve_topology_policy(
+    decision: &LocalityDecision,
+    topology: &Topology,
+) -> LocalityDecision {
+    let PlacementPolicy::NearGpu(gpu) = &decision.policy else {
+        return decision.clone();
+    };
+
+    let Some(device) = topology.pci_device(gpu) else {
+        return LocalityDecision {
+            policy: PlacementPolicy::Local,
+            reason: "GPU PCI device was not discovered, using local first-touch behavior",
+        };
+    };
+
+    let Some(node) = device.numa_node else {
+        return LocalityDecision {
+            policy: PlacementPolicy::Local,
+            reason: "GPU PCI device has no reported NUMA node, using local first-touch behavior",
+        };
+    };
+
+    LocalityDecision {
+        policy: PlacementPolicy::Bind(NodeSet::one(node)),
+        reason: "GPU PCI device reports a NUMA node",
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
-        choose_initial_policy, LifetimeHint, MemoryClass, NodeSet, PlacementPolicy,
-        PlacementRequest,
+        choose_initial_policy, resolve_topology_policy, LifetimeHint, LocalityDecision,
+        MemoryClass, NodeSet, PlacementPolicy, PlacementRequest,
     };
-    use crate::topology::NodeId;
+    use crate::topology::{NodeId, PciDevice, Topology};
 
     #[test]
     fn binds_request_private_memory_to_preferred_node() {
@@ -188,5 +222,81 @@ mod tests {
             decision.policy,
             PlacementPolicy::NearGpu("0000:81:00.0".to_owned())
         );
+    }
+
+    #[test]
+    fn resolves_near_gpu_to_discovered_pci_numa_node() {
+        let decision = LocalityDecision {
+            policy: PlacementPolicy::NearGpu("0000:81:00.0".to_owned()),
+            reason: "logical near GPU policy",
+        };
+        let topology = Topology {
+            pci_devices: vec![PciDevice {
+                bdf: "0000:81:00.0".to_owned(),
+                numa_node: Some(NodeId(1)),
+                local_cpus: None,
+            }],
+            ..Topology::default()
+        };
+
+        let resolved = resolve_topology_policy(&decision, &topology);
+
+        assert_eq!(
+            resolved.policy,
+            PlacementPolicy::Bind(NodeSet::one(NodeId(1)))
+        );
+        assert_eq!(resolved.reason, "GPU PCI device reports a NUMA node");
+    }
+
+    #[test]
+    fn resolves_missing_gpu_to_local_policy() {
+        let decision = LocalityDecision {
+            policy: PlacementPolicy::NearGpu("0000:81:00.0".to_owned()),
+            reason: "logical near GPU policy",
+        };
+
+        let resolved = resolve_topology_policy(&decision, &Topology::default());
+
+        assert_eq!(resolved.policy, PlacementPolicy::Local);
+        assert_eq!(
+            resolved.reason,
+            "GPU PCI device was not discovered, using local first-touch behavior"
+        );
+    }
+
+    #[test]
+    fn resolves_gpu_without_numa_node_to_local_policy() {
+        let decision = LocalityDecision {
+            policy: PlacementPolicy::NearGpu("0000:81:00.0".to_owned()),
+            reason: "logical near GPU policy",
+        };
+        let topology = Topology {
+            pci_devices: vec![PciDevice {
+                bdf: "0000:81:00.0".to_owned(),
+                numa_node: None,
+                local_cpus: None,
+            }],
+            ..Topology::default()
+        };
+
+        let resolved = resolve_topology_policy(&decision, &topology);
+
+        assert_eq!(resolved.policy, PlacementPolicy::Local);
+        assert_eq!(
+            resolved.reason,
+            "GPU PCI device has no reported NUMA node, using local first-touch behavior"
+        );
+    }
+
+    #[test]
+    fn preserves_non_topology_dependent_policy() {
+        let decision = LocalityDecision {
+            policy: PlacementPolicy::Bind(NodeSet::one(NodeId(0))),
+            reason: "caller supplied concrete policy",
+        };
+
+        let resolved = resolve_topology_policy(&decision, &Topology::default());
+
+        assert_eq!(resolved, decision);
     }
 }
