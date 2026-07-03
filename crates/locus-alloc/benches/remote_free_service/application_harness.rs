@@ -10,8 +10,9 @@ use locus_alloc::{
     RemoteFreeServiceRetuneCandidate, RemoteFreeServiceRetuneGuardDecision,
     RemoteFreeServiceRetunePolicyApplication, RemoteFreeServiceRetunePolicyApplicator,
     RemoteFreeServiceRetuneSummary, RemoteFreeServiceRuntimeDirtyOwnerFlushStats,
-    RemoteFreeServiceRuntimeDirtyOwnerLocalBuffer, RemoteFreeServiceRuntimeDirtyOwnerTracker,
-    RemoteFreeServiceRuntimeOwnerId, RemoteFreeTryEnqueueError, RemoteFreeTryEnqueueErrorKind,
+    RemoteFreeServiceRuntimeDirtyOwnerLocalBuffer, RemoteFreeServiceRuntimeDirtyOwnerLocalBuffers,
+    RemoteFreeServiceRuntimeDirtyOwnerTracker, RemoteFreeServiceRuntimeOwnerId,
+    RemoteFreeTryEnqueueError, RemoteFreeTryEnqueueErrorKind,
 };
 
 use crate::remote_free_service_harness::{
@@ -482,6 +483,35 @@ pub(crate) fn run_runtime_owner_window_with_local_dirty_summary_and_block_bytes(
         |event| {
             if event == RuntimeOwnerWindowEvent::SuccessfulEnqueue {
                 let _ = buffer.mark_dirty(owner_id);
+            }
+        },
+        |report| {
+            summary.observe_report(report);
+        },
+    );
+
+    summary
+}
+
+pub(crate) fn run_runtime_owner_window_with_local_dirty_group_summary_and_block_bytes(
+    runtime: &mut RemoteFreeOwnerRuntime<RuntimeTraceBlock>,
+    stats: &mut RuntimeApplicationStats,
+    block_bytes: u64,
+    owner_id: RemoteFreeServiceRuntimeOwnerId,
+    buffers: &mut RemoteFreeServiceRuntimeDirtyOwnerLocalBuffers,
+) -> RemoteFreeServiceRetuneSummary {
+    let mut summary = RemoteFreeServiceRetuneSummary::new();
+    let mut marker = buffers.local_marker(owner_id);
+    let sink = runtime.sink();
+
+    run_runtime_owner_window_inner_with_enqueue(
+        runtime,
+        stats,
+        block_bytes,
+        |block| sink.try_enqueue(block),
+        |event| {
+            if event == RuntimeOwnerWindowEvent::SuccessfulEnqueue {
+                let _ = marker.mark_dirty();
             }
         },
         |report| {

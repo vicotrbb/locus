@@ -358,6 +358,19 @@ and retained local buffer capacity after flush. Reused local buffers measured
 us. Treat long-lived worker-local buffers with service-demand flushing as the
 current measured candidate.
 
+Experiment 0214 moved the reused local-buffer lifecycle into
+`RemoteFreeServiceRuntimeDirtyOwnerLocalBuffers`. The helper preserved 2048
+submitted blocks, 2048 drained blocks, 9,437,440 released bytes, 12 policy
+drains, 36 drain rounds, 46 reports needing retune, two apply decisions, one
+confirm, one rollback, and one mutation-limit decision. The helper added
+grow-only indexed buffers for sparse owner IDs and a hot-path
+`RemoteFreeServiceRuntimeDirtyOwnerLocalMarker`. The strict performance claim
+did not fully survive: the benchmark-only reused path measured 196.61 to
+197.42 us, the helper path measured 197.23 to 198.17 us, and direct
+dirty-enqueue tracker marking measured 202.16 to 202.52 us. Treat the helper
+as the production API for the measured lifecycle, but use `local_marker` in
+hot enqueue loops and keep hand-rolled overhead checks in future benchmarks.
+
 ## Measured Thresholds
 
 | Path | Shape inputs | Budget | Matched counters |
@@ -461,6 +474,10 @@ current measured candidate.
 31. Keep worker-local dirty buffers alive across service windows when the
     worker can own that lifecycle. Flush them on service demand before tracked
     dirty collection, and retain their capacity after each flush.
+32. Use `RemoteFreeServiceRuntimeDirtyOwnerLocalBuffers` as the production
+    owner for the shared tracker plus reusable local dirty buffers. Use
+    `local_marker` for hot enqueue loops so successful enqueue marks do not
+    index the buffer group on every item.
 
 ## Guardrails
 
@@ -541,6 +558,10 @@ current measured candidate.
   can retain them across windows. Experiment 0213 showed capacity reuse was
   faster than fresh before-collection local flushing for the current real
   allocation service-window shape.
+- Do not assume the local buffer group is free compared with hand-rolled owner
+  buffer borrows. Experiment 0214 showed the helper remained faster than
+  direct tracker marking, but was slightly slower than the benchmark-only
+  reused-buffer path.
 - Recheck thresholds when KV block size, request arena capacity, burst size,
   request concurrency, or batch size changes.
 - For heterogeneous traces, derive the budget from actual retained item sizes
@@ -591,11 +612,13 @@ current measured candidate.
 - `documentation/experiments/0211-remote-free-local-dirty-flush-cadence.md`
 - `documentation/experiments/0212-remote-free-local-dirty-threshold-flush.md`
 - `documentation/experiments/0213-remote-free-reused-local-dirty-buffer.md`
+- `documentation/experiments/0214-remote-free-local-dirty-buffer-group.md`
 
 ## Open Questions
 
-- Can a production-facing helper own the shared dirty tracker and worker-local
-  buffers without exposing callers to per-window buffer lifecycle details?
+- Can tracked dirty collection be integrated with the local buffer group so the
+  service path avoids repeated caller-side tracker, local buffer, and
+  collection plumbing without adding measurable overhead?
 - Which workload signal should set the retained item window in production:
   scheduler turn age, active request concurrency, KV cache pressure, or memory
   pressure from observability counters?
