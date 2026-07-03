@@ -164,6 +164,11 @@ first non-mutating planner over service telemetry. The fixed-policy service
 selected `keep_config`; the one-owner end-drain service selected
 `drain_earlier` while preserving the same measured owner-loop counters.
 
+Experiment 0191 added an explicit `planner_candidate_drain_earlier` service
+benchmark. It restored the fixed queued-byte window after the one-owner
+end-drain baseline: zero reports needing retune, zero retained-window drift,
+32 `keep_config` reports, max wait 2 bursts, and mean wait 1.500 bursts.
+
 ## Measured Thresholds
 
 | Path | Shape inputs | Budget | Matched counters |
@@ -196,6 +201,8 @@ selected `keep_config`; the one-owner end-drain service selected
 9. Use `RemoteFreeServiceRetuneCandidate::from_summary` to select the next
    benchmark candidate from telemetry. Do not apply the candidate directly to
    live policy.
+10. Benchmark the selected candidate as an explicit static case before
+    introducing any adaptive mutation.
 
 ## Guardrails
 
@@ -239,11 +246,12 @@ selected `keep_config`; the one-owner end-drain service selected
 - `documentation/experiments/0188-remote-free-retune-action-evidence-matrix.md`
 - `documentation/experiments/0189-remote-free-service-retune-telemetry.md`
 - `documentation/experiments/0190-remote-free-service-retune-candidate-planner.md`
+- `documentation/experiments/0191-remote-free-planner-candidate-drain-earlier.md`
 
 ## Open Questions
 
-- Should the planner-selected `drain_earlier` service candidate be benchmarked
-  as a separate case before any adaptive mutation exists?
+- Should the combined `increase_queue_capacity_and_drain_earlier` service
+  candidate be benchmarked next?
 - Which workload signal should set the retained item window in production:
   scheduler turn age, active request concurrency, KV cache pressure, or memory
   pressure from observability counters?

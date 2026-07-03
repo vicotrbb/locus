@@ -98,6 +98,23 @@ impl ServiceTelemetryCase {
             },
         }
     }
+
+    fn planner_candidate_drain_earlier() -> Self {
+        Self {
+            label: "planner_candidate_drain_earlier",
+            drifting_owner: None,
+            expected: ExpectedServiceTelemetry {
+                observed_reports: 32,
+                reports_needing_retune: 0,
+                max_pending_over_target: 0,
+                max_queued_bytes_over_budget: 0,
+                queue_backpressure_reports: 0,
+                keep_config_reports: 32,
+                drain_earlier_reports: 0,
+                retune_candidate: RemoteFreeServiceRetuneCandidate::KeepConfig,
+            },
+        }
+    }
 }
 
 impl ServiceTelemetryStats {
@@ -152,6 +169,13 @@ fn remote_free_service_telemetry_fixed_policy(c: &mut Criterion) {
 
 fn remote_free_service_telemetry_one_drifting_owner(c: &mut Criterion) {
     let case = ServiceTelemetryCase::one_end_drain_owner();
+    print_service_sample(case);
+    print_service_sample_summary(case);
+    bench_service_case(c, case);
+}
+
+fn remote_free_service_telemetry_planner_candidate_drain_earlier(c: &mut Criterion) {
+    let case = ServiceTelemetryCase::planner_candidate_drain_earlier();
     print_service_sample(case);
     print_service_sample_summary(case);
     bench_service_case(c, case);
@@ -405,6 +429,7 @@ fn format_milli(value: u64) -> String {
 criterion_group!(
     benches,
     remote_free_service_telemetry_fixed_policy,
-    remote_free_service_telemetry_one_drifting_owner
+    remote_free_service_telemetry_one_drifting_owner,
+    remote_free_service_telemetry_planner_candidate_drain_earlier
 );
 criterion_main!(benches);
