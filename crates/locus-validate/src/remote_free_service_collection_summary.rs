@@ -96,6 +96,8 @@ pub struct RemoteFreeServiceTelemetryCollectionSummaryRollupCheck {
     pub schema: String,
     /// Exact byte count of the artifact text read for validation.
     pub artifact_bytes: u64,
+    /// Stable non-cryptographic fingerprint of the artifact text.
+    pub artifact_fingerprint: String,
     /// Number of bundle summaries declared and observed.
     pub summaries: u64,
     /// Number of valid bundle rows declared and observed.
@@ -237,10 +239,11 @@ impl fmt::Display for RemoteFreeServiceTelemetryCollectionSummaryRollupCheck {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
-            "remote_free_service_telemetry_collection_summary_rollup_check=ok path={} schema={} artifact_bytes={} summaries={} valid_bundles={} timing_ranges={} bundles={} rollup_host_present={} bundle_hosts={} bundle_hosts_missing={} status_valid_bundles={} status_drifted_summaries={} status_missing_artifacts={} status_other_failures={}",
+            "remote_free_service_telemetry_collection_summary_rollup_check=ok path={} schema={} artifact_bytes={} artifact_fingerprint={} summaries={} valid_bundles={} timing_ranges={} bundles={} rollup_host_present={} bundle_hosts={} bundle_hosts_missing={} status_valid_bundles={} status_drifted_summaries={} status_missing_artifacts={} status_other_failures={}",
             self.path.display(),
             self.schema,
             self.artifact_bytes,
+            self.artifact_fingerprint,
             self.summaries,
             self.valid_bundles,
             self.timing_ranges,
@@ -862,6 +865,7 @@ pub fn validate_remote_free_service_telemetry_collection_summary_rollup_artifact
     let artifact_bytes = artifact_text.len().try_into().map_err(|_| {
         RemoteFreeServiceTelemetryCollectionSummaryRollupError::InvalidFieldType("artifact_bytes")
     })?;
+    let artifact_fingerprint = rollup_artifact_fingerprint(&artifact_text);
     let artifact = serde_json::from_str::<Value>(&artifact_text)
         .map_err(RemoteFreeServiceTelemetryCollectionSummaryRollupError::Json)?;
     let schema = rollup_required_str(&artifact, "schema")?;
@@ -945,6 +949,7 @@ pub fn validate_remote_free_service_telemetry_collection_summary_rollup_artifact
         path: path.to_path_buf(),
         schema: schema.to_owned(),
         artifact_bytes,
+        artifact_fingerprint,
         summaries,
         valid_bundles,
         drifted_summaries,
@@ -1170,6 +1175,18 @@ fn require_rollup_count(
     )
 }
 
+fn rollup_artifact_fingerprint(text: &str) -> String {
+    const FNV_OFFSET_BASIS: u64 = 0xcbf2_9ce4_8422_2325;
+    const FNV_PRIME: u64 = 0x0000_0100_0000_01b3;
+
+    let mut hash = FNV_OFFSET_BASIS;
+    for byte in text.as_bytes() {
+        hash ^= u64::from(*byte);
+        hash = hash.wrapping_mul(FNV_PRIME);
+    }
+    format!("fnv1a64:{hash:016x}")
+}
+
 fn usize_to_u64(
     value: usize,
     field: &'static str,
@@ -1255,6 +1272,7 @@ mod tests {
         parse_remote_free_service_telemetry_collection_summary,
         resolve_remote_free_service_telemetry_collection_summary_manifest_path,
         resolve_remote_free_service_telemetry_collection_summary_validation_summary_path,
+        rollup_artifact_fingerprint,
         validate_remote_free_service_telemetry_collection_summary_rollup_artifact,
         verify_remote_free_service_telemetry_collection_summary_artifacts,
         write_remote_free_service_telemetry_collection_summary_rollup_artifact,
@@ -1454,6 +1472,22 @@ mod tests {
             "{}\n",
             serde_json::to_string_pretty(&artifact).expect("json")
         )
+    }
+
+    #[test]
+    fn rollup_artifact_fingerprint_is_stable_and_content_sensitive() {
+        let artifact_text = rollup_json("valid", 1, 0);
+
+        assert_eq!(
+            rollup_artifact_fingerprint(&artifact_text),
+            rollup_artifact_fingerprint(&artifact_text)
+        );
+        assert_ne!(
+            rollup_artifact_fingerprint(&artifact_text),
+            rollup_artifact_fingerprint(&rollup_json_with_host("valid", 1, 0))
+        );
+        assert!(rollup_artifact_fingerprint(&artifact_text).starts_with("fnv1a64:"));
+        assert_eq!(rollup_artifact_fingerprint(&artifact_text).len(), 24);
     }
 
     fn temp_dir() -> Result<std::path::PathBuf, Box<dyn std::error::Error>> {
@@ -1784,6 +1818,10 @@ mod tests {
             check.artifact_bytes,
             u64::try_from(artifact_text.len()).expect("artifact bytes")
         );
+        assert_eq!(
+            check.artifact_fingerprint,
+            rollup_artifact_fingerprint(&artifact_text)
+        );
         assert_eq!(check.summaries, 1);
         assert_eq!(check.valid_bundles, 1);
         assert_eq!(check.drifted_summaries, 0);
@@ -1797,9 +1835,10 @@ mod tests {
         assert_eq!(
             check.to_string(),
             format!(
-                "remote_free_service_telemetry_collection_summary_rollup_check=ok path={} schema=locus.remote_free_service.telemetry.collection_summary_rollup.v2 artifact_bytes={} summaries=1 valid_bundles=1 timing_ranges=1 bundles=1 rollup_host_present=false bundle_hosts=0 bundle_hosts_missing=1 status_valid_bundles=1 status_drifted_summaries=0 status_missing_artifacts=0 status_other_failures=0",
+                "remote_free_service_telemetry_collection_summary_rollup_check=ok path={} schema=locus.remote_free_service.telemetry.collection_summary_rollup.v2 artifact_bytes={} artifact_fingerprint={} summaries=1 valid_bundles=1 timing_ranges=1 bundles=1 rollup_host_present=false bundle_hosts=0 bundle_hosts_missing=1 status_valid_bundles=1 status_drifted_summaries=0 status_missing_artifacts=0 status_other_failures=0",
                 check.path.display(),
-                artifact_text.len()
+                artifact_text.len(),
+                rollup_artifact_fingerprint(&artifact_text)
             )
         );
         fs::remove_dir_all(dir)?;
@@ -1826,6 +1865,10 @@ mod tests {
         assert_eq!(
             check.artifact_bytes,
             u64::try_from(artifact_text.len()).expect("artifact bytes")
+        );
+        assert_eq!(
+            check.artifact_fingerprint,
+            rollup_artifact_fingerprint(&artifact_text)
         );
         assert_eq!(check.summaries, 1);
         assert_eq!(check.valid_bundles, 1);
@@ -1860,6 +1903,10 @@ mod tests {
         assert_eq!(
             check.artifact_bytes,
             u64::try_from(artifact_text.len()).expect("artifact bytes")
+        );
+        assert_eq!(
+            check.artifact_fingerprint,
+            rollup_artifact_fingerprint(&artifact_text)
         );
         assert_eq!(check.valid_bundles, 1);
         assert_eq!(check.drifted_summaries, 0);
@@ -1951,6 +1998,10 @@ mod tests {
         assert_eq!(
             check.artifact_bytes,
             u64::try_from(artifact_text.len()).expect("artifact bytes")
+        );
+        assert_eq!(
+            check.artifact_fingerprint,
+            rollup_artifact_fingerprint(&artifact_text)
         );
         assert_eq!(check.drifted_summaries, 0);
         assert_eq!(check.missing_artifacts, 0);

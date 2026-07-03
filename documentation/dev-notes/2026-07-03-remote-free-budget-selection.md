@@ -651,6 +651,13 @@ bytes; the older no-host-bundle rollup reports the same schema and 591 bytes.
 The byte counts match `wc -c`, and unsupported schemas still fail before an ok
 report is produced.
 
+Experiment 0248 added dependency-free artifact fingerprints to release-check
+output. The fingerprint is FNV-1a 64 over the exact artifact text and is
+formatted as `fnv1a64:<16 lowercase hex digits>`. The host-bearing rollup
+reports `fnv1a64:82185294cde2c506`; the older no-host-bundle rollup reports
+`fnv1a64:f788b8ab364b6e1b`. Treat these as evidence identity tokens for triage,
+not cryptographic integrity claims.
+
 ## Measured Thresholds
 
 | Path | Shape inputs | Budget | Matched counters |
@@ -1033,6 +1040,7 @@ report is produced.
 - `documentation/experiments/0245-remote-free-service-telemetry-rollup-host-coverage.md`
 - `documentation/experiments/0246-remote-free-service-telemetry-rollup-status-coverage.md`
 - `documentation/experiments/0247-remote-free-service-telemetry-rollup-artifact-context.md`
+- `documentation/experiments/0248-remote-free-service-telemetry-rollup-fingerprint.md`
 
 ## Open Questions
 
