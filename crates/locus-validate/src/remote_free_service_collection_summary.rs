@@ -17,6 +17,10 @@ pub const REMOTE_FREE_SERVICE_TELEMETRY_COLLECTION_SUMMARY_ROLLUP_SCHEMA: &str =
 pub const REMOTE_FREE_SERVICE_TELEMETRY_COLLECTION_SUMMARY_ROLLUP_CHECK_SCHEMA: &str =
     "locus.remote_free_service.telemetry.collection_summary_rollup_check.v1";
 
+/// Expected schema for remote-free service telemetry collection summary rollup check log summaries.
+pub const REMOTE_FREE_SERVICE_TELEMETRY_COLLECTION_SUMMARY_ROLLUP_CHECK_LOG_SCHEMA: &str =
+    "locus.remote_free_service.telemetry.collection_summary_rollup_check_log.v1";
+
 /// Parsed remote-free service telemetry collection summary.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RemoteFreeServiceTelemetryCollectionSummary {
@@ -1142,6 +1146,42 @@ pub fn summarize_remote_free_service_telemetry_collection_summary_rollup_check_j
     Ok(summary)
 }
 
+/// Formats a compact JSON line for a rollup check saved-log summary.
+///
+/// # Errors
+///
+/// Returns an error when the summary cannot be serialized as JSON.
+pub fn format_remote_free_service_telemetry_collection_summary_rollup_check_log_summary_json_line(
+    summary: &RemoteFreeServiceTelemetryCollectionSummaryRollupCheckLogSummary,
+) -> Result<String, RemoteFreeServiceTelemetryCollectionSummaryRollupError> {
+    let line = json!({
+        "schema": REMOTE_FREE_SERVICE_TELEMETRY_COLLECTION_SUMMARY_ROLLUP_CHECK_LOG_SCHEMA,
+        "records": summary.records,
+        "rollup_hosts_present": summary.rollup_hosts_present,
+        "rollup_hosts_missing": summary.rollup_hosts_missing,
+        "bundle_hosts": summary.bundle_hosts,
+        "bundle_hosts_missing": summary.bundle_hosts_missing,
+        "status_valid_bundles": summary.status_valid_bundles,
+        "status_drifted_summaries": summary.status_drifted_summaries,
+        "status_missing_artifacts": summary.status_missing_artifacts,
+        "status_other_failures": summary.status_other_failures,
+        "host_coverage": {
+            "rollup_hosts_present": summary.rollup_hosts_present,
+            "rollup_hosts_missing": summary.rollup_hosts_missing,
+            "bundle_hosts": summary.bundle_hosts,
+            "bundle_hosts_missing": summary.bundle_hosts_missing,
+        },
+        "status_coverage": {
+            "valid_bundles": summary.status_valid_bundles,
+            "drifted_summaries": summary.status_drifted_summaries,
+            "missing_artifacts": summary.status_missing_artifacts,
+            "other_failures": summary.status_other_failures,
+        },
+    });
+    serde_json::to_string(&line)
+        .map_err(RemoteFreeServiceTelemetryCollectionSummaryRollupError::Serialize)
+}
+
 fn add_rollup_check_to_log_summary(
     summary: &mut RemoteFreeServiceTelemetryCollectionSummaryRollupCheckLogSummary,
     check: &RemoteFreeServiceTelemetryCollectionSummaryRollupCheck,
@@ -1736,6 +1776,7 @@ mod tests {
         build_remote_free_service_telemetry_collection_summary_directory_rollup,
         collect_remote_free_service_telemetry_collection_summary_paths,
         format_remote_free_service_telemetry_collection_summary_rollup_check_json_line,
+        format_remote_free_service_telemetry_collection_summary_rollup_check_log_summary_json_line,
         parse_remote_free_service_telemetry_collection_summary,
         parse_remote_free_service_telemetry_collection_summary_rollup_check_json_line,
         resolve_remote_free_service_telemetry_collection_summary_manifest_path,
@@ -1754,6 +1795,7 @@ mod tests {
         RemoteFreeServiceTelemetryCollectionSummaryRollupCheck,
         RemoteFreeServiceTelemetryCollectionSummaryRollupError,
         RemoteFreeServiceTelemetryCollectionSummaryRollupHost,
+        REMOTE_FREE_SERVICE_TELEMETRY_COLLECTION_SUMMARY_ROLLUP_CHECK_LOG_SCHEMA,
         REMOTE_FREE_SERVICE_TELEMETRY_COLLECTION_SUMMARY_ROLLUP_CHECK_SCHEMA,
     };
     use serde_json::json;
@@ -2542,6 +2584,38 @@ mod tests {
         assert_eq!(
             summary.to_string(),
             "remote_free_service_telemetry_collection_summary_rollup_check_log=ok records=2 rollup_hosts_present=2 rollup_hosts_missing=0 bundle_hosts=1 bundle_hosts_missing=1 status_valid_bundles=2 status_drifted_summaries=0 status_missing_artifacts=0 status_other_failures=0"
+        );
+        let json_line =
+            format_remote_free_service_telemetry_collection_summary_rollup_check_log_summary_json_line(
+                &summary,
+            )?;
+        assert!(!json_line.contains('\n'));
+        let json_line = serde_json::from_str::<serde_json::Value>(&json_line)?;
+        assert_eq!(
+            json_line["schema"],
+            REMOTE_FREE_SERVICE_TELEMETRY_COLLECTION_SUMMARY_ROLLUP_CHECK_LOG_SCHEMA
+        );
+        assert_eq!(json_line["records"], summary.records);
+        assert_eq!(
+            json_line["rollup_hosts_present"],
+            summary.rollup_hosts_present
+        );
+        assert_eq!(json_line["bundle_hosts"], summary.bundle_hosts);
+        assert_eq!(
+            json_line["status_valid_bundles"],
+            summary.status_valid_bundles
+        );
+        assert_eq!(
+            json_line["host_coverage"]["bundle_hosts_missing"],
+            summary.bundle_hosts_missing
+        );
+        assert_eq!(
+            json_line["status_coverage"]["valid_bundles"],
+            summary.status_valid_bundles
+        );
+        assert_eq!(
+            json_line["status_coverage"]["other_failures"],
+            summary.status_other_failures
         );
         Ok(())
     }

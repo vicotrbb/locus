@@ -689,6 +689,13 @@ host-bearing and older no-host-bundle rollups reports two records, two rollup
 hosts present, one bundle host present, one bundle host missing, two valid
 bundles, and zero failed statuses.
 
+Experiment 0253 added a JSON line for the saved-log summary while preserving
+the human summary line as the first line. The JSON schema is
+`locus.remote_free_service.telemetry.collection_summary_rollup_check_log.v1`
+and includes flat fields plus grouped `host_coverage` and `status_coverage`
+objects. The real combined log preserves the two-record human summary and
+emits machine-readable grouped coverage totals for dashboard ingestion.
+
 ## Measured Thresholds
 
 | Path | Shape inputs | Budget | Matched counters |
@@ -1076,6 +1083,7 @@ bundles, and zero failed statuses.
 - `documentation/experiments/0250-remote-free-service-telemetry-rollup-check-json-groups.md`
 - `documentation/experiments/0251-remote-free-service-telemetry-rollup-check-json-parser.md`
 - `documentation/experiments/0252-remote-free-service-telemetry-rollup-check-log-summary.md`
+- `documentation/experiments/0253-remote-free-service-telemetry-rollup-check-log-summary-json.md`
 
 ## Open Questions
 

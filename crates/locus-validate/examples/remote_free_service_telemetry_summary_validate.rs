@@ -11,6 +11,7 @@ use std::{
 use locus_validate::{
     build_remote_free_service_telemetry_collection_summary_directory_rollup,
     format_remote_free_service_telemetry_collection_summary_rollup_check_json_line,
+    format_remote_free_service_telemetry_collection_summary_rollup_check_log_summary_json_line,
     parse_remote_free_service_telemetry_collection_summary,
     parse_remote_free_service_telemetry_collection_summary_rollup_check_json_line,
     parse_remote_free_service_telemetry_timing_stability_manifest,
@@ -95,6 +96,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 &log_text,
             )?;
         println!("{summary}");
+        println!(
+            "{}",
+            format_remote_free_service_telemetry_collection_summary_rollup_check_log_summary_json_line(&summary)?
+        );
         return Ok(());
     }
 
