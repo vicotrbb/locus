@@ -4,7 +4,7 @@ use std::{num::NonZeroU64, thread};
 
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use locus_alloc::{
-    RemoteFreeDrainObservation, RemoteFreeDrainPolicy, RemoteFreeDrainTracker, RemoteFreeQueue,
+    RemoteFreeDrainController, RemoteFreeDrainPolicy, RemoteFreeQueue,
     RemoteFreeTryEnqueueErrorKind,
 };
 
@@ -12,6 +12,7 @@ const TRACE_BURSTS: u64 = 8;
 const TRACE_BURST_BLOCKS: u64 = 32;
 const TRACE_BLOCKS: u64 = TRACE_BURSTS * TRACE_BURST_BLOCKS;
 const TRACE_SIZES: [usize; 8] = [4096, 4096, 8192, 4096, 16384, 4096, 32768, 8192];
+const TRACE_SIZES_U64: [u64; 8] = [4096, 4096, 8192, 4096, 16384, 4096, 32768, 8192];
 const TRACE_SIZE_COUNT: u64 = 8;
 const TRACE_PATTERN_BYTES: u64 = 4096 + 4096 + 8192 + 4096 + 16384 + 4096 + 32768 + 8192;
 const TRACE_TOTAL_BYTES: u64 = TRACE_PATTERN_BYTES * (TRACE_BLOCKS / TRACE_SIZE_COUNT);
@@ -58,10 +59,6 @@ impl TracePolicy {
             drain_policy: RemoteFreeDrainPolicy::new()
                 .with_max_pending_age(NonZeroU64::new(2).expect("non-zero")),
         }
-    }
-
-    fn should_drain(self, observation: RemoteFreeDrainObservation) -> bool {
-        self.drain_policy.should_drain(observation)
     }
 }
 
@@ -160,11 +157,12 @@ fn run_trace_sample(capacity: usize, batch_limit: usize, policy: TracePolicy) ->
     let sink = queue.sink();
     let mut stats = TraceStats::new();
     let mut size_index = 0_usize;
-    let mut drain_tracker = RemoteFreeDrainTracker::new();
+    let mut controller = RemoteFreeDrainController::new(policy.drain_policy);
 
     for burst in 0..TRACE_BURSTS {
         for _ in 0..TRACE_BURST_BLOCKS {
             let size = TRACE_SIZES[size_index % TRACE_SIZES.len()];
+            let size_u64 = TRACE_SIZES_U64[size_index % TRACE_SIZES_U64.len()];
             size_index = size_index.saturating_add(1);
             let mut block = TraceBlock {
                 submit_burst: burst,
@@ -175,19 +173,19 @@ fn run_trace_sample(capacity: usize, batch_limit: usize, policy: TracePolicy) ->
                 match sink.try_enqueue(block) {
                     Ok(()) => {
                         stats.submitted_count = stats.submitted_count.saturating_add(1);
-                        drain_tracker.record_submit(burst, size as u64);
-                        stats.queued_bytes = drain_tracker.queued_bytes();
+                        controller.record_submit(burst, size_u64);
+                        stats.queued_bytes = controller.tracker().queued_bytes();
                         stats.max_queued_bytes = stats.max_queued_bytes.max(stats.queued_bytes);
-                        stats.max_pending_count =
-                            stats.max_pending_count.max(drain_tracker.pending_count());
+                        stats.max_pending_count = stats
+                            .max_pending_count
+                            .max(controller.tracker().pending_count());
                         break;
                     }
                     Err(error) if error.kind() == RemoteFreeTryEnqueueErrorKind::Full => {
                         stats.full_count = stats.full_count.saturating_add(1);
                         block = error.into_item();
 
-                        if drain_trace_batch(&mut queue, burst, &mut stats, &mut drain_tracker) == 0
-                        {
+                        if drain_trace_batch(&mut queue, burst, &mut stats, &mut controller) == 0 {
                             thread::yield_now();
                         } else {
                             stats.forced_drains = stats.forced_drains.saturating_add(1);
@@ -199,16 +197,19 @@ fn run_trace_sample(capacity: usize, batch_limit: usize, policy: TracePolicy) ->
         }
 
         let completed_bursts = burst.saturating_add(1);
-        let observation = trace_observation(&queue, &stats, &drain_tracker, completed_bursts);
-        if policy.should_drain(observation)
-            && drain_trace_batch(&mut queue, completed_bursts, &mut stats, &mut drain_tracker) > 0
+        let policy_report = controller
+            .status_for_queue(&queue, completed_bursts)
+            .expect("controller status");
+        assert_eq!(policy_report.observation.queued_bytes, stats.queued_bytes);
+        if policy_report.decision.should_drain()
+            && drain_trace_batch(&mut queue, completed_bursts, &mut stats, &mut controller) > 0
         {
             stats.policy_drains = stats.policy_drains.saturating_add(1);
         }
     }
 
     while stats.drained_count < stats.submitted_count {
-        if drain_trace_batch(&mut queue, TRACE_BURSTS, &mut stats, &mut drain_tracker) == 0 {
+        if drain_trace_batch(&mut queue, TRACE_BURSTS, &mut stats, &mut controller) == 0 {
             thread::yield_now();
         }
     }
@@ -216,40 +217,26 @@ fn run_trace_sample(capacity: usize, batch_limit: usize, policy: TracePolicy) ->
     let queue_stats = queue.stats();
     assert_eq!(queue_stats.pending_count, 0);
     assert_eq!(queue_stats.full_count, stats.full_count);
-    assert!(drain_tracker.is_empty());
+    assert!(controller.tracker().is_empty());
     stats
-}
-
-fn trace_observation(
-    queue: &RemoteFreeQueue<TraceBlock>,
-    stats: &TraceStats,
-    drain_tracker: &RemoteFreeDrainTracker,
-    current_burst: u64,
-) -> RemoteFreeDrainObservation {
-    let queue_stats = queue.stats();
-    let observation = drain_tracker.observation(current_burst);
-
-    assert_eq!(observation.pending_count, queue_stats.pending_count);
-    assert_eq!(observation.queued_bytes, stats.queued_bytes);
-
-    observation
 }
 
 fn drain_trace_batch(
     queue: &mut RemoteFreeQueue<TraceBlock>,
     current_burst: u64,
     stats: &mut TraceStats,
-    drain_tracker: &mut RemoteFreeDrainTracker,
+    controller: &mut RemoteFreeDrainController,
 ) -> usize {
     let drained = queue.drain_batch(|mut block| {
-        let allocation_len = block.allocation.len() as u64;
-        let tracked = drain_tracker
+        let allocation_len =
+            u64::try_from(block.allocation.len()).expect("allocation len fits u64");
+        let tracked = controller
             .record_drain(allocation_len)
             .expect("tracked drain");
         assert_eq!(tracked.submit_turn, block.submit_burst);
         assert_eq!(tracked.released_bytes, allocation_len);
         let wait_bursts = current_burst.saturating_sub(block.submit_burst);
-        stats.queued_bytes = drain_tracker.queued_bytes();
+        stats.queued_bytes = controller.tracker().queued_bytes();
         stats.released_bytes = stats.released_bytes.saturating_add(allocation_len);
         stats.max_wait_bursts = stats.max_wait_bursts.max(wait_bursts);
         stats.total_wait_bursts = stats.total_wait_bursts.saturating_add(wait_bursts);
