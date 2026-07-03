@@ -19,6 +19,7 @@ use locus_validate::{
     verify_remote_free_service_telemetry_collection_summary_artifacts,
     write_remote_free_service_telemetry_collection_summary_rollup_artifact,
     RemoteFreeServiceTelemetryCollectionSummaryBundleValidation,
+    RemoteFreeServiceTelemetryCollectionSummaryHost,
     RemoteFreeServiceTelemetryCollectionSummaryRollup,
     RemoteFreeServiceTelemetryCollectionSummaryRollupBundleStatus,
     RemoteFreeServiceTelemetryCollectionSummaryRollupHost,
@@ -74,14 +75,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let summary_path = PathBuf::from(summary_path);
     let report = validate_summary_path(&summary_path)?;
 
-    println!(
-        "remote_free_service_telemetry_collection_summary_validation=ok summary={} manifest={} collection_mode={} run_id={} output_count={}",
-        report.summary_path.display(),
-        report.manifest_path.display(),
-        report.collection_mode,
-        report.run_id,
-        report.output_count
-    );
+    println!("{}", collection_summary_validation_line(&report));
     println!("{}", report.artifact_report);
     println!("{}", report.validation_summary_report);
     print!("{}", report.stability_output);
@@ -95,6 +89,7 @@ struct BundleValidationReport {
     manifest_path: PathBuf,
     collection_mode: String,
     run_id: String,
+    host: Option<RemoteFreeServiceTelemetryCollectionSummaryHost>,
     output_count: usize,
     artifact_report: String,
     validation_summary_report: String,
@@ -129,12 +124,57 @@ fn validate_summary_path(summary_path: &Path) -> Result<BundleValidationReport, 
         manifest_path,
         collection_mode: summary.collection_mode,
         run_id: summary.run_id,
+        host: summary.host,
         output_count: summary.output_count,
         artifact_report: artifact_report.to_string(),
         validation_summary_report,
         timing_ranges: stability_output.timing_ranges,
         stability_output: stability_output.text,
     })
+}
+
+fn collection_summary_validation_line(report: &BundleValidationReport) -> String {
+    format!(
+        "remote_free_service_telemetry_collection_summary_validation=ok summary={} manifest={} collection_mode={} run_id={} {} output_count={}",
+        report.summary_path.display(),
+        report.manifest_path.display(),
+        report.collection_mode,
+        report.run_id,
+        summary_host_fields(report.host.as_ref()),
+        report.output_count
+    )
+}
+
+fn summary_host_fields(host: Option<&RemoteFreeServiceTelemetryCollectionSummaryHost>) -> String {
+    match host {
+        Some(host) => format!(
+            "host_present=true host_os={} host_arch={} host_hostname={}",
+            output_token(&host.os),
+            output_token(&host.arch),
+            host.hostname
+                .as_deref()
+                .map_or_else(|| "none".to_owned(), output_token)
+        ),
+        None => "host_present=false".to_owned(),
+    }
+}
+
+fn output_token(value: &str) -> String {
+    let token = value
+        .chars()
+        .map(|value| {
+            if value.is_ascii_alphanumeric() || matches!(value, '.' | '_' | '-') {
+                value
+            } else {
+                '_'
+            }
+        })
+        .collect::<String>();
+    if token.is_empty() {
+        "none".to_owned()
+    } else {
+        token
+    }
 }
 
 fn validate_summary_directory(
@@ -304,9 +344,13 @@ fn usage_error(program: &str) -> io::Error {
 #[cfg(test)]
 mod tests {
     use super::{
-        compare_validation_summary, validate_summary_directory, write_directory_rollup_artifact,
+        collection_summary_validation_line, compare_validation_summary, summary_host_fields,
+        validate_summary_directory, write_directory_rollup_artifact, BundleValidationReport,
     };
-    use locus_validate::validate_remote_free_service_telemetry_collection_summary_rollup_artifact;
+    use locus_validate::{
+        validate_remote_free_service_telemetry_collection_summary_rollup_artifact,
+        RemoteFreeServiceTelemetryCollectionSummaryHost,
+    };
     use serde_json::json;
     use std::{
         fs,
@@ -426,6 +470,66 @@ mod tests {
         assert_eq!(
             report,
             "remote_free_service_telemetry_validation_summary=matched path=validation-summary.txt bytes=8"
+        );
+    }
+
+    #[test]
+    fn formats_summary_validation_line_without_host_metadata() {
+        let report = BundleValidationReport {
+            summary_path: PathBuf::from("collection-summary.json"),
+            manifest_path: PathBuf::from("manifest.txt"),
+            collection_mode: "benchmark_capture".to_owned(),
+            run_id: "run-1".to_owned(),
+            host: None,
+            output_count: 2,
+            artifact_report: String::new(),
+            validation_summary_report: String::new(),
+            stability_output: String::new(),
+            timing_ranges: 1,
+        };
+
+        assert_eq!(
+            collection_summary_validation_line(&report),
+            "remote_free_service_telemetry_collection_summary_validation=ok summary=collection-summary.json manifest=manifest.txt collection_mode=benchmark_capture run_id=run-1 host_present=false output_count=2"
+        );
+    }
+
+    #[test]
+    fn formats_summary_validation_line_with_host_metadata() {
+        let report = BundleValidationReport {
+            summary_path: PathBuf::from("collection-summary.json"),
+            manifest_path: PathBuf::from("manifest.txt"),
+            collection_mode: "benchmark_capture".to_owned(),
+            run_id: "run-1".to_owned(),
+            host: Some(RemoteFreeServiceTelemetryCollectionSummaryHost {
+                os: "macos".to_owned(),
+                arch: "aarch64".to_owned(),
+                hostname: None,
+            }),
+            output_count: 2,
+            artifact_report: String::new(),
+            validation_summary_report: String::new(),
+            stability_output: String::new(),
+            timing_ranges: 1,
+        };
+
+        assert_eq!(
+            collection_summary_validation_line(&report),
+            "remote_free_service_telemetry_collection_summary_validation=ok summary=collection-summary.json manifest=manifest.txt collection_mode=benchmark_capture run_id=run-1 host_present=true host_os=macos host_arch=aarch64 host_hostname=none output_count=2"
+        );
+    }
+
+    #[test]
+    fn formats_host_fields_as_single_line_tokens() {
+        let host = RemoteFreeServiceTelemetryCollectionSummaryHost {
+            os: "linux".to_owned(),
+            arch: "x86_64".to_owned(),
+            hostname: Some("bench host 01".to_owned()),
+        };
+
+        assert_eq!(
+            summary_host_fields(Some(&host)),
+            "host_present=true host_os=linux host_arch=x86_64 host_hostname=bench_host_01"
         );
     }
 

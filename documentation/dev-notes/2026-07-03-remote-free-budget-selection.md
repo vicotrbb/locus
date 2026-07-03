@@ -617,6 +617,12 @@ a matched 335-byte validation summary, and a stable 53,099,000 ps to
 56,033,000 ps timing range. The initial parser patch rejected explicit null
 hostname; the fix now treats null as no hostname only for host metadata.
 
+Experiment 0243 made the summary validator print capture host metadata in its
+one-line success output. Older no-host evidence now reports
+`host_present=false`, while the host-bearing bundle reports
+`host_present=true host_os=macos host_arch=aarch64 host_hostname=none` without
+changing artifact byte-count or stability validation.
+
 ## Measured Thresholds
 
 | Path | Shape inputs | Budget | Matched counters |
@@ -913,6 +919,8 @@ hostname; the fix now treats null as no hostname only for host metadata.
   benchmark triage context beside the integrity counters.
 - Do not assume benchmark host metadata always has a hostname. Real direct
   capture on this machine exposed `os` and `arch` but no environment hostname.
+- Do not require host metadata to validate old schema v1 summaries. Use
+  `host_present=false` in validator output for older bundles.
 - Recheck thresholds when KV block size, request arena capacity, burst size,
   request concurrency, or batch size changes.
 - For heterogeneous traces, derive the budget from actual retained item sizes
@@ -992,6 +1000,7 @@ hostname; the fix now treats null as no hostname only for host metadata.
 - `documentation/experiments/0240-remote-free-service-telemetry-directory-rollup-builder.md`
 - `documentation/experiments/0241-remote-free-service-telemetry-rollup-host-metadata.md`
 - `documentation/experiments/0242-remote-free-service-telemetry-summary-host-metadata.md`
+- `documentation/experiments/0243-remote-free-service-telemetry-summary-host-output.md`
 
 ## Open Questions
 
