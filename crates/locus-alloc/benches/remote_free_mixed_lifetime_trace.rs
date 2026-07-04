@@ -1,10 +1,12 @@
 #![allow(missing_docs)]
 
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::mpsc::{sync_channel, Receiver, SyncSender};
+use std::sync::Arc;
 use std::thread::{self, JoinHandle};
 
 use criterion::{criterion_group, criterion_main, Criterion};
-use locus_alloc::{KvBlockHandle, KvBlockPool, RemoteFreeQueue};
+use locus_alloc::{ChunkMailbox, KvBlockHandle, KvBlockPool, RemoteFreeQueue};
 use locus_core::NodeId;
 
 const BLOCK_SIZE: usize = 4096;
@@ -26,6 +28,7 @@ enum WorkerCommand {
 enum FreePath {
     SharedPerHandle,
     ShardedChunk,
+    ShardedMailbox,
 }
 
 struct Request {
@@ -88,6 +91,9 @@ impl WorkerPool {
 struct TraceQueues {
     per_handle: Vec<RemoteFreeQueue<KvBlockHandle>>,
     chunk: Vec<RemoteFreeQueue<Vec<KvBlockHandle>>>,
+    mailboxes: Vec<ChunkMailbox<Vec<KvBlockHandle>>>,
+    mailbox_submitted: Arc<AtomicUsize>,
+    mailbox_drained: usize,
 }
 
 impl TraceQueues {
@@ -97,6 +103,9 @@ impl TraceQueues {
                 per_handle: vec![RemoteFreeQueue::new(SHARED_CAPACITY, SHARED_BATCH_LIMIT)
                     .expect("shared queue configuration")],
                 chunk: Vec::new(),
+                mailboxes: Vec::new(),
+                mailbox_submitted: Arc::new(AtomicUsize::new(0)),
+                mailbox_drained: 0,
             },
             FreePath::ShardedChunk => Self {
                 per_handle: Vec::new(),
@@ -106,11 +115,35 @@ impl TraceQueues {
                             .expect("chunk queue configuration")
                     })
                     .collect(),
+                mailboxes: Vec::new(),
+                mailbox_submitted: Arc::new(AtomicUsize::new(0)),
+                mailbox_drained: 0,
+            },
+            FreePath::ShardedMailbox => Self {
+                per_handle: Vec::new(),
+                chunk: Vec::new(),
+                mailboxes: (0..WORKERS).map(|_| ChunkMailbox::new()).collect(),
+                mailbox_submitted: Arc::new(AtomicUsize::new(0)),
+                mailbox_drained: 0,
             },
         }
     }
 
     fn worker_free_paths(&self) -> Vec<Box<dyn FnMut(Vec<KvBlockHandle>) + Send>> {
+        if !self.mailboxes.is_empty() {
+            return self
+                .mailboxes
+                .iter()
+                .map(|mailbox| {
+                    let sender = mailbox.sender();
+                    let submitted = Arc::clone(&self.mailbox_submitted);
+                    Box::new(move |handles: Vec<KvBlockHandle>| {
+                        submitted.fetch_add(handles.len(), Ordering::Relaxed);
+                        sender.push(handles);
+                    }) as Box<dyn FnMut(Vec<KvBlockHandle>) + Send>
+                })
+                .collect();
+        }
         if self.chunk.is_empty() {
             (0..WORKERS)
                 .map(|_| {
@@ -151,10 +184,26 @@ impl TraceQueues {
                 }
             });
         }
-        freed
+        let mut mailbox_freed = 0_usize;
+        for mailbox in &self.mailboxes {
+            mailbox.take_all(|handles| {
+                for handle in handles {
+                    pool.free(handle).expect("drained handle frees");
+                    mailbox_freed += 1;
+                }
+            });
+        }
+        self.mailbox_drained += mailbox_freed;
+        freed + mailbox_freed
     }
 
     fn assert_balanced(&self) {
+        if !self.mailboxes.is_empty() {
+            assert_eq!(
+                self.mailbox_submitted.load(Ordering::Relaxed),
+                self.mailbox_drained
+            );
+        }
         for queue in self
             .per_handle
             .iter()
@@ -238,6 +287,7 @@ fn path_name(path: &FreePath) -> &'static str {
     match path {
         FreePath::SharedPerHandle => "shared_per_handle",
         FreePath::ShardedChunk => "sharded_chunk",
+        FreePath::ShardedMailbox => "sharded_mailbox",
     }
 }
 
@@ -266,7 +316,11 @@ fn print_case_stats(path: &FreePath) {
 }
 
 fn bench_remote_free_mixed_lifetime_trace(c: &mut Criterion) {
-    for path in [FreePath::SharedPerHandle, FreePath::ShardedChunk] {
+    for path in [
+        FreePath::SharedPerHandle,
+        FreePath::ShardedChunk,
+        FreePath::ShardedMailbox,
+    ] {
         print_case_stats(&path);
 
         let mut pool =

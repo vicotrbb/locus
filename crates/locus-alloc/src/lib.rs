@@ -68,6 +68,7 @@ pub use pinned_scratch_pool_probe::{
     PinnedScratchPoolProbePhase, PinnedScratchPoolProbeStatsLine, PinnedScratchPoolProbeStatus,
 };
 
+pub use locus_sys::chunk_mailbox::{ChunkMailbox, ChunkMailboxSender};
 pub use remote_free::{
     RemoteFreeDrainController, RemoteFreeDrainControllerError, RemoteFreeDrainControllerStatus,
     RemoteFreeDrainDecision, RemoteFreeDrainObservation, RemoteFreeDrainPolicy,

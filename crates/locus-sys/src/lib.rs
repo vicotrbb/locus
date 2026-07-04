@@ -8,6 +8,8 @@ use std::io;
 use std::ptr::NonNull;
 use std::slice;
 
+pub mod chunk_mailbox;
+
 #[cfg(target_os = "linux")]
 pub mod linux {
     //! Linux-specific NUMA memory policy helpers.
