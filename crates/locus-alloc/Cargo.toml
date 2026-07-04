@@ -78,3 +78,7 @@ harness = false
 [[bench]]
 name = "remote_free_sharded"
 harness = false
+
+[[bench]]
+name = "remote_free_chunk_publish"
+harness = false
