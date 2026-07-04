@@ -2,13 +2,15 @@ use std::collections::VecDeque;
 use std::fmt;
 
 use locus_core::NodeId;
+use locus_sys::MappedRegion;
 
 /// Safe fixed-size KV block pool tagged with an intended NUMA node.
 #[derive(Debug)]
 pub struct KvBlockPool {
     home_node: NodeId,
     block_size: usize,
-    blocks: Vec<Vec<u8>>,
+    backing: KvBlockBacking,
+    capacity: usize,
     free: VecDeque<usize>,
     reuse_order: KvReuseOrder,
     allocated: Vec<bool>,
@@ -16,6 +18,15 @@ pub struct KvBlockPool {
     allocation_count: u64,
     free_count: u64,
     high_water_mark: usize,
+}
+
+/// Storage backing for a `KvBlockPool`.
+#[derive(Debug)]
+enum KvBlockBacking {
+    /// One heap allocation per block.
+    HeapVecs(Vec<Vec<u8>>),
+    /// One contiguous mapped region; blocks are fixed offsets.
+    Mapped(MappedRegion),
 }
 
 /// Order in which freed blocks are reused by a `KvBlockPool`.
@@ -83,13 +94,62 @@ impl KvBlockPool {
         for _ in 0..capacity {
             blocks.push(vec![0; block_size]);
         }
-
-        let free = (0..capacity).rev().collect();
-
-        Ok(Self {
+        Ok(Self::from_backing(
             home_node,
             block_size,
-            blocks,
+            capacity,
+            KvBlockBacking::HeapVecs(blocks),
+            reuse_order,
+        ))
+    }
+
+    /// Creates a KV block pool backed by one contiguous mapped region.
+    ///
+    /// The whole pool can then be bound to a NUMA node with one call.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when block size or capacity is zero, size math
+    /// overflows, or the mapping cannot be created.
+    pub fn new_mapped(
+        home_node: NodeId,
+        block_size: usize,
+        capacity: usize,
+        reuse_order: KvReuseOrder,
+    ) -> Result<Self, KvBlockPoolError> {
+        if block_size == 0 {
+            return Err(KvBlockPoolError::InvalidBlockSize);
+        }
+        if capacity == 0 {
+            return Err(KvBlockPoolError::InvalidCapacity);
+        }
+        let total = block_size
+            .checked_mul(capacity)
+            .ok_or(KvBlockPoolError::InvalidCapacity)?;
+        let region = MappedRegion::anonymous(total).map_err(|_| KvBlockPoolError::MappingFailed)?;
+        Ok(Self::from_backing(
+            home_node,
+            block_size,
+            capacity,
+            KvBlockBacking::Mapped(region),
+            reuse_order,
+        ))
+    }
+
+    fn from_backing(
+        home_node: NodeId,
+        block_size: usize,
+        capacity: usize,
+        backing: KvBlockBacking,
+        reuse_order: KvReuseOrder,
+    ) -> Self {
+        let free = (0..capacity).rev().collect();
+
+        Self {
+            home_node,
+            block_size,
+            backing,
+            capacity,
             free,
             reuse_order,
             allocated: vec![false; capacity],
@@ -97,7 +157,7 @@ impl KvBlockPool {
             allocation_count: 0,
             free_count: 0,
             high_water_mark: 0,
-        })
+        }
     }
 
     /// Allocates one KV block.
@@ -127,7 +187,14 @@ impl KvBlockPool {
     /// Returns an error when the handle is stale or not allocated.
     pub fn block_mut(&mut self, handle: KvBlockHandle) -> Result<&mut [u8], KvBlockPoolError> {
         self.validate_handle(handle)?;
-        Ok(&mut self.blocks[handle.index])
+        let block_size = self.block_size;
+        match &mut self.backing {
+            KvBlockBacking::HeapVecs(blocks) => Ok(&mut blocks[handle.index]),
+            KvBlockBacking::Mapped(region) => {
+                let start = handle.index * block_size;
+                Ok(&mut region.as_mut_slice()[start..start + block_size])
+            }
+        }
     }
 
     /// Frees a live KV block handle.
@@ -150,7 +217,7 @@ impl KvBlockPool {
         KvBlockPoolStats {
             home_node: self.home_node,
             block_size: self.block_size,
-            capacity: self.blocks.len(),
+            capacity: self.capacity,
             allocated: self.allocated_count(),
             free: self.free.len(),
             high_water_mark: self.high_water_mark,
@@ -170,7 +237,30 @@ impl KvBlockPool {
     }
 
     fn allocated_count(&self) -> usize {
-        self.blocks.len() - self.free.len()
+        self.capacity - self.free.len()
+    }
+
+    /// Binds the mapped pool region to a NUMA node (Linux only).
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the pool is heap backed or the bind fails.
+    #[cfg(target_os = "linux")]
+    pub fn bind_to_node(&self, node: NodeId) -> Result<(), KvBlockPoolError> {
+        match &self.backing {
+            KvBlockBacking::Mapped(region) => locus_sys::linux::bind_region_to_node(region, node.0)
+                .map_err(|_| KvBlockPoolError::BindFailed),
+            KvBlockBacking::HeapVecs(_) => Err(KvBlockPoolError::NotMapped),
+        }
+    }
+
+    /// Returns the mapped region span, when mapped backed.
+    #[must_use]
+    pub fn mapping_span(&self) -> Option<(usize, usize)> {
+        match &self.backing {
+            KvBlockBacking::Mapped(region) => Some((region.as_ptr() as usize, region.len())),
+            KvBlockBacking::HeapVecs(_) => None,
+        }
     }
 }
 
@@ -305,6 +395,12 @@ pub enum KvBlockPoolError {
     OutOfBlocks,
     /// The block handle is stale, invalid, or not allocated.
     InvalidHandle,
+    /// The backing mapping could not be created.
+    MappingFailed,
+    /// The pool is not backed by a mapped region.
+    NotMapped,
+    /// Binding the mapped region to a node failed.
+    BindFailed,
 }
 
 /// KV block table failures.
@@ -344,6 +440,9 @@ impl fmt::Display for KvBlockPoolError {
             Self::InvalidCapacity => f.write_str("KV block pool capacity must be non-zero"),
             Self::OutOfBlocks => f.write_str("KV block pool is out of blocks"),
             Self::InvalidHandle => f.write_str("KV block handle is invalid or stale"),
+            Self::MappingFailed => f.write_str("KV block pool mapping could not be created"),
+            Self::NotMapped => f.write_str("KV block pool is not backed by a mapped region"),
+            Self::BindFailed => f.write_str("KV block pool region bind failed"),
         }
     }
 }
@@ -363,6 +462,41 @@ mod tests {
     use super::{
         KvBlockPool, KvBlockPoolError, KvBlockTable, KvBlockTableError, KvReuseOrder, KvSequenceId,
     };
+
+    #[test]
+    fn mapped_pool_round_trips_blocks_at_fixed_offsets() {
+        let mut pool =
+            KvBlockPool::new_mapped(NodeId(0), 4096, 4, KvReuseOrder::Lifo).expect("mapped pool");
+        let (start, len) = pool.mapping_span().expect("mapped span");
+        assert_eq!(len, 4 * 4096);
+        assert!(start > 0);
+
+        let first = pool.allocate().expect("block");
+        let second = pool.allocate().expect("block");
+        pool.block_mut(first).expect("first slice").fill(0xAB);
+        pool.block_mut(second).expect("second slice").fill(0xCD);
+        assert!(pool
+            .block_mut(first)
+            .expect("first slice")
+            .iter()
+            .all(|b| *b == 0xAB));
+        assert!(pool
+            .block_mut(second)
+            .expect("second slice")
+            .iter()
+            .all(|b| *b == 0xCD));
+
+        pool.free(first).expect("first frees");
+        pool.free(second).expect("second frees");
+        assert_eq!(pool.stats().allocated, 0);
+        assert_eq!(pool.stats().free, 4);
+    }
+
+    #[test]
+    fn heap_pool_reports_no_mapping_span() {
+        let pool = KvBlockPool::new(NodeId(0), 64, 2).expect("pool");
+        assert!(pool.mapping_span().is_none());
+    }
 
     #[test]
     fn lifo_reuse_returns_most_recently_freed_block() {

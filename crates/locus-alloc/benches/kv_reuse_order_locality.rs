@@ -44,15 +44,22 @@ fn run_cycle(pool: &mut KvBlockPool, live: &mut VecDeque<Vec<KvBlockHandle>>, to
 
 fn bench_kv_reuse_order_locality(c: &mut Criterion) {
     let cases = [
-        ("lifo", KvReuseOrder::Lifo, true),
-        ("fifo", KvReuseOrder::Fifo, true),
-        ("lifo", KvReuseOrder::Lifo, false),
-        ("fifo", KvReuseOrder::Fifo, false),
+        ("lifo", KvReuseOrder::Lifo, true, false),
+        ("fifo", KvReuseOrder::Fifo, true, false),
+        ("lifo_mapped", KvReuseOrder::Lifo, true, true),
+        ("lifo", KvReuseOrder::Lifo, false, false),
+        ("fifo", KvReuseOrder::Fifo, false, false),
+        ("lifo_mapped", KvReuseOrder::Lifo, false, true),
     ];
 
-    for (order_name, order, touch) in cases {
-        let mut pool = KvBlockPool::new_with_reuse_order(NodeId(0), BLOCK_SIZE, POOL_BLOCKS, order)
-            .expect("pool configuration");
+    for (order_name, order, touch, mapped) in cases {
+        let mut pool = if mapped {
+            KvBlockPool::new_mapped(NodeId(0), BLOCK_SIZE, POOL_BLOCKS, order)
+                .expect("mapped pool configuration")
+        } else {
+            KvBlockPool::new_with_reuse_order(NodeId(0), BLOCK_SIZE, POOL_BLOCKS, order)
+                .expect("pool configuration")
+        };
         let mut live: VecDeque<Vec<KvBlockHandle>> = VecDeque::with_capacity(LIVE_CHUNKS);
         for _ in 0..LIVE_CHUNKS {
             live.push_back(allocate_chunk(&mut pool, touch, 0));
