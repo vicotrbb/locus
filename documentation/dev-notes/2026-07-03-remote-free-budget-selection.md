@@ -1541,6 +1541,8 @@ rollup with `CountDrift`.
 Experiment 0348 preserved both the matched and stale archived dashboard rollup
 recheck drift outcomes as compact JSON verdicts, then reloaded them through
 the parser path.
+Experiment 0349 made that parser-only recheck explicit for the saved matched
+and stale archived dashboard rollup recheck drift JSON verdict records.
 
 ## Open Questions
 
