@@ -1538,6 +1538,9 @@ cohort counters.
 Experiment 0347 then verified that archived dashboard rollup JSON against
 saved source verdict records and rejected a controlled stale `records=1`
 rollup with `CountDrift`.
+Experiment 0348 preserved both the matched and stale archived dashboard rollup
+recheck drift outcomes as compact JSON verdicts, then reloaded them through
+the parser path.
 
 ## Open Questions
 
