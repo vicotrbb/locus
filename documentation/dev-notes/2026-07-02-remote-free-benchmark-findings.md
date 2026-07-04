@@ -51,3 +51,13 @@ The current remote-free benchmarks still run on logical handles and generic vect
 - Should `RemoteFreeQueue` expose nonblocking enqueue or backpressure metrics for scheduler feedback?
 - Should KV block pools own per-node remote-free queues directly, or should queues remain separate runtime infrastructure?
 - How should remote-free draining interact with NUMA placement evidence from `numa_maps`, cgroup `memory.numa_stat`, and node `numastat`?
+
+## Update 2026-07-04: Concurrent Producer Contention
+
+Experiment 0351 added the first remote-free benchmark where producer enqueue and owner drain genuinely overlap across threads (`remote_free_concurrent`). Findings:
+
+- The batch-limit ranking from the single-threaded 0059 sweep does not survive concurrency. With overlapping drain, batch 8 and batch 256 are statistically indistinguishable at 1, 2, and 4 producers.
+- Producer count dominates cost: roughly 5.3 us at 1 producer, 9.6 us at 2, and 21 us at 4 for the same 256 real 4 KiB blocks through one shared bounded queue.
+- Concurrent benchmark runs are noisy; ranking requires at least two independent runs.
+
+Policy consequence: batch-limit tuning from single-threaded sweeps is not a valid lever for concurrent serving shapes. The open lever is queue sharding, tracked as the next question in experiment 0351.
