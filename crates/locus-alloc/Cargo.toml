@@ -70,3 +70,7 @@ harness = false
 
 [lints]
 workspace = true
+
+[[bench]]
+name = "remote_free_concurrent"
+harness = false
