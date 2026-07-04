@@ -82,3 +82,7 @@ harness = false
 [[bench]]
 name = "remote_free_chunk_publish"
 harness = false
+
+[[bench]]
+name = "remote_free_mixed_lifetime_trace"
+harness = false
