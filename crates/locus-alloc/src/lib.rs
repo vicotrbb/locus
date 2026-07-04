@@ -15,7 +15,7 @@ mod scratch_arena;
 
 pub use kv_block::{
     KvBlockHandle, KvBlockPool, KvBlockPoolError, KvBlockPoolStats, KvBlockTable,
-    KvBlockTableError, KvBlockTableStats, KvSequenceId,
+    KvBlockTableError, KvBlockTableStats, KvReuseOrder, KvSequenceId,
 };
 
 pub use mapped_scratch::{

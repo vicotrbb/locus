@@ -1,3 +1,4 @@
+use std::collections::VecDeque;
 use std::fmt;
 
 use locus_core::NodeId;
@@ -8,12 +9,22 @@ pub struct KvBlockPool {
     home_node: NodeId,
     block_size: usize,
     blocks: Vec<Vec<u8>>,
-    free: Vec<usize>,
+    free: VecDeque<usize>,
+    reuse_order: KvReuseOrder,
     allocated: Vec<bool>,
     generations: Vec<u64>,
     allocation_count: u64,
     free_count: u64,
     high_water_mark: usize,
+}
+
+/// Order in which freed blocks are reused by a `KvBlockPool`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum KvReuseOrder {
+    /// Most recently freed block is reused first (cache-warm default).
+    Lifo,
+    /// Oldest freed block is reused first (maximum reuse distance).
+    Fifo,
 }
 
 /// Opaque handle for a KV block owned by a `KvBlockPool`.
@@ -47,6 +58,20 @@ impl KvBlockPool {
         block_size: usize,
         capacity: usize,
     ) -> Result<Self, KvBlockPoolError> {
+        Self::new_with_reuse_order(home_node, block_size, capacity, KvReuseOrder::Lifo)
+    }
+
+    /// Creates a fixed-size KV block pool with an explicit reuse order.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when block size or capacity is zero.
+    pub fn new_with_reuse_order(
+        home_node: NodeId,
+        block_size: usize,
+        capacity: usize,
+        reuse_order: KvReuseOrder,
+    ) -> Result<Self, KvBlockPoolError> {
         if block_size == 0 {
             return Err(KvBlockPoolError::InvalidBlockSize);
         }
@@ -66,6 +91,7 @@ impl KvBlockPool {
             block_size,
             blocks,
             free,
+            reuse_order,
             allocated: vec![false; capacity],
             generations: vec![0; capacity],
             allocation_count: 0,
@@ -80,7 +106,11 @@ impl KvBlockPool {
     ///
     /// Returns an error when the pool has no free blocks.
     pub fn allocate(&mut self) -> Result<KvBlockHandle, KvBlockPoolError> {
-        let index = self.free.pop().ok_or(KvBlockPoolError::OutOfBlocks)?;
+        let index = match self.reuse_order {
+            KvReuseOrder::Lifo => self.free.pop_back(),
+            KvReuseOrder::Fifo => self.free.pop_front(),
+        }
+        .ok_or(KvBlockPoolError::OutOfBlocks)?;
         self.allocated[index] = true;
         self.allocation_count = self.allocation_count.saturating_add(1);
         self.high_water_mark = self.high_water_mark.max(self.allocated_count());
@@ -109,7 +139,7 @@ impl KvBlockPool {
         self.validate_handle(handle)?;
         self.allocated[handle.index] = false;
         self.generations[handle.index] = self.generations[handle.index].saturating_add(1);
-        self.free.push(handle.index);
+        self.free.push_back(handle.index);
         self.free_count = self.free_count.saturating_add(1);
         Ok(())
     }
@@ -330,7 +360,36 @@ fn blocks_for_tokens(token_count: u64, tokens_per_block: u16) -> usize {
 mod tests {
     use locus_core::NodeId;
 
-    use super::{KvBlockPool, KvBlockPoolError, KvBlockTable, KvBlockTableError, KvSequenceId};
+    use super::{
+        KvBlockPool, KvBlockPoolError, KvBlockTable, KvBlockTableError, KvReuseOrder, KvSequenceId,
+    };
+
+    #[test]
+    fn lifo_reuse_returns_most_recently_freed_block() {
+        let mut pool = KvBlockPool::new(NodeId(0), 64, 3).expect("pool");
+        let first = pool.allocate().expect("block");
+        let second = pool.allocate().expect("block");
+        pool.free(first).expect("first frees");
+        pool.free(second).expect("second frees");
+
+        let reused = pool.allocate().expect("reused block");
+        assert_eq!(reused.index, second.index);
+        let _ = pool;
+    }
+
+    #[test]
+    fn fifo_reuse_returns_oldest_freed_block() {
+        let mut pool =
+            KvBlockPool::new_with_reuse_order(NodeId(0), 64, 2, KvReuseOrder::Fifo).expect("pool");
+        let first = pool.allocate().expect("block");
+        let second = pool.allocate().expect("block");
+        pool.free(first).expect("first frees");
+        pool.free(second).expect("second frees");
+
+        let reused = pool.allocate().expect("reused block");
+        assert_eq!(reused.index, first.index);
+        let _ = second;
+    }
 
     #[test]
     fn allocates_and_reuses_kv_blocks() {

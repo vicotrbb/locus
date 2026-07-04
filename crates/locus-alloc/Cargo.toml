@@ -98,3 +98,7 @@ harness = false
 [[bench]]
 name = "mixed_lifetime_system"
 harness = false
+
+[[bench]]
+name = "kv_reuse_order_locality"
+harness = false
