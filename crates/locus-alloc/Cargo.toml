@@ -102,3 +102,19 @@ harness = false
 [[bench]]
 name = "kv_reuse_order_locality"
 harness = false
+
+[[bench]]
+name = "locus_eval_locus"
+harness = false
+
+[[bench]]
+name = "locus_eval_jemalloc"
+harness = false
+
+[[bench]]
+name = "locus_eval_mimalloc"
+harness = false
+
+[[bench]]
+name = "locus_eval_system"
+harness = false
