@@ -39,37 +39,37 @@ recycling was falsified outright (0356).
 
 ## Design
 
-- `locus::kv::KvBlockPool`: fixed-size KV blocks, generation-validated
+- `locus_alloc::kv::KvBlockPool`: fixed-size KV blocks, generation-validated
   handles, LIFO reuse order for cache warmth (experiment 0358),
   optional mapped-region backing with a Linux `mbind` path (0359).
-- `locus::remote_free::ChunkMailbox`: per-worker lock-free mailboxes;
+- `locus_alloc::remote_free::ChunkMailbox`: per-worker lock-free mailboxes;
   workers push whole request chunks, the owner drains all mailboxes.
   No capacity, batch, or retune parameters exist by design (0357).
-- `locus::sys`: the single module allowed unsafe code (ADR 0002);
+- `locus_alloc::sys`: the single module allowed unsafe code (ADR 0002);
   the rest of the crate is `deny(unsafe_code)`.
-- `locus::topology`: NUMA topology types; Linux sysfs discovery
+- `locus_alloc::topology`: NUMA topology types; Linux sysfs discovery
   behind the `numa` feature.
 
 Locus is not a global allocator and does not replace malloc
 (ADR 0001). It is a domain pool a serving engine embeds; see
-[`crates/locus/examples/serving_engine.rs`](crates/locus/examples/serving_engine.rs)
+[`crates/locus-alloc/examples/serving_engine.rs`](crates/locus-alloc/examples/serving_engine.rs)
 for the intended pattern (per-request chunk free, per-worker mailbox,
 owner drain):
 
 ```sh
-cargo run -p locus --example serving_engine
+cargo run -p locus-alloc --example serving_engine
 ```
 
 ## Usage
 
 ```toml
 [dependencies]
-locus = "0.1"
+locus-alloc = "0.1"
 ```
 
 ## Repository layout
 
-- `crates/locus`: the published crate.
+- `crates/locus-alloc`: the published crate.
 - `crates/locus-observe`, `crates/locus-validate`: unpublished
   workspace members holding Linux NUMA evidence readers and
   validation gates used by the research harnesses.

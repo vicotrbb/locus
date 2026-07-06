@@ -1,8 +1,8 @@
 #![allow(missing_docs)]
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    use locus::MappedScratchArena;
-    use locus::NodeId;
+    use locus_alloc::MappedScratchArena;
+    use locus_alloc::NodeId;
 
     let mut arena = MappedScratchArena::new(NodeId(0), 16 * 1024)?;
     let mapping_start = arena.mapping_start_address();

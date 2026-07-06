@@ -3,14 +3,14 @@
 use std::{alloc::Layout, mem::MaybeUninit, sync::mpsc::sync_channel, thread};
 
 use criterion::{black_box, criterion_group, criterion_main, BatchSize, Criterion};
-use locus::{
+use locus_alloc::{
     KvBlockHandle, KvBlockPool, KvBlockTable, KvSequenceId, MappedScratchArena, PinnedScratchPool,
     RemoteFreeQueue, RequestScratch, RequestScratchPool, ScratchArena,
 };
-use locus::{NodeId, RequestHome, RequestId};
+use locus_alloc::{NodeId, RequestHome, RequestId};
 
 #[cfg(target_os = "linux")]
-use locus::{
+use locus_alloc::{
     MappedScratchThpObservation, MappedScratchThpPageSampleSource, MappedScratchThpPageSampleStatus,
 };
 
@@ -183,7 +183,7 @@ impl MappedScratchThpBenchMode {
 
 #[cfg(target_os = "linux")]
 fn mapped_scratch_thp_bench_arena(mode: MappedScratchThpBenchMode) -> MappedScratchArena {
-    use locus::MappedScratchHugePageAdvice;
+    use locus_alloc::MappedScratchHugePageAdvice;
 
     let arena = MappedScratchArena::new(NodeId(0), 4 * 1024 * 1024).expect("arena");
     match mode {
@@ -317,7 +317,7 @@ fn mapped_scratch_thp_page_evidence(
 ) -> MappedScratchThpPageEvidence {
     use std::io::ErrorKind;
 
-    use locus::sys::page_size;
+    use locus_alloc::sys::page_size;
     use locus_observe::{
         numa_maps_entry_for_address, read_self_numa_maps, read_self_smaps, smaps_entry_for_address,
         ObserveReadError,

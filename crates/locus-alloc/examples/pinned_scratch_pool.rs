@@ -2,8 +2,8 @@
 
 use std::alloc::Layout;
 
-use locus::NodeId;
-use locus::{PinnedScratchPool, PinnedScratchPoolStats};
+use locus_alloc::NodeId;
+use locus_alloc::{PinnedScratchPool, PinnedScratchPoolStats};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let arena_capacity = 16 * 1024;

@@ -4,8 +4,8 @@
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     use std::io::ErrorKind;
 
-    use locus::MappedScratchArena;
-    use locus::NodeId;
+    use locus_alloc::MappedScratchArena;
+    use locus_alloc::NodeId;
     use locus_observe::{numa_maps_entry_for_address, read_self_numa_maps, ObserveReadError};
 
     let mut arena = MappedScratchArena::new(NodeId(0), 16 * 1024)?;
@@ -70,11 +70,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 #[cfg(target_os = "linux")]
-fn print_memory_policy_readiness(result: &Result<(), locus::MappedScratchAllocError>) {
+fn print_memory_policy_readiness(result: &Result<(), locus_alloc::MappedScratchAllocError>) {
     let readiness = match result {
-        Ok(()) => locus::sys::linux::LinuxNumaPolicyReadiness::from_bind_result(Ok(())),
-        Err(locus::MappedScratchAllocError::LinuxNumaPolicy(source)) => {
-            locus::sys::linux::LinuxNumaPolicyReadiness::from_bind_result(Err(source))
+        Ok(()) => locus_alloc::sys::linux::LinuxNumaPolicyReadiness::from_bind_result(Ok(())),
+        Err(locus_alloc::MappedScratchAllocError::LinuxNumaPolicy(source)) => {
+            locus_alloc::sys::linux::LinuxNumaPolicyReadiness::from_bind_result(Err(source))
         }
         Err(_) => unreachable!("bind_to_node returns only Linux NUMA policy errors"),
     };
@@ -85,7 +85,7 @@ fn print_memory_policy_readiness(result: &Result<(), locus::MappedScratchAllocEr
 #[cfg(target_os = "linux")]
 fn print_placement(
     address_match: locus_observe::NumaMapsAddressMatch<'_>,
-    expected_node: locus::NodeId,
+    expected_node: locus_alloc::NodeId,
     policy_applied: bool,
 ) {
     let entry = address_match.entry;

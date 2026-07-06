@@ -1,6 +1,6 @@
 use std::fmt;
 
-use locus::{
+use locus_alloc::{
     parse_pinned_scratch_pool_probe_output, PinnedScratchPoolProbeOutput,
     PinnedScratchPoolProbeOutputParseError, PinnedScratchPoolProbeStatus,
 };

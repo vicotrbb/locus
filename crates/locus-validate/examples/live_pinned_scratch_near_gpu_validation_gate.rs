@@ -6,14 +6,14 @@
 
 use std::alloc::Layout;
 
-use locus::Topology;
-use locus::{PinnedScratchPool, PinnedScratchPoolError, PinnedScratchPoolStats};
+use locus_alloc::Topology;
+use locus_alloc::{PinnedScratchPool, PinnedScratchPoolError, PinnedScratchPoolStats};
 use locus_validate::evaluate_pinned_scratch_near_gpu_validation_output;
 
 #[cfg(all(feature = "numa", target_os = "linux"))]
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let gpu_arg = parse_gpu_arg()?;
-    let topology = locus::topology::discovery::discover()?;
+    let topology = locus_alloc::topology::discovery::discover()?;
     let arena_capacity = 16 * 1024;
     let arena_mapping_len = arena_capacity + 4096 - 1;
     let max_locked_bytes = arena_mapping_len * 2;
@@ -117,7 +117,7 @@ fn run_pool_probe(
 fn checkout_pool(
     output: &mut String,
     pool: &mut PinnedScratchPool,
-) -> Option<locus::PinnedScratchHandle> {
+) -> Option<locus_alloc::PinnedScratchHandle> {
     match pool.checkout() {
         Ok(handle) => {
             emit_line(
@@ -138,7 +138,7 @@ fn checkout_pool(
 fn allocate_from_handle(
     output: &mut String,
     pool: &mut PinnedScratchPool,
-    handle: locus::PinnedScratchHandle,
+    handle: locus_alloc::PinnedScratchHandle,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let arena = pool.get_mut(handle)?;
     emit_line(
@@ -172,7 +172,7 @@ fn allocate_from_handle(
 fn release_handle(
     output: &mut String,
     pool: &mut PinnedScratchPool,
-    handle: locus::PinnedScratchHandle,
+    handle: locus_alloc::PinnedScratchHandle,
 ) {
     match pool.release(handle) {
         Ok(()) => {

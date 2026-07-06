@@ -9,7 +9,7 @@
 use std::sync::mpsc::{channel, Sender};
 use std::thread;
 
-use locus::{ChunkMailbox, KvBlockHandle, KvBlockPool, NodeId};
+use locus_alloc::{ChunkMailbox, KvBlockHandle, KvBlockPool, NodeId};
 
 const WORKERS: usize = 4;
 const REQUESTS_PER_WORKER: usize = 8;

@@ -2,7 +2,7 @@
 
 use std::fmt;
 
-use locus::sys::linux::{
+use locus_alloc::sys::linux::{
     parse_linux_numa_policy_readiness_output, LinuxNumaPolicyReadiness,
     LinuxNumaPolicyReadinessOutputParseError,
 };
@@ -482,7 +482,7 @@ pub fn parse_placement_validation_gate_output(
 
 #[cfg(test)]
 mod tests {
-    use locus::sys::linux::{
+    use locus_alloc::sys::linux::{
         LinuxNumaPolicyReadiness, LinuxNumaPolicyReadinessReason, LinuxNumaPolicyReadinessStatus,
     };
     use locus_observe::{

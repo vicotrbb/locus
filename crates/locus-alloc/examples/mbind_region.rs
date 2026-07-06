@@ -2,10 +2,10 @@
 
 #[cfg(target_os = "linux")]
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    use locus::sys::linux::{
+    use locus_alloc::sys::linux::{
         bind_region_to_node, read_current_process_status_diagnostics, LinuxNumaPolicyReadiness,
     };
-    use locus::sys::{page_size, MappedRegion};
+    use locus_alloc::sys::{page_size, MappedRegion};
 
     let size = page_size()?;
     let mut region = MappedRegion::anonymous(size * 4)?;

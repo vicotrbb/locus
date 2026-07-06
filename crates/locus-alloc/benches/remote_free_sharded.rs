@@ -4,8 +4,8 @@ use std::sync::mpsc::{sync_channel, SyncSender};
 use std::thread::{self, JoinHandle};
 
 use criterion::{criterion_group, criterion_main, Criterion};
-use locus::NodeId;
-use locus::{KvBlockHandle, KvBlockPool, RemoteFreeQueue, RemoteFreeSink};
+use locus_alloc::NodeId;
+use locus_alloc::{KvBlockHandle, KvBlockPool, RemoteFreeQueue, RemoteFreeSink};
 
 const BLOCK_SIZE: usize = 4096;
 const BLOCKS: usize = 256;

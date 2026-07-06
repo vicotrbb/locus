@@ -4,9 +4,11 @@
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     use std::io::ErrorKind;
 
-    use locus::sys::linux::{read_current_process_status_diagnostics, LinuxNumaPolicyReadiness};
-    use locus::NodeId;
-    use locus::{MappedScratchAllocError, MappedScratchArena};
+    use locus_alloc::sys::linux::{
+        read_current_process_status_diagnostics, LinuxNumaPolicyReadiness,
+    };
+    use locus_alloc::NodeId;
+    use locus_alloc::{MappedScratchAllocError, MappedScratchArena};
     use locus_observe::{
         numa_maps_entry_for_address, read_self_numa_maps, NumaPlacementProof,
         NumaPlacementProofReason, NumaPlacementValidationReadiness, ObserveReadError,

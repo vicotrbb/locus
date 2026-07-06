@@ -40,7 +40,7 @@ CRITERION_FLAGS=(--sample-size 20 --warm-up-time 1 --measurement-time 3)
 for contender in locus jemalloc mimalloc system; do
     log="$LOG_DIR/locus_eval_${contender}_${LABEL}.log"
     echo "running locus_eval_${contender} -> $log"
-    cargo bench -p locus --bench "locus_eval_${contender}" -- \
+    cargo bench -p locus-alloc --bench "locus_eval_${contender}" -- \
         "${CRITERION_FLAGS[@]}" 2>&1 | tee "$log"
 done
 

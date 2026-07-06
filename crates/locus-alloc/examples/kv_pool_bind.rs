@@ -3,8 +3,8 @@
 //! Prints one status line usable on any host; the bind step only runs on
 //! Linux and reports the outcome honestly elsewhere.
 
-use locus::NodeId;
-use locus::{KvBlockPool, KvReuseOrder};
+use locus_alloc::NodeId;
+use locus_alloc::{KvBlockPool, KvReuseOrder};
 
 fn main() {
     let block_size = 4096_usize;

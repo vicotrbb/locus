@@ -1,6 +1,6 @@
 [workspace]
 members = [
-    "crates/locus",
+    "crates/locus-alloc",
     "crates/locus-observe",
     "crates/locus-validate",
 ]

@@ -6,8 +6,8 @@ use std::sync::Arc;
 use std::thread::{self, JoinHandle};
 
 use criterion::{criterion_group, criterion_main, Criterion};
-use locus::NodeId;
-use locus::{ChunkMailbox, KvBlockHandle, KvBlockPool, RemoteFreeQueue};
+use locus_alloc::NodeId;
+use locus_alloc::{ChunkMailbox, KvBlockHandle, KvBlockPool, RemoteFreeQueue};
 
 const BLOCK_SIZE: usize = 4096;
 const POOL_BLOCKS: usize = 4096;

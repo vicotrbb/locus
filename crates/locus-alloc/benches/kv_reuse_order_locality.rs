@@ -3,8 +3,8 @@
 use std::collections::VecDeque;
 
 use criterion::{criterion_group, criterion_main, Criterion};
-use locus::NodeId;
-use locus::{KvBlockHandle, KvBlockPool, KvReuseOrder};
+use locus_alloc::NodeId;
+use locus_alloc::{KvBlockHandle, KvBlockPool, KvReuseOrder};
 
 const BLOCK_SIZE: usize = 4096;
 const POOL_BLOCKS: usize = 16384;

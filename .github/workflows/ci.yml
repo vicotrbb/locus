@@ -26,11 +26,11 @@ jobs:
       - name: Clippy
         run: cargo clippy --workspace --all-targets -- -D warnings
       - name: Clippy (numa feature)
-        run: cargo clippy -p locus --features numa --all-targets -- -D warnings
+        run: cargo clippy -p locus-alloc --features numa --all-targets -- -D warnings
       - name: Test
         run: cargo test --workspace
       - name: Test (numa feature)
-        run: cargo test -p locus --features numa
+        run: cargo test -p locus-alloc --features numa
 
   deny:
     runs-on: ubuntu-latest

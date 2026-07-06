@@ -9,10 +9,10 @@ publish = false
 
 [features]
 # Forwards the Linux-only sysfs discovery feature of locus.
-numa = ["locus/numa"]
+numa = ["locus-alloc/numa"]
 
 [dependencies]
-locus = { path = "../locus" }
+locus-alloc = { path = "../locus-alloc" }
 locus-observe = { path = "../locus-observe" }
 serde_json = "1.0"
 

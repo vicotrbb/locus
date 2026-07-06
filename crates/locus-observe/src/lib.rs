@@ -6,7 +6,7 @@ use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 
-use locus::NodeId;
+use locus_alloc::NodeId;
 
 /// One parsed mapping from `/proc/<pid>/numa_maps`.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1876,7 +1876,7 @@ mod tests {
     use std::fs;
     use std::path::PathBuf;
 
-    use locus::NodeId;
+    use locus_alloc::NodeId;
     use tempfile::TempDir;
 
     use super::{

@@ -4,8 +4,8 @@ use std::sync::mpsc::{sync_channel, SyncSender};
 use std::thread::{self, JoinHandle};
 
 use criterion::{criterion_group, criterion_main, Criterion};
-use locus::NodeId;
-use locus::{KvBlockHandle, KvBlockPool, RemoteFreeQueue, RemoteFreeSink};
+use locus_alloc::NodeId;
+use locus_alloc::{KvBlockHandle, KvBlockPool, RemoteFreeQueue, RemoteFreeSink};
 
 const BLOCK_SIZE: usize = 4096;
 const BLOCKS: usize = 256;
@@ -203,7 +203,7 @@ fn print_case_stats(producers: usize, mode: &PublishMode) {
 fn report_queue_stats(
     mode: &str,
     producers: usize,
-    stats_iter: impl Iterator<Item = locus::RemoteFreeQueueStats>,
+    stats_iter: impl Iterator<Item = locus_alloc::RemoteFreeQueueStats>,
 ) {
     let mut total_submitted = 0_u64;
     for (index, stats) in stats_iter.enumerate() {

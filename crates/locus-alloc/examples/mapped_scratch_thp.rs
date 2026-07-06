@@ -1,13 +1,13 @@
 #![allow(missing_docs)]
 
 #[cfg(target_os = "linux")]
-use locus::MappedScratchHugePageAdvice;
+use locus_alloc::MappedScratchHugePageAdvice;
 
 #[cfg(target_os = "linux")]
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    use locus::sys::page_size;
-    use locus::MappedScratchArena;
-    use locus::NodeId;
+    use locus_alloc::sys::page_size;
+    use locus_alloc::MappedScratchArena;
+    use locus_alloc::NodeId;
 
     let mode = parse_mode_arg()?;
     let advice = mode.advice();

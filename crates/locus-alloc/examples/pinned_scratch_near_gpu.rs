@@ -6,12 +6,12 @@
 
 use std::alloc::Layout;
 
-use locus::{PinnedScratchPool, PinnedScratchPoolError, PinnedScratchPoolStats};
+use locus_alloc::{PinnedScratchPool, PinnedScratchPoolError, PinnedScratchPoolStats};
 
 #[cfg(all(feature = "numa", target_os = "linux"))]
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let gpu_arg = parse_gpu_arg()?;
-    let topology = locus::topology::discovery::discover()?;
+    let topology = locus_alloc::topology::discovery::discover()?;
     let arena_capacity = 16 * 1024;
     let arena_mapping_len = arena_capacity + 4096 - 1;
     let max_locked_bytes = arena_mapping_len * 2;
@@ -102,7 +102,7 @@ fn parse_gpu_arg() -> Result<Option<String>, Box<dyn std::error::Error>> {
     Ok(gpu)
 }
 
-fn first_gpu_with_numa_node(topology: &locus::Topology) -> Option<String> {
+fn first_gpu_with_numa_node(topology: &locus_alloc::Topology) -> Option<String> {
     topology
         .pci_devices
         .iter()

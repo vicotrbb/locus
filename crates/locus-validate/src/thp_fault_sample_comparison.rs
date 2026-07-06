@@ -1,6 +1,6 @@
 use std::fmt;
 
-use locus::MappedScratchThpFaultSampleComparison;
+use locus_alloc::MappedScratchThpFaultSampleComparison;
 
 use crate::{
     MappedScratchThpFaultSampleValidationGate, MappedScratchThpFaultSampleValidationGateReason,

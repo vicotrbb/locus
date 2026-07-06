@@ -1,6 +1,6 @@
 use std::fmt;
 
-use locus::{
+use locus_alloc::{
     parse_mapped_scratch_thp_page_samples_output, MappedScratchThpObservation,
     MappedScratchThpPageSampleSource, MappedScratchThpPageSampleStatus,
     MappedScratchThpPageSamples, MappedScratchThpPageSamplesParseError,
@@ -540,7 +540,7 @@ mod tests {
         parse_mapped_scratch_thp_benchmark_evidence_report_output,
         MappedScratchThpBenchmarkEvidenceReason, MappedScratchThpBenchmarkEvidenceStatus,
     };
-    use locus::MappedScratchThpObservation;
+    use locus_alloc::MappedScratchThpObservation;
 
     const READY_BASE_PAGE_REPORT: &str = "\
 thp_page_sample=default status=available source=smaps kernel_page_kb=4 thp_observed=no reason=base_page_size

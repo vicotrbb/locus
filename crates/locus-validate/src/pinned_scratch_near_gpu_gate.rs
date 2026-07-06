@@ -1,6 +1,6 @@
 use std::fmt;
 
-use locus::{
+use locus_alloc::{
     parse_pinned_scratch_near_gpu_probe_output, PinnedScratchNearGpuProbeOutput,
     PinnedScratchNearGpuProbeOutputParseError, PinnedScratchNearGpuProbeStatus,
     PinnedScratchPoolProbeStatus,

@@ -1,6 +1,6 @@
 use std::fmt;
 
-use locus::{
+use locus_alloc::{
     parse_mapped_scratch_thp_fault_samples_output, MappedScratchThpFaultSampleStatus,
     MappedScratchThpFaultSamples, MappedScratchThpFaultSamplesParseError,
 };
