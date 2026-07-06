@@ -5,9 +5,10 @@ edition.workspace = true
 license.workspace = true
 repository.workspace = true
 rust-version.workspace = true
+publish = false
 
 [dependencies]
-locus-core = { path = "../locus-core" }
+locus = { path = "../locus" }
 
 [dev-dependencies]
 tempfile = "3.10"

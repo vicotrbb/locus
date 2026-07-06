@@ -2,14 +2,14 @@
 
 use std::fmt;
 
+use locus::sys::linux::{
+    parse_linux_numa_policy_readiness_output, LinuxNumaPolicyReadiness,
+    LinuxNumaPolicyReadinessOutputParseError,
+};
 use locus_observe::{
     parse_numa_placement_proof_output, parse_numa_placement_readiness_output, NumaPlacementProof,
     NumaPlacementProofOutputParseError, NumaPlacementProofStatus,
     NumaPlacementReadinessOutputParseError, NumaPlacementValidationReadiness,
-};
-use locus_sys::linux::{
-    parse_linux_numa_policy_readiness_output, LinuxNumaPolicyReadiness,
-    LinuxNumaPolicyReadinessOutputParseError,
 };
 
 /// Probe outputs required for a combined placement validation gate.
@@ -482,13 +482,13 @@ pub fn parse_placement_validation_gate_output(
 
 #[cfg(test)]
 mod tests {
+    use locus::sys::linux::{
+        LinuxNumaPolicyReadiness, LinuxNumaPolicyReadinessReason, LinuxNumaPolicyReadinessStatus,
+    };
     use locus_observe::{
         NumaPlacementProof, NumaPlacementProofReason, NumaPlacementProofStatus,
         NumaPlacementValidationReadiness, NumaPlacementValidationReadinessReason,
         NumaPlacementValidationReadinessStatus,
-    };
-    use locus_sys::linux::{
-        LinuxNumaPolicyReadiness, LinuxNumaPolicyReadinessReason, LinuxNumaPolicyReadinessStatus,
     };
 
     use super::{

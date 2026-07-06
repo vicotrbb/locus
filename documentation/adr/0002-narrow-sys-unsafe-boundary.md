@@ -24,3 +24,13 @@ The first primitive is an owned anonymous `MappedRegion` built with `mmap` and r
 - Allocator crates can consume owned memory primitives without calling syscalls directly.
 - Future Linux NUMA calls can be added behind the same boundary.
 - Reviews can focus extra scrutiny on `locus-sys`.
+
+## Amendment (2026-07-05, LOCUS-OSS single-crate merge)
+
+The boundary moved from a crate to a module: `locus-sys` became the
+`sys` module of the published `locus` crate. The guarantee is
+unchanged. The crate carries `deny(unsafe_code)` and only `sys` holds a
+scoped `allow(unsafe_code)` (the workspace-level `forbid` could not be
+inherited because forbid cannot be overridden per module). All unsafe
+blocks stay inside `sys` with SAFETY comments, public APIs out of `sys`
+remain safe and owned, and reviews still focus on that one module.

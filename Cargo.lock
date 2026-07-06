@@ -321,42 +321,22 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "32a66949e030da00e8c7d4434b251670a91556f4144941d37452769c25d58a53"
 
 [[package]]
-name = "locus-alloc"
+name = "locus"
 version = "0.1.0"
 dependencies = [
  "criterion",
- "locus-core",
+ "libc",
  "locus-observe",
- "locus-sys",
- "locus-topology",
  "mimalloc",
+ "tempfile",
  "tikv-jemallocator",
 ]
-
-[[package]]
-name = "locus-core"
-version = "0.1.0"
 
 [[package]]
 name = "locus-observe"
 version = "0.1.0"
 dependencies = [
- "locus-core",
- "tempfile",
-]
-
-[[package]]
-name = "locus-sys"
-version = "0.1.0"
-dependencies = [
- "libc",
-]
-
-[[package]]
-name = "locus-topology"
-version = "0.1.0"
-dependencies = [
- "locus-core",
+ "locus",
  "tempfile",
 ]
 
@@ -364,11 +344,8 @@ dependencies = [
 name = "locus-validate"
 version = "0.1.0"
 dependencies = [
- "locus-alloc",
- "locus-core",
+ "locus",
  "locus-observe",
- "locus-sys",
- "locus-topology",
  "serde_json",
 ]
 

@@ -2,8 +2,8 @@
 
 use std::alloc::Layout;
 
-use locus_alloc::{PinnedScratchPool, PinnedScratchPoolStats};
-use locus_core::NodeId;
+use locus::NodeId;
+use locus::{PinnedScratchPool, PinnedScratchPoolStats};
 use locus_validate::evaluate_pinned_scratch_validation_output;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {

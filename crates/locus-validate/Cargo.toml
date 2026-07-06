@@ -5,16 +5,16 @@ edition.workspace = true
 license.workspace = true
 repository.workspace = true
 rust-version.workspace = true
+publish = false
+
+[features]
+# Forwards the Linux-only sysfs discovery feature of locus.
+numa = ["locus/numa"]
 
 [dependencies]
-locus-alloc = { path = "../locus-alloc" }
-locus-core = { path = "../locus-core" }
+locus = { path = "../locus" }
 locus-observe = { path = "../locus-observe" }
-locus-sys = { path = "../locus-sys" }
 serde_json = "1.0"
-
-[dev-dependencies]
-locus-topology = { path = "../locus-topology" }
 
 [lib]
 path = "src/lib.rs"

@@ -1,14 +1,19 @@
 #![allow(missing_docs)]
+#![cfg_attr(
+    not(all(feature = "numa", target_os = "linux")),
+    allow(dead_code, unused_imports)
+)]
 
 use std::alloc::Layout;
 
-use locus_alloc::{PinnedScratchPool, PinnedScratchPoolError, PinnedScratchPoolStats};
-use locus_core::Topology;
+use locus::Topology;
+use locus::{PinnedScratchPool, PinnedScratchPoolError, PinnedScratchPoolStats};
 use locus_validate::evaluate_pinned_scratch_near_gpu_validation_output;
 
+#[cfg(all(feature = "numa", target_os = "linux"))]
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let gpu_arg = parse_gpu_arg()?;
-    let topology = locus_topology::discover()?;
+    let topology = locus::topology::discovery::discover()?;
     let arena_capacity = 16 * 1024;
     let arena_mapping_len = arena_capacity + 4096 - 1;
     let max_locked_bytes = arena_mapping_len * 2;
@@ -112,7 +117,7 @@ fn run_pool_probe(
 fn checkout_pool(
     output: &mut String,
     pool: &mut PinnedScratchPool,
-) -> Option<locus_alloc::PinnedScratchHandle> {
+) -> Option<locus::PinnedScratchHandle> {
     match pool.checkout() {
         Ok(handle) => {
             emit_line(
@@ -133,7 +138,7 @@ fn checkout_pool(
 fn allocate_from_handle(
     output: &mut String,
     pool: &mut PinnedScratchPool,
-    handle: locus_alloc::PinnedScratchHandle,
+    handle: locus::PinnedScratchHandle,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let arena = pool.get_mut(handle)?;
     emit_line(
@@ -167,7 +172,7 @@ fn allocate_from_handle(
 fn release_handle(
     output: &mut String,
     pool: &mut PinnedScratchPool,
-    handle: locus_alloc::PinnedScratchHandle,
+    handle: locus::PinnedScratchHandle,
 ) {
     match pool.release(handle) {
         Ok(()) => {
@@ -246,4 +251,9 @@ fn emit_stats(output: &mut String, phase: &str, stats: PinnedScratchPoolStats) {
             stats.release_count
         ),
     );
+}
+
+#[cfg(not(all(feature = "numa", target_os = "linux")))]
+fn main() {
+    println!("near_gpu=unavailable reason=requires_linux_and_numa_feature");
 }

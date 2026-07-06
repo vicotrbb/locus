@@ -4,13 +4,13 @@
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     use std::io::ErrorKind;
 
-    use locus_alloc::{MappedScratchAllocError, MappedScratchArena};
-    use locus_core::NodeId;
+    use locus::sys::linux::{read_current_process_status_diagnostics, LinuxNumaPolicyReadiness};
+    use locus::NodeId;
+    use locus::{MappedScratchAllocError, MappedScratchArena};
     use locus_observe::{
         numa_maps_entry_for_address, read_self_numa_maps, NumaPlacementProof,
         NumaPlacementProofReason, NumaPlacementValidationReadiness, ObserveReadError,
     };
-    use locus_sys::linux::{read_current_process_status_diagnostics, LinuxNumaPolicyReadiness};
     use locus_validate::linux::PlacementValidationGate;
 
     let mut arena = MappedScratchArena::new(NodeId(0), 16 * 1024)?;
