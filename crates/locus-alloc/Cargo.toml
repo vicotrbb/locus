@@ -36,38 +36,6 @@ harness = false
 name = "scratch_arena_system"
 harness = false
 
-[[bench]]
-name = "remote_free_backpressure"
-harness = false
-
-[[bench]]
-name = "remote_free_mixed_size_policy"
-harness = false
-
-[[bench]]
-name = "remote_free_drift_matrix"
-harness = false
-
-[[bench]]
-name = "remote_free_capacity_retune"
-harness = false
-
-[[bench]]
-name = "remote_free_mixed_size_capacity_retune"
-harness = false
-
-[[bench]]
-name = "kv_remote_free_policy"
-harness = false
-
-[[bench]]
-name = "request_remote_free_policy"
-harness = false
-
-[[bench]]
-name = "remote_free_service_telemetry"
-harness = false
-
 [lints]
 workspace = true
 

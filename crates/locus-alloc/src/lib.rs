@@ -70,33 +70,8 @@ pub use pinned_scratch_pool_probe::{
 
 pub use locus_sys::chunk_mailbox::{ChunkMailbox, ChunkMailboxSender};
 pub use remote_free::{
-    RemoteFreeDrainController, RemoteFreeDrainControllerError, RemoteFreeDrainControllerStatus,
-    RemoteFreeDrainDecision, RemoteFreeDrainObservation, RemoteFreeDrainPolicy,
-    RemoteFreeDrainReason, RemoteFreeDrainStats, RemoteFreeDrainTracker,
-    RemoteFreeDrainTrackerError, RemoteFreeEnqueueError, RemoteFreeOwnerRuntime,
-    RemoteFreeOwnerRuntimeApplyOutcome, RemoteFreeOwnerRuntimeConfirmOutcome,
-    RemoteFreeOwnerRuntimeError, RemoteFreeOwnerRuntimeRollbackOutcome, RemoteFreeQueue,
-    RemoteFreeQueueError, RemoteFreeQueueStats, RemoteFreeQueuedByteBudget,
-    RemoteFreeQueuedByteBudgetError, RemoteFreeQueuedByteDrainConfig,
-    RemoteFreeQueuedByteDrainConfigError, RemoteFreeQueuedByteDriftReport,
-    RemoteFreeQueuedByteRetuneAction, RemoteFreeQueuedByteRetuneHint, RemoteFreeRetuneActionCounts,
-    RemoteFreeServiceRetuneCandidate, RemoteFreeServiceRetuneDryRunPlanner,
-    RemoteFreeServiceRetuneDryRunPlannerError, RemoteFreeServiceRetuneGuard,
-    RemoteFreeServiceRetuneGuardDecision, RemoteFreeServiceRetuneGuardError,
-    RemoteFreeServiceRetunePolicyApplication, RemoteFreeServiceRetunePolicyApplicationError,
-    RemoteFreeServiceRetunePolicyApplicator, RemoteFreeServiceRetuneSummary,
-    RemoteFreeServiceRuntimeDirtyOwnerFlushStats, RemoteFreeServiceRuntimeDirtyOwnerLocalBuffer,
-    RemoteFreeServiceRuntimeDirtyOwnerLocalBufferGroupError,
-    RemoteFreeServiceRuntimeDirtyOwnerLocalBuffers, RemoteFreeServiceRuntimeDirtyOwnerLocalMarker,
-    RemoteFreeServiceRuntimeDirtyOwnerSnapshot, RemoteFreeServiceRuntimeDirtyOwnerTracker,
-    RemoteFreeServiceRuntimeDirtyOwners, RemoteFreeServiceRuntimeDirtySink,
-    RemoteFreeServiceRuntimeLocalDirtyWindowStats, RemoteFreeServiceRuntimeOwnerId,
-    RemoteFreeServiceRuntimeRetuneCoordinator, RemoteFreeServiceRuntimeRetuneError,
-    RemoteFreeServiceRuntimeRetuneOutcome, RemoteFreeServiceRuntimeRetuneOwnerError,
-    RemoteFreeServiceRuntimeRetuneOwners, RemoteFreeServiceRuntimeValidatedDirtyOwner,
-    RemoteFreeServiceRuntimeWindowCollectionError, RemoteFreeServiceRuntimeWindowError,
-    RemoteFreeServiceRuntimeWindowObservation, RemoteFreeServiceRuntimeWindowStats, RemoteFreeSink,
-    RemoteFreeTrackedDrain, RemoteFreeTryEnqueueError, RemoteFreeTryEnqueueErrorKind,
+    RemoteFreeDrainStats, RemoteFreeEnqueueError, RemoteFreeQueue, RemoteFreeQueueError,
+    RemoteFreeQueueStats, RemoteFreeSink, RemoteFreeTryEnqueueError, RemoteFreeTryEnqueueErrorKind,
 };
 
 pub use request_scratch::{
