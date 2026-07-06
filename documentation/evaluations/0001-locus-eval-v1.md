@@ -150,6 +150,46 @@ overshoot (1.5x transient footprint) and the churn-touch compression
 a 0357 design decision; both bound the claims a serving engine should
 repeat.
 
+## Audit addendum (2026-07-05, post-publication; v1 results above are unedited)
+
+A correctness audit of the harness found one real asymmetry in the
+three trace workloads: the malloc baselines write 1 byte into every
+allocated block (`Vec::push`), while the locus trace path never
+touches block memory. A one-off probe (not part of the suite; bench
+code reverted after the run) added a 1-byte write per allocated block
+to the locus trace path via `block_mut`, single Criterion run:
+
+| Workload | locus-mailbox untouched (v1) | locus-mailbox 1-byte touch (probe) | Margin over mimalloc, touched |
+| --- | ---: | ---: | ---: |
+| steady-decode | 85 us | 124.9 us | 1.6x (was 2.3x) |
+| burst-storm | 38 us | 53.7 us | 2.7x (was 3.9x) |
+| long-tail | 61 us | 124.0 us | 2.3x (was 4.6x) |
+| churn-touch (control) | 169 us | 176.4 us | unchanged within noise |
+
+Conclusions: the rankings survive (locus-mailbox still first on every
+workload), but the headline trace margins are overstated by the touch
+asymmetry, most severely on long-tail where half the untouched margin
+was cache-warmth the malloc baselines were paying for and locus was
+not. The churn-touch control moving less than 5 percent validates the
+probe. Two caveats cut in locus's favor: the probe pays `block_mut`
+handle validation per write, which the malloc `push` does not, so the
+touched numbers are an upper bound; and a serving engine writes far
+more than 1 byte per block, a regime churn-touch already prices.
+The v1 tables above remain the frozen record; LOCUS-EVAL v2 must make
+trace workloads touch-symmetric (next question 1, now mandatory).
+
+The audit also found one latent harness bug that does not affect v1
+results: `allocate_with_backpressure` discards drain counts, so if
+pool exhaustion ever triggered its internal drain, the end-of-trace
+wait loop would hang. Measured peak outstanding (2304 of 8192 trace,
+4144 of 16384 churn) shows backpressure never fired in any v1 run.
+Fix required before any v2 workload that can exhaust the pool.
+Verified clean in this audit: published medians and quality ratios
+match the raw run logs exactly; proof counters balanced in all runs;
+trace schedules are byte-identical between runners (shared
+`workloads.rs`); both runners time full free completion; pool backing
+is real pre-zeroed 4 KiB memory with generation-validated handles.
+
 ## Next questions (deferred to LOCUS-EVAL v2, suite frozen)
 
 1. A touched variant of the three trace workloads (write each block
