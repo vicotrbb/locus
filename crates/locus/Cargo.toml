@@ -9,6 +9,9 @@ description = "NUMA-aware KV-block pooling with owner-drained chunk mailboxes fo
 readme = "../../README.md"
 keywords = ["numa", "allocator", "memory-pool", "llm", "inference"]
 categories = ["memory-management", "hardware-support", "concurrency"]
+# Benches depend on unpublished workspace members (locus-observe); they are
+# workspace-only and excluded from the published package.
+exclude = ["benches/"]
 
 [package.metadata.docs.rs]
 features = ["numa"]
