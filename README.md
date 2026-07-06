@@ -1,95 +1,103 @@
 # Locus
 
-Locus is an experimental Rust memory locality runtime for AI inference workloads. The initial foundation focuses on explicit domain allocators, Linux topology discovery, placement policy modeling, and measured allocator experiments.
+NUMA-aware memory pooling primitives for CPU LLM inference serving.
 
-The project deliberately starts without a process-wide allocator replacement. Early work is organized around safe Rust APIs that make memory class, placement, and lifetime explicit.
+Locus provides a KV-block pool with owner-drained remote frees:
+workers free whole request chunks into per-worker lock-free
+mailboxes, and the pool owner drains them off the allocation hot
+path. The design was developed postulate-first, and every performance
+claim below cites the experiment or evaluation in
+[`documentation/`](documentation/README.md) that produced it.
 
-## Current Foundation
+## Validated result
 
-- `locus-core`: topology data types, Linux CPU-list parsing, and placement policy models.
-- `locus-topology`: Linux sysfs discovery for NUMA nodes and PCI device locality.
-- `locus-observe`: parsers, summaries, deltas, and classifiers for Linux NUMA locality evidence.
-- `locus-sys`: narrow unsafe boundary for owned mappings, page touching, and Linux NUMA policy probes.
-- `locus-alloc`: safe node-tagged scratch arenas, request scratch pools, KV block foundations, and host page-locked scratch pools.
-- `locus-validate`: combined validation gates for probe outputs.
+On LOCUS-EVAL v1, a frozen four-workload suite of deterministic
+serving-shaped KV traces on Apple Silicon
+([`documentation/evaluations/0001-locus-eval-v1.md`](documentation/evaluations/0001-locus-eval-v1.md)),
+the mailbox design ranks first against jemalloc, mimalloc, and system
+malloc on every workload. The honest margins are the audited,
+touch-parity ones:
 
-## Validation
+- 1.6x over mimalloc on steady decode, 2.7x on burst cancellation,
+  and 2.3x on long-tail decode, at touch parity (the suite's audit
+  addendum; the raw untouched-trace tables show 2.3x/3.9x/4.6x, but
+  the audit found those margins overstated by a touch asymmetry, so
+  quote the audited ones).
+- When write bandwidth dominates (every block fully written, the
+  churn-touch workload), the margin compresses to about 1.15x over
+  system malloc: allocator choice matters far less once KV writes
+  are counted.
+- The trade shipped with the win: under a full burst cancellation
+  the pool transiently holds up to 1.5x the theoretical peak block
+  count, because the owner drains once per step (same evaluation,
+  quality table and burst-storm verdict).
 
-Run the foundation tests:
+Two designs this replaced are kept in the record: a shared bounded
+remote-free queue loses to every malloc baseline once producers are
+concurrent (experiments 0351 to 0355), and chunk-preserving pool
+recycling was falsified outright (0356).
+
+## Design
+
+- `locus::kv::KvBlockPool`: fixed-size KV blocks, generation-validated
+  handles, LIFO reuse order for cache warmth (experiment 0358),
+  optional mapped-region backing with a Linux `mbind` path (0359).
+- `locus::remote_free::ChunkMailbox`: per-worker lock-free mailboxes;
+  workers push whole request chunks, the owner drains all mailboxes.
+  No capacity, batch, or retune parameters exist by design (0357).
+- `locus::sys`: the single module allowed unsafe code (ADR 0002);
+  the rest of the crate is `deny(unsafe_code)`.
+- `locus::topology`: NUMA topology types; Linux sysfs discovery
+  behind the `numa` feature.
+
+Locus is not a global allocator and does not replace malloc
+(ADR 0001). It is a domain pool a serving engine embeds; see
+[`crates/locus/examples/serving_engine.rs`](crates/locus/examples/serving_engine.rs)
+for the intended pattern (per-request chunk free, per-worker mailbox,
+owner drain):
 
 ```sh
-cargo test --workspace
+cargo run -p locus --example serving_engine
+```
+
+## Usage
+
+```toml
+[dependencies]
+locus = "0.1"
+```
+
+## Repository layout
+
+- `crates/locus`: the published crate.
+- `crates/locus-observe`, `crates/locus-validate`: unpublished
+  workspace members holding Linux NUMA evidence readers and
+  validation gates used by the research harnesses.
+- `documentation/`: the complete immutable research record
+  (postulates, experiments, evaluations, ADRs, raw benchmark logs).
+  Start with [its README](documentation/README.md).
+
+## Reproducing the evaluation
+
+```sh
+scripts/run-eval.sh
+```
+
+runs the full LOCUS-EVAL suite with the exact Criterion flags used
+for the recorded results and captures host info alongside the logs.
+
+## Development gates
+
+```sh
+cargo fmt --all --check
 cargo clippy --workspace --all-targets -- -D warnings
+cargo test --workspace
 ```
 
-Run the scratch arena benchmark harness, including a default `Vec<u8>` allocation baseline:
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the experiment
+methodology; results land in the record before code lands in the
+crate.
 
-```sh
-cargo bench -p locus-alloc --bench scratch_arena
-docker run --rm -v "$PWD":/work -w /work rust:1.96 cargo bench -p locus-alloc --bench scratch_arena -- mapped_scratch_write_touch_4mib --sample-size 10
-```
+## License
 
-Run the current Linux-oriented sys probes through Docker:
-
-```sh
-docker run --rm -v "$PWD":/work -w /work rust:1.96 cargo test -p locus-sys
-docker run --rm -v "$PWD":/work -w /work rust:1.96 cargo run -p locus-sys --example mbind_region
-```
-
-The `mbind_region` example reports whether the current Linux environment permits `mbind`, then write-touches the mapped pages. Some containers return `EPERM` as `memory_policy_readiness=not_ready reason=permission_denied`. In the current seccomp-unconfined Docker environment, `mbind` returns `ENOSYS` as `memory_policy_readiness=not_ready reason=syscall_unavailable`. Both are recorded as environment evidence, not treated as placement success.
-
-Run the current locality evidence probes:
-
-```sh
-docker run --rm -v "$PWD":/work -w /work rust:1.96 cargo run -p locus-observe --example locality_environment
-docker run --rm -v "$PWD":/work -w /work rust:1.96 cargo run -p locus-observe --example process_fault_counts
-docker run --rm -v "$PWD":/work -w /work rust:1.96 cargo run -p locus-alloc --example mapped_scratch_bind
-docker run --rm -v "$PWD":/work -w /work rust:1.96 cargo run -p locus-alloc --example mapped_scratch_lock
-docker run --rm -v "$PWD":/work -w /work rust:1.96 cargo run -p locus-alloc --example mapped_scratch_thp
-docker run --rm -v "$PWD":/work -w /work rust:1.96 cargo run -p locus-alloc --example pinned_scratch_pool
-docker run --rm -v "$PWD":/work -w /work rust:1.96 cargo run -p locus-alloc --example pinned_scratch_near_gpu
-docker run --rm -v "$PWD":/work -w /work rust:1.96 cargo run -p locus-validate --example live_pinned_scratch_validation_gate
-docker run --rm -v "$PWD":/work -w /work rust:1.96 cargo run -p locus-validate --example live_pinned_scratch_near_gpu_validation_gate
-docker run --rm -v "$PWD":/work -w /work rust:1.96 cargo run -p locus-validate --example live_mapped_scratch_thp_validation_gate
-```
-
-The `locality_environment` example reports whether `numa_maps`, cgroup `memory.numa_stat`, and node `numastat` are available. The `process_fault_counts` example reports `/proc/self/stat` minor and major fault counters for interpreting first-touch and THP runs. The `mapped_scratch_bind` example prints the mapped arena address, attempts `mbind`, write-touches pages, and, when the host exposes the evidence, correlates the mapping with `numa_maps` and cgroup NUMA deltas. The `mapped_scratch_lock` example validates the OS page-lock portion of future pinned host staging buffers. The `mapped_scratch_thp` example applies an opt-in transparent huge page hint, write-touches the arena, and reports `numa_maps` page-size evidence with a `smaps` fallback when available. `PinnedScratchPool` builds on that primitive with budgeted checkout and reuse of host page-locked mapped scratch arenas. The `pinned_scratch_pool` example prints stable checkout, allocation, release, reuse, and accounting lines. The `pinned_scratch_near_gpu` example tries to select the pool home node from discovered PCI GPU locality. The `live_pinned_scratch_validation_gate` example prints pinned scratch lines and a final host page-lock readiness gate. The `live_pinned_scratch_near_gpu_validation_gate` example prints near-GPU pinned scratch lines and a final near-GPU validation gate, but it does not yet register memory with CUDA or prove GPU-near placement. The `live_mapped_scratch_thp_validation_gate` example prints mapped scratch THP evidence and a final THP adoption gate.
-
-Captured probe output can be classified with:
-
-```sh
-cargo run -p locus-validate --example pinned_scratch_validation_gate -- pinned-scratch.out
-cargo run -p locus-validate --example pinned_scratch_near_gpu_validation_gate -- near-gpu-pinned-scratch.out
-cargo run -p locus-validate --example mapped_scratch_thp_validation_gate -- mapped-scratch-thp.out
-cargo run -p locus-validate --example mapped_scratch_thp_fault_sample_validation_gate -- mapped-scratch-thp-bench.out
-cargo run -p locus-validate --example mapped_scratch_thp_fault_sample_report -- mapped-scratch-thp-fault-sample-validation.out
-cargo run -p locus-validate --example mapped_scratch_thp_benchmark_evidence_report -- mapped-scratch-thp-bench.out
-```
-
-The mapped scratch THP fault sample validation command prints both a sample availability gate and a comparison line for the process minor-fault deltas when counters are usable. The fault-sample report command parses those two lines together and rejects contradictory saved output. The benchmark evidence report command parses `thp_page_sample=` and `fault_sample=` lines from one benchmark log, then reports whether hugepage adoption was observed from page-size evidence.
-
-Captured outputs from `mbind_region`, `locality_environment`, and `mapped_scratch_bind` can be combined with:
-
-```sh
-cargo run -p locus-validate --example placement_validation_gate -- \
-  memory-policy.out \
-  placement-readiness.out \
-  placement-proof.out
-```
-
-Or run the live combined gate directly on a Linux host or container:
-
-```sh
-docker run --rm -v "$PWD":/work -w /work rust:1.96 cargo run -p locus-validate --example live_placement_validation_gate
-```
-
-Successful NUMA placement is not claimed unless a permitted policy operation is followed by page-touching and matching placement evidence for the specific mapping.
-
-## Research Loop
-
-Every meaningful allocator experiment should have:
-
-- a postulate recorded before implementation;
-- an ADR or development note for design decisions;
-- focused tests and benchmarks;
-- an experiment log with commands, results, and follow-up questions.
+Apache-2.0

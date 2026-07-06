@@ -5,6 +5,14 @@ edition.workspace = true
 license.workspace = true
 repository.workspace = true
 rust-version.workspace = true
+description = "NUMA-aware KV-block pooling with owner-drained chunk mailboxes for CPU LLM inference serving"
+readme = "../../README.md"
+keywords = ["numa", "allocator", "memory-pool", "llm", "inference"]
+categories = ["memory-management", "hardware-support", "concurrency"]
+
+[package.metadata.docs.rs]
+features = ["numa"]
+targets = ["x86_64-unknown-linux-gnu", "aarch64-apple-darwin"]
 
 [features]
 # Linux-only sysfs NUMA topology discovery (locus::topology::discovery).
