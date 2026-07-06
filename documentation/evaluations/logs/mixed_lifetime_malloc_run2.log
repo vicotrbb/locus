@@ -1,0 +1,12 @@
+mixed_lifetime_malloc_sample allocator=jemalloc traces=4 allocated=10752 freed=10752
+Benchmarking kv_mixed_lifetime_jemalloc_w4_64req: Collecting 20 samples in estimated 3.0003 s (13k iterations)
+                        time:   [230.77 µs 233.44 µs 237.75 µs]
+                        change: [+1.0001% +2.5003% +4.9025%] (p = 0.00 < 0.05)
+mixed_lifetime_malloc_sample allocator=mimalloc traces=4 allocated=10752 freed=10752
+Benchmarking kv_mixed_lifetime_mimalloc_w4_64req: Collecting 20 samples in estimated 3.0256 s (15k iterations)
+                        time:   [197.71 µs 198.26 µs 198.91 µs]
+                        change: [-3.2098% -1.7831% -0.2161%] (p = 0.02 < 0.05)
+mixed_lifetime_malloc_sample allocator=system traces=4 allocated=10752 freed=10752
+Benchmarking kv_mixed_lifetime_system_w4_64req: Collecting 20 samples in estimated 3.0270 s (13k iterations)
+                        time:   [226.29 µs 228.61 µs 231.68 µs]
+                        change: [-27.899% -18.657% -11.515%] (p = 0.00 < 0.05)

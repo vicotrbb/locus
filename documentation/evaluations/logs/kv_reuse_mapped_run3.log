@@ -1,0 +1,46 @@
+    Finished `bench` profile [optimized] target(s) in 0.03s
+     Running benches/kv_reuse_order_locality.rs (target/release/deps/kv_reuse_order_locality-176c4ec95d0019c7)
+Gnuplot not found, using plotters backend
+reuse_order_sample order=lifo touch=true allocated=4096 free=12288 allocation_count=8192 free_count=4096
+Benchmarking kv_reuse_order_lifo_touch4k_64x16blk
+Benchmarking kv_reuse_order_lifo_touch4k_64x16blk: Warming up for 2.0000 s
+Benchmarking kv_reuse_order_lifo_touch4k_64x16blk: Collecting 30 samples in estimated 4.0139 s (47k iterations)
+Benchmarking kv_reuse_order_lifo_touch4k_64x16blk: Analyzing
+kv_reuse_order_lifo_touch4k_64x16blk
+                        time:   [88.303 µs 91.372 µs 95.681 µs]
+                        change: [+2.3659% +6.0579% +10.351%] (p = 0.01 < 0.05)
+                        Performance has regressed.
+Found 6 outliers among 30 measurements (20.00%)
+  3 (10.00%) high mild
+  3 (10.00%) high severe
+
+reuse_order_sample order=fifo touch=true allocated=4096 free=12288 allocation_count=8192 free_count=4096
+Benchmarking kv_reuse_order_fifo_touch4k_64x16blk
+Benchmarking kv_reuse_order_fifo_touch4k_64x16blk: Warming up for 2.0000 s
+Benchmarking kv_reuse_order_fifo_touch4k_64x16blk: Collecting 30 samples in estimated 4.0274 s (42k iterations)
+Benchmarking kv_reuse_order_fifo_touch4k_64x16blk: Analyzing
+kv_reuse_order_fifo_touch4k_64x16blk
+                        time:   [95.260 µs 95.786 µs 96.256 µs]
+                        change: [-4.0772% -2.5004% -1.2236%] (p = 0.00 < 0.05)
+                        Performance has improved.
+Found 6 outliers among 30 measurements (20.00%)
+  2 (6.67%) low mild
+  3 (10.00%) high mild
+  1 (3.33%) high severe
+
+reuse_order_sample order=lifo_mapped touch=true allocated=4096 free=12288 allocation_count=8192 free_count=4096
+Benchmarking kv_reuse_order_lifo_mapped_touch4k_64x16blk
+Benchmarking kv_reuse_order_lifo_mapped_touch4k_64x16blk: Warming up for 2.0000 s
+Benchmarking kv_reuse_order_lifo_mapped_touch4k_64x16blk: Collecting 30 samples in estimated 4.0174 s (48k iterations)
+Benchmarking kv_reuse_order_lifo_mapped_touch4k_64x16blk: Analyzing
+kv_reuse_order_lifo_mapped_touch4k_64x16blk
+                        time:   [82.688 µs 83.484 µs 84.471 µs]
+                        change: [-3.8873% -0.6011% +2.6367%] (p = 0.71 > 0.05)
+                        No change in performance detected.
+Found 3 outliers among 30 measurements (10.00%)
+  1 (3.33%) high mild
+  2 (6.67%) high severe
+
+reuse_order_sample order=lifo touch=false allocated=4096 free=12288 allocation_count=8192 free_count=4096
+reuse_order_sample order=fifo touch=false allocated=4096 free=12288 allocation_count=8192 free_count=4096
+reuse_order_sample order=lifo_mapped touch=false allocated=4096 free=12288 allocation_count=8192 free_count=4096

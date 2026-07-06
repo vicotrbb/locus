@@ -1,0 +1,69 @@
+   Compiling locus-alloc v0.1.0 (/Users/victorbona/Code/OpenSource/locus/crates/locus-alloc)
+warning: unused return value of `RemoteFreeQueue::<T>::drain_batch` that must be used
+   --> crates/locus-alloc/benches/remote_free_chunk_publish.rs:143:13
+    |
+143 | /             queue.drain_batch(|handles| {
+144 | |                 for handle in handles {
+145 | |                     pool.free(handle).expect("drained handle frees");
+146 | |                     freed_in_queue += 1;
+147 | |                 }
+148 | |             });
+    | |______________^
+    |
+    = note: `#[warn(unused_must_use)]` (part of `#[warn(unused)]`) on by default
+help: use `let _ = ...` to ignore the resulting value
+    |
+143 |             let _ = queue.drain_batch(|handles| {
+    |             +++++++
+
+warning: `locus-alloc` (bench "remote_free_chunk_publish") generated 1 warning
+    Finished `bench` profile [optimized] target(s) in 0.78s
+     Running benches/remote_free_chunk_publish.rs (target/release/deps/remote_free_chunk_publish-becb119856a75935)
+Gnuplot not found, using plotters backend
+chunk_publish_sample mode=per_handle producers=2 queue=0 submitted=1024 drained=1024 pending=0 full=0 disconnected=0
+chunk_publish_sample mode=per_handle producers=2 queue=1 submitted=1024 drained=1024 pending=0 full=0 disconnected=0
+Benchmarking kv_remote_free_chunkcmp_per_handle_p2_batch64_256x4k
+Benchmarking kv_remote_free_chunkcmp_per_handle_p2_batch64_256x4k: Warming up for 1.0000 s
+Benchmarking kv_remote_free_chunkcmp_per_handle_p2_batch64_256x4k: Collecting 30 samples in estimated 2.0030 s (218k iterations)
+Benchmarking kv_remote_free_chunkcmp_per_handle_p2_batch64_256x4k: Analyzing
+kv_remote_free_chunkcmp_per_handle_p2_batch64_256x4k
+                        time:   [9.2295 µs 9.3023 µs 9.3669 µs]
+Found 1 outliers among 30 measurements (3.33%)
+  1 (3.33%) high mild
+
+chunk_publish_sample mode=chunk producers=2 queue=0 submitted=8 drained=8 pending=0 full=0 disconnected=0
+chunk_publish_sample mode=chunk producers=2 queue=1 submitted=8 drained=8 pending=0 full=0 disconnected=0
+Benchmarking kv_remote_free_chunkcmp_chunk_p2_256x4k
+Benchmarking kv_remote_free_chunkcmp_chunk_p2_256x4k: Warming up for 1.0000 s
+Benchmarking kv_remote_free_chunkcmp_chunk_p2_256x4k: Collecting 30 samples in estimated 2.0002 s (274k iterations)
+Benchmarking kv_remote_free_chunkcmp_chunk_p2_256x4k: Analyzing
+kv_remote_free_chunkcmp_chunk_p2_256x4k
+                        time:   [7.2801 µs 7.3298 µs 7.3773 µs]
+Found 1 outliers among 30 measurements (3.33%)
+  1 (3.33%) low mild
+
+chunk_publish_sample mode=per_handle producers=4 queue=0 submitted=512 drained=512 pending=0 full=0 disconnected=0
+chunk_publish_sample mode=per_handle producers=4 queue=1 submitted=512 drained=512 pending=0 full=0 disconnected=0
+chunk_publish_sample mode=per_handle producers=4 queue=2 submitted=512 drained=512 pending=0 full=0 disconnected=0
+chunk_publish_sample mode=per_handle producers=4 queue=3 submitted=512 drained=512 pending=0 full=0 disconnected=0
+Benchmarking kv_remote_free_chunkcmp_per_handle_p4_batch64_256x4k
+Benchmarking kv_remote_free_chunkcmp_per_handle_p4_batch64_256x4k: Warming up for 1.0000 s
+Benchmarking kv_remote_free_chunkcmp_per_handle_p4_batch64_256x4k: Collecting 30 samples in estimated 2.0009 s (154k iterations)
+Benchmarking kv_remote_free_chunkcmp_per_handle_p4_batch64_256x4k: Analyzing
+kv_remote_free_chunkcmp_per_handle_p4_batch64_256x4k
+                        time:   [12.725 µs 12.856 µs 12.976 µs]
+Found 2 outliers among 30 measurements (6.67%)
+  1 (3.33%) high mild
+  1 (3.33%) high severe
+
+chunk_publish_sample mode=chunk producers=4 queue=0 submitted=8 drained=8 pending=0 full=0 disconnected=0
+chunk_publish_sample mode=chunk producers=4 queue=1 submitted=8 drained=8 pending=0 full=0 disconnected=0
+chunk_publish_sample mode=chunk producers=4 queue=2 submitted=8 drained=8 pending=0 full=0 disconnected=0
+chunk_publish_sample mode=chunk producers=4 queue=3 submitted=8 drained=8 pending=0 full=0 disconnected=0
+Benchmarking kv_remote_free_chunkcmp_chunk_p4_256x4k
+Benchmarking kv_remote_free_chunkcmp_chunk_p4_256x4k: Warming up for 1.0000 s
+Benchmarking kv_remote_free_chunkcmp_chunk_p4_256x4k: Collecting 30 samples in estimated 2.0006 s (187k iterations)
+Benchmarking kv_remote_free_chunkcmp_chunk_p4_256x4k: Analyzing
+kv_remote_free_chunkcmp_chunk_p4_256x4k
+                        time:   [10.644 µs 10.806 µs 10.978 µs]
+

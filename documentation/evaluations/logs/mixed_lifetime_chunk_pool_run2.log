@@ -1,0 +1,51 @@
+warning: variable does not need to be mutable
+   --> crates/locus-alloc/benches/remote_free_mixed_lifetime_trace.rs:222:17
+    |
+222 |             let mut blocks = if queues.chunk_pool_ops {
+    |                 ----^^^^^^
+    |                 |
+    |                 help: remove this `mut`
+    |
+    = note: `#[warn(unused_mut)]` (part of `#[warn(unused)]`) on by default
+
+warning: `locus-alloc` (bench "remote_free_mixed_lifetime_trace") generated 1 warning (run `cargo fix --bench "remote_free_mixed_lifetime_trace" -p locus-alloc` to apply 1 suggestion)
+    Finished `bench` profile [optimized] target(s) in 0.06s
+     Running benches/remote_free_mixed_lifetime_trace.rs (target/release/deps/remote_free_mixed_lifetime_trace-9bf52797e2c8751b)
+Gnuplot not found, using plotters backend
+mixed_lifetime_sample path=shared_per_handle traces=4 allocated=10752 freed=10752
+Benchmarking kv_remote_free_mixed_lifetime_shared_per_handle_w4_64req
+Benchmarking kv_remote_free_mixed_lifetime_shared_per_handle_w4_64req: Warming up for 1.0000 s
+Benchmarking kv_remote_free_mixed_lifetime_shared_per_handle_w4_64req: Collecting 20 samples in estimated 3.0573 s (11k iterations)
+Benchmarking kv_remote_free_mixed_lifetime_shared_per_handle_w4_64req: Analyzing
+kv_remote_free_mixed_lifetime_shared_per_handle_w4_64req
+                        time:   [273.59 µs 275.47 µs 277.39 µs]
+                        change: [-6.5134% -4.2860% -2.4851%] (p = 0.00 < 0.05)
+                        Performance has improved.
+
+mixed_lifetime_sample path=sharded_chunk traces=4 allocated=10752 freed=10752
+Benchmarking kv_remote_free_mixed_lifetime_sharded_chunk_w4_64req
+Benchmarking kv_remote_free_mixed_lifetime_sharded_chunk_w4_64req: Warming up for 1.0000 s
+Benchmarking kv_remote_free_mixed_lifetime_sharded_chunk_w4_64req: Collecting 20 samples in estimated 3.0031 s (34k iterations)
+Benchmarking kv_remote_free_mixed_lifetime_sharded_chunk_w4_64req: Analyzing
+kv_remote_free_mixed_lifetime_sharded_chunk_w4_64req
+                        time:   [87.444 µs 88.339 µs 89.596 µs]
+                        change: [-6.2858% -5.0888% -3.6490%] (p = 0.00 < 0.05)
+                        Performance has improved.
+Found 3 outliers among 20 measurements (15.00%)
+  1 (5.00%) low mild
+  1 (5.00%) high mild
+  1 (5.00%) high severe
+
+mixed_lifetime_sample path=sharded_chunk_pool traces=4 allocated=10752 freed=10752
+Benchmarking kv_remote_free_mixed_lifetime_sharded_chunk_pool_w4_64req
+Benchmarking kv_remote_free_mixed_lifetime_sharded_chunk_pool_w4_64req: Warming up for 1.0000 s
+Benchmarking kv_remote_free_mixed_lifetime_sharded_chunk_pool_w4_64req: Collecting 20 samples in estimated 3.0071 s (35k iterations)
+Benchmarking kv_remote_free_mixed_lifetime_sharded_chunk_pool_w4_64req: Analyzing
+kv_remote_free_mixed_lifetime_sharded_chunk_pool_w4_64req
+                        time:   [87.736 µs 88.177 µs 88.692 µs]
+                        change: [-6.4798% -4.3947% -2.4259%] (p = 0.00 < 0.05)
+                        Performance has improved.
+Found 4 outliers among 20 measurements (20.00%)
+  2 (10.00%) low severe
+  2 (10.00%) low mild
+

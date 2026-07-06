@@ -1,0 +1,95 @@
+    Finished `bench` profile [optimized] target(s) in 0.12s
+     Running benches/locus_eval_locus.rs (target/release/deps/locus_eval_locus-79637351044e1bfc)
+Gnuplot not found, using plotters backend
+locus_eval_sample workload=steady_decode contender=locus_mailbox traces=4 allocated=10752 freed=10752 peak_outstanding=1394 theoretical_peak=1344
+Benchmarking locus_eval_steady_decode_locus_mailbox_w4
+Benchmarking locus_eval_steady_decode_locus_mailbox_w4: Warming up for 1.0000 s
+Benchmarking locus_eval_steady_decode_locus_mailbox_w4: Collecting 20 samples in estimated 3.0018 s (34k iterations)
+Benchmarking locus_eval_steady_decode_locus_mailbox_w4: Analyzing
+locus_eval_steady_decode_locus_mailbox_w4
+                        time:   [86.130 µs 86.889 µs 87.671 µs]
+                        change: [+1.5505% +2.5273% +3.6090%] (p = 0.00 < 0.05)
+                        Performance has regressed.
+
+locus_eval_sample workload=burst_storm contender=locus_mailbox traces=4 allocated=10752 freed=10752 peak_outstanding=2144 theoretical_peak=1537
+Benchmarking locus_eval_burst_storm_locus_mailbox_w4
+Benchmarking locus_eval_burst_storm_locus_mailbox_w4: Warming up for 1.0000 s
+Benchmarking locus_eval_burst_storm_locus_mailbox_w4: Collecting 20 samples in estimated 3.0072 s (77k iterations)
+Benchmarking locus_eval_burst_storm_locus_mailbox_w4: Analyzing
+locus_eval_burst_storm_locus_mailbox_w4
+                        time:   [37.232 µs 37.543 µs 37.952 µs]
+                        change: [-8.3269% -4.8405% -1.8821%] (p = 0.00 < 0.05)
+                        Performance has improved.
+Found 1 outliers among 20 measurements (5.00%)
+  1 (5.00%) high severe
+
+locus_eval_sample workload=long_tail contender=locus_mailbox traces=4 allocated=24064 freed=24064 peak_outstanding=4224 theoretical_peak=4168
+Benchmarking locus_eval_long_tail_locus_mailbox_w4
+Benchmarking locus_eval_long_tail_locus_mailbox_w4: Warming up for 1.0000 s
+Benchmarking locus_eval_long_tail_locus_mailbox_w4: Collecting 20 samples in estimated 3.0122 s (49k iterations)
+Benchmarking locus_eval_long_tail_locus_mailbox_w4: Analyzing
+locus_eval_long_tail_locus_mailbox_w4
+                        time:   [61.336 µs 66.425 µs 73.319 µs]
+                        change: [-2.1468% +1.9020% +8.2049%] (p = 0.68 > 0.05)
+                        No change in performance detected.
+Found 2 outliers among 20 measurements (10.00%)
+  1 (5.00%) high mild
+  1 (5.00%) high severe
+
+locus_eval_sample workload=churn_touch contender=locus_mailbox traces=4 allocated=4096 freed=4096 peak_outstanding=4128 theoretical_peak=4096
+Benchmarking locus_eval_churn_touch_locus_mailbox_w4
+Benchmarking locus_eval_churn_touch_locus_mailbox_w4: Warming up for 1.0000 s
+Benchmarking locus_eval_churn_touch_locus_mailbox_w4: Collecting 20 samples in estimated 3.0275 s (17k iterations)
+Benchmarking locus_eval_churn_touch_locus_mailbox_w4: Analyzing
+locus_eval_churn_touch_locus_mailbox_w4
+                        time:   [167.12 µs 169.95 µs 172.11 µs]
+                        change: [-16.865% -13.375% -9.4172%] (p = 0.00 < 0.05)
+                        Performance has improved.
+
+locus_eval_sample workload=steady_decode contender=locus_shared traces=4 allocated=10752 freed=10752 peak_outstanding=1948 theoretical_peak=1344
+Benchmarking locus_eval_steady_decode_locus_shared_w4
+Benchmarking locus_eval_steady_decode_locus_shared_w4: Warming up for 1.0000 s
+Benchmarking locus_eval_steady_decode_locus_shared_w4: Collecting 20 samples in estimated 3.0082 s (11k iterations)
+Benchmarking locus_eval_steady_decode_locus_shared_w4: Analyzing
+locus_eval_steady_decode_locus_shared_w4
+                        time:   [280.13 µs 290.93 µs 301.08 µs]
+                        change: [-13.035% -10.937% -8.1904%] (p = 0.00 < 0.05)
+                        Performance has improved.
+Found 1 outliers among 20 measurements (5.00%)
+  1 (5.00%) high mild
+
+locus_eval_sample workload=burst_storm contender=locus_shared traces=4 allocated=10752 freed=10752 peak_outstanding=2473 theoretical_peak=1537
+Benchmarking locus_eval_burst_storm_locus_shared_w4
+Benchmarking locus_eval_burst_storm_locus_shared_w4: Warming up for 1.0000 s
+Benchmarking locus_eval_burst_storm_locus_shared_w4: Collecting 20 samples in estimated 3.0594 s (11k iterations)
+Benchmarking locus_eval_burst_storm_locus_shared_w4: Analyzing
+locus_eval_burst_storm_locus_shared_w4
+                        time:   [301.39 µs 307.85 µs 314.89 µs]
+                        change: [-15.383% -11.964% -8.2415%] (p = 0.00 < 0.05)
+                        Performance has improved.
+Found 3 outliers among 20 measurements (15.00%)
+  1 (5.00%) low mild
+  2 (10.00%) high mild
+
+locus_eval_sample workload=long_tail contender=locus_shared traces=4 allocated=24064 freed=24064 peak_outstanding=4224 theoretical_peak=4168
+Benchmarking locus_eval_long_tail_locus_shared_w4
+Benchmarking locus_eval_long_tail_locus_shared_w4: Warming up for 1.0000 s
+Benchmarking locus_eval_long_tail_locus_shared_w4: Collecting 20 samples in estimated 3.0376 s (4620 iterations)
+Benchmarking locus_eval_long_tail_locus_shared_w4: Analyzing
+locus_eval_long_tail_locus_shared_w4
+                        time:   [639.29 µs 646.07 µs 652.54 µs]
+                        change: [-19.880% -16.844% -12.777%] (p = 0.00 < 0.05)
+                        Performance has improved.
+Found 2 outliers among 20 measurements (10.00%)
+  2 (10.00%) high severe
+
+locus_eval_sample workload=churn_touch contender=locus_shared traces=4 allocated=4096 freed=4096 peak_outstanding=4128 theoretical_peak=4096
+Benchmarking locus_eval_churn_touch_locus_shared_w4
+Benchmarking locus_eval_churn_touch_locus_shared_w4: Warming up for 1.0000 s
+Benchmarking locus_eval_churn_touch_locus_shared_w4: Collecting 20 samples in estimated 3.0035 s (12k iterations)
+Benchmarking locus_eval_churn_touch_locus_shared_w4: Analyzing
+locus_eval_churn_touch_locus_shared_w4
+                        time:   [233.31 µs 238.02 µs 243.73 µs]
+                        change: [-49.484% -48.417% -47.296%] (p = 0.00 < 0.05)
+                        Performance has improved.
+

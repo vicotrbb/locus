@@ -1,0 +1,48 @@
+    Finished `bench` profile [optimized] target(s) in 0.03s
+     Running benches/kv_reuse_order_locality.rs (target/release/deps/kv_reuse_order_locality-176c4ec95d0019c7)
+Gnuplot not found, using plotters backend
+reuse_order_sample order=lifo touch=true allocated=4096 free=12288 allocation_count=8192 free_count=4096
+Benchmarking kv_reuse_order_lifo_touch4k_64x16blk
+Benchmarking kv_reuse_order_lifo_touch4k_64x16blk: Warming up for 1.0000 s
+Benchmarking kv_reuse_order_lifo_touch4k_64x16blk: Collecting 20 samples in estimated 3.0022 s (37k iterations)
+Benchmarking kv_reuse_order_lifo_touch4k_64x16blk: Analyzing
+kv_reuse_order_lifo_touch4k_64x16blk
+                        time:   [81.796 µs 82.795 µs 84.100 µs]
+                        change: [-13.331% -9.0433% -4.7606%] (p = 0.00 < 0.05)
+                        Performance has improved.
+Found 3 outliers among 20 measurements (15.00%)
+  2 (10.00%) low mild
+  1 (5.00%) high severe
+
+reuse_order_sample order=fifo touch=true allocated=4096 free=12288 allocation_count=8192 free_count=4096
+Benchmarking kv_reuse_order_fifo_touch4k_64x16blk
+Benchmarking kv_reuse_order_fifo_touch4k_64x16blk: Warming up for 1.0000 s
+Benchmarking kv_reuse_order_fifo_touch4k_64x16blk: Collecting 20 samples in estimated 3.0173 s (30k iterations)
+Benchmarking kv_reuse_order_fifo_touch4k_64x16blk: Analyzing
+kv_reuse_order_fifo_touch4k_64x16blk
+                        time:   [99.786 µs 101.10 µs 102.20 µs]
+                        change: [-2.9310% -1.2970% +0.0608%] (p = 0.11 > 0.05)
+                        No change in performance detected.
+
+reuse_order_sample order=lifo touch=false allocated=4096 free=12288 allocation_count=8192 free_count=4096
+Benchmarking kv_reuse_order_lifo_notouch_64x16blk
+Benchmarking kv_reuse_order_lifo_notouch_64x16blk: Warming up for 1.0000 s
+Benchmarking kv_reuse_order_lifo_notouch_64x16blk: Collecting 20 samples in estimated 3.0000 s (629k iterations)
+Benchmarking kv_reuse_order_lifo_notouch_64x16blk: Analyzing
+kv_reuse_order_lifo_notouch_64x16blk
+                        time:   [4.3507 µs 4.3642 µs 4.3769 µs]
+                        change: [+1.9073% +2.3934% +2.8833%] (p = 0.00 < 0.05)
+                        Performance has regressed.
+
+reuse_order_sample order=fifo touch=false allocated=4096 free=12288 allocation_count=8192 free_count=4096
+Benchmarking kv_reuse_order_fifo_notouch_64x16blk
+Benchmarking kv_reuse_order_fifo_notouch_64x16blk: Warming up for 1.0000 s
+Benchmarking kv_reuse_order_fifo_notouch_64x16blk: Collecting 20 samples in estimated 3.0007 s (644k iterations)
+Benchmarking kv_reuse_order_fifo_notouch_64x16blk: Analyzing
+kv_reuse_order_fifo_notouch_64x16blk
+                        time:   [4.6675 µs 4.8375 µs 5.1229 µs]
+                        change: [+1.9463% +6.0092% +10.773%] (p = 0.00 < 0.05)
+                        Performance has regressed.
+Found 3 outliers among 20 measurements (15.00%)
+  3 (15.00%) high severe
+

@@ -1,0 +1,42 @@
+   Compiling locus-alloc v0.1.0 (/Users/victorbona/Code/OpenSource/locus/crates/locus-alloc)
+    Finished `bench` profile [optimized] target(s) in 0.93s
+     Running benches/locus_eval_jemalloc.rs (target/release/deps/locus_eval_jemalloc-62908bc5bf61cac1)
+Gnuplot not found, using plotters backend
+locus_eval_sample workload=steady_decode contender=jemalloc traces=4 allocated=10752 freed=10752 peak_outstanding=1389 theoretical_peak=1344
+Benchmarking locus_eval_steady_decode_jemalloc_w4
+Benchmarking locus_eval_steady_decode_jemalloc_w4: Warming up for 1.0000 s
+Benchmarking locus_eval_steady_decode_jemalloc_w4: Collecting 20 samples in estimated 3.0408 s (11k iterations)
+Benchmarking locus_eval_steady_decode_jemalloc_w4: Analyzing
+locus_eval_steady_decode_jemalloc_w4
+                        time:   [228.37 µs 233.71 µs 239.30 µs]
+Found 1 outliers among 20 measurements (5.00%)
+  1 (5.00%) high mild
+
+locus_eval_sample workload=burst_storm contender=jemalloc traces=4 allocated=10752 freed=10752 peak_outstanding=1728 theoretical_peak=1537
+Benchmarking locus_eval_burst_storm_jemalloc_w4
+Benchmarking locus_eval_burst_storm_jemalloc_w4: Warming up for 1.0000 s
+Benchmarking locus_eval_burst_storm_jemalloc_w4: Collecting 20 samples in estimated 3.0086 s (15k iterations)
+Benchmarking locus_eval_burst_storm_jemalloc_w4: Analyzing
+locus_eval_burst_storm_jemalloc_w4
+                        time:   [200.29 µs 203.55 µs 208.35 µs]
+Found 1 outliers among 20 measurements (5.00%)
+  1 (5.00%) high severe
+
+locus_eval_sample workload=long_tail contender=jemalloc traces=4 allocated=24064 freed=24064 peak_outstanding=4224 theoretical_peak=4168
+Benchmarking locus_eval_long_tail_jemalloc_w4
+Benchmarking locus_eval_long_tail_jemalloc_w4: Warming up for 1.0000 s
+Benchmarking locus_eval_long_tail_jemalloc_w4: Collecting 20 samples in estimated 3.0239 s (7140 iterations)
+Benchmarking locus_eval_long_tail_jemalloc_w4: Analyzing
+locus_eval_long_tail_jemalloc_w4
+                        time:   [412.76 µs 414.34 µs 416.62 µs]
+
+locus_eval_sample workload=churn_touch contender=jemalloc traces=4 allocated=4096 freed=4096 peak_outstanding=4128 theoretical_peak=4096
+Benchmarking locus_eval_churn_touch_jemalloc_w4
+Benchmarking locus_eval_churn_touch_jemalloc_w4: Warming up for 1.0000 s
+Benchmarking locus_eval_churn_touch_jemalloc_w4: Collecting 20 samples in estimated 3.0008 s (13k iterations)
+Benchmarking locus_eval_churn_touch_jemalloc_w4: Analyzing
+locus_eval_churn_touch_jemalloc_w4
+                        time:   [218.81 µs 223.03 µs 229.49 µs]
+Found 1 outliers among 20 measurements (5.00%)
+  1 (5.00%) high severe
+

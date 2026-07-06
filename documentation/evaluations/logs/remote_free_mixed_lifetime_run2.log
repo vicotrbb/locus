@@ -1,0 +1,27 @@
+    Finished `bench` profile [optimized] target(s) in 0.04s
+     Running benches/remote_free_mixed_lifetime_trace.rs (target/release/deps/remote_free_mixed_lifetime_trace-9bf52797e2c8751b)
+Gnuplot not found, using plotters backend
+mixed_lifetime_sample path=shared_per_handle traces=4 allocated=10752 freed=10752
+Benchmarking kv_remote_free_mixed_lifetime_shared_per_handle_w4_64req
+Benchmarking kv_remote_free_mixed_lifetime_shared_per_handle_w4_64req: Warming up for 1.0000 s
+Benchmarking kv_remote_free_mixed_lifetime_shared_per_handle_w4_64req: Collecting 20 samples in estimated 3.0335 s (11k iterations)
+Benchmarking kv_remote_free_mixed_lifetime_shared_per_handle_w4_64req: Analyzing
+kv_remote_free_mixed_lifetime_shared_per_handle_w4_64req
+                        time:   [281.60 µs 283.23 µs 285.40 µs]
+                        change: [-0.2481% +1.0781% +2.8919%] (p = 0.21 > 0.05)
+                        No change in performance detected.
+Found 2 outliers among 20 measurements (10.00%)
+  2 (10.00%) high severe
+
+mixed_lifetime_sample path=sharded_chunk traces=4 allocated=10752 freed=10752
+Benchmarking kv_remote_free_mixed_lifetime_sharded_chunk_w4_64req
+Benchmarking kv_remote_free_mixed_lifetime_sharded_chunk_w4_64req: Warming up for 1.0000 s
+Benchmarking kv_remote_free_mixed_lifetime_sharded_chunk_w4_64req: Collecting 20 samples in estimated 3.0124 s (37k iterations)
+Benchmarking kv_remote_free_mixed_lifetime_sharded_chunk_w4_64req: Analyzing
+kv_remote_free_mixed_lifetime_sharded_chunk_w4_64req
+                        time:   [80.872 µs 81.154 µs 81.381 µs]
+                        change: [-0.8573% +0.0142% +0.7765%] (p = 0.97 > 0.05)
+                        No change in performance detected.
+Found 1 outliers among 20 measurements (5.00%)
+  1 (5.00%) low mild
+

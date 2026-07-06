@@ -1,0 +1,42 @@
+warning: missing documentation for a module
+  --> crates/locus-sys/src/lib.rs:11:1
+   |
+11 | pub mod chunk_mailbox;
+   | ^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: requested on the command line with `-W missing-docs`
+
+warning: `locus-sys` (lib) generated 1 warning
+    Finished `bench` profile [optimized] target(s) in 0.04s
+     Running benches/remote_free_mixed_lifetime_trace.rs (target/release/deps/remote_free_mixed_lifetime_trace-9bf52797e2c8751b)
+Gnuplot not found, using plotters backend
+mixed_lifetime_sample path=shared_per_handle traces=4 allocated=10752 freed=10752
+Benchmarking kv_remote_free_mixed_lifetime_shared_per_handle_w4_64req
+Benchmarking kv_remote_free_mixed_lifetime_shared_per_handle_w4_64req: Warming up for 1.0000 s
+Benchmarking kv_remote_free_mixed_lifetime_shared_per_handle_w4_64req: Collecting 20 samples in estimated 3.0175 s (11k iterations)
+Benchmarking kv_remote_free_mixed_lifetime_shared_per_handle_w4_64req: Analyzing
+kv_remote_free_mixed_lifetime_shared_per_handle_w4_64req
+                        time:   [283.13 µs 285.17 µs 286.85 µs]
+                        change: [-13.235% -12.159% -11.037%] (p = 0.00 < 0.05)
+                        Performance has improved.
+
+mixed_lifetime_sample path=sharded_chunk traces=4 allocated=10752 freed=10752
+Benchmarking kv_remote_free_mixed_lifetime_sharded_chunk_w4_64req
+Benchmarking kv_remote_free_mixed_lifetime_sharded_chunk_w4_64req: Warming up for 1.0000 s
+Benchmarking kv_remote_free_mixed_lifetime_sharded_chunk_w4_64req: Collecting 20 samples in estimated 3.0080 s (38k iterations)
+Benchmarking kv_remote_free_mixed_lifetime_sharded_chunk_w4_64req: Analyzing
+kv_remote_free_mixed_lifetime_sharded_chunk_w4_64req
+                        time:   [77.935 µs 78.241 µs 78.613 µs]
+                        change: [+4.6656% +8.3840% +11.760%] (p = 0.00 < 0.05)
+                        Performance has regressed.
+
+mixed_lifetime_sample path=sharded_mailbox traces=4 allocated=10752 freed=10752
+Benchmarking kv_remote_free_mixed_lifetime_sharded_mailbox_w4_64req
+Benchmarking kv_remote_free_mixed_lifetime_sharded_mailbox_w4_64req: Warming up for 1.0000 s
+Benchmarking kv_remote_free_mixed_lifetime_sharded_mailbox_w4_64req: Collecting 20 samples in estimated 3.0124 s (43k iterations)
+Benchmarking kv_remote_free_mixed_lifetime_sharded_mailbox_w4_64req: Analyzing
+kv_remote_free_mixed_lifetime_sharded_mailbox_w4_64req
+                        time:   [71.450 µs 72.116 µs 72.643 µs]
+                        change: [+3.7827% +4.7918% +5.7499%] (p = 0.00 < 0.05)
+                        Performance has regressed.
+

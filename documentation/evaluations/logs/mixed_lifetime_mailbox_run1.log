@@ -1,0 +1,45 @@
+warning: missing documentation for a module
+  --> crates/locus-sys/src/lib.rs:11:1
+   |
+11 | pub mod chunk_mailbox;
+   | ^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: requested on the command line with `-W missing-docs`
+
+warning: `locus-sys` (lib) generated 1 warning
+   Compiling locus-alloc v0.1.0 (/Users/victorbona/Code/OpenSource/locus/crates/locus-alloc)
+    Finished `bench` profile [optimized] target(s) in 0.98s
+     Running benches/remote_free_mixed_lifetime_trace.rs (target/release/deps/remote_free_mixed_lifetime_trace-9bf52797e2c8751b)
+Gnuplot not found, using plotters backend
+mixed_lifetime_sample path=shared_per_handle traces=4 allocated=10752 freed=10752
+Benchmarking kv_remote_free_mixed_lifetime_shared_per_handle_w4_64req
+Benchmarking kv_remote_free_mixed_lifetime_shared_per_handle_w4_64req: Warming up for 1.0000 s
+Benchmarking kv_remote_free_mixed_lifetime_shared_per_handle_w4_64req: Collecting 20 samples in estimated 3.0173 s (9450 iterations)
+Benchmarking kv_remote_free_mixed_lifetime_shared_per_handle_w4_64req: Analyzing
+kv_remote_free_mixed_lifetime_shared_per_handle_w4_64req
+                        time:   [321.90 µs 325.01 µs 327.93 µs]
+                        change: [+15.752% +17.068% +18.301%] (p = 0.00 < 0.05)
+                        Performance has regressed.
+
+mixed_lifetime_sample path=sharded_chunk traces=4 allocated=10752 freed=10752
+Benchmarking kv_remote_free_mixed_lifetime_sharded_chunk_w4_64req
+Benchmarking kv_remote_free_mixed_lifetime_sharded_chunk_w4_64req: Warming up for 1.0000 s
+Benchmarking kv_remote_free_mixed_lifetime_sharded_chunk_w4_64req: Collecting 20 samples in estimated 3.0090 s (44k iterations)
+Benchmarking kv_remote_free_mixed_lifetime_sharded_chunk_w4_64req: Analyzing
+kv_remote_free_mixed_lifetime_sharded_chunk_w4_64req
+                        time:   [70.202 µs 73.692 µs 78.025 µs]
+                        change: [-12.155% -9.3948% -6.1820%] (p = 0.00 < 0.05)
+                        Performance has improved.
+Found 2 outliers among 20 measurements (10.00%)
+  2 (10.00%) high mild
+
+mixed_lifetime_sample path=sharded_mailbox traces=4 allocated=10752 freed=10752
+Benchmarking kv_remote_free_mixed_lifetime_sharded_mailbox_w4_64req
+Benchmarking kv_remote_free_mixed_lifetime_sharded_mailbox_w4_64req: Warming up for 1.0000 s
+Benchmarking kv_remote_free_mixed_lifetime_sharded_mailbox_w4_64req: Collecting 20 samples in estimated 3.0077 s (46k iterations)
+Benchmarking kv_remote_free_mixed_lifetime_sharded_mailbox_w4_64req: Analyzing
+kv_remote_free_mixed_lifetime_sharded_mailbox_w4_64req
+                        time:   [68.629 µs 69.011 µs 69.291 µs]
+Found 2 outliers among 20 measurements (10.00%)
+  2 (10.00%) low mild
+

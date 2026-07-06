@@ -1,0 +1,50 @@
+    Finished `bench` profile [optimized] target(s) in 0.06s
+     Running benches/locus_eval_mimalloc.rs (target/release/deps/locus_eval_mimalloc-811a5bc183d3f7ea)
+Gnuplot not found, using plotters backend
+locus_eval_sample workload=steady_decode contender=mimalloc traces=4 allocated=10752 freed=10752 peak_outstanding=1394 theoretical_peak=1344
+Benchmarking locus_eval_steady_decode_mimalloc_w4
+Benchmarking locus_eval_steady_decode_mimalloc_w4: Warming up for 1.0000 s
+Benchmarking locus_eval_steady_decode_mimalloc_w4: Collecting 20 samples in estimated 3.0127 s (15k iterations)
+Benchmarking locus_eval_steady_decode_mimalloc_w4: Analyzing
+locus_eval_steady_decode_mimalloc_w4
+                        time:   [199.94 µs 201.21 µs 202.50 µs]
+                        change: [-14.316% -12.792% -11.150%] (p = 0.00 < 0.05)
+                        Performance has improved.
+
+locus_eval_sample workload=burst_storm contender=mimalloc traces=4 allocated=10752 freed=10752 peak_outstanding=1712 theoretical_peak=1537
+Benchmarking locus_eval_burst_storm_mimalloc_w4
+Benchmarking locus_eval_burst_storm_mimalloc_w4: Warming up for 1.0000 s
+Benchmarking locus_eval_burst_storm_mimalloc_w4: Collecting 20 samples in estimated 3.0070 s (21k iterations)
+Benchmarking locus_eval_burst_storm_mimalloc_w4: Analyzing
+locus_eval_burst_storm_mimalloc_w4
+                        time:   [143.61 µs 147.16 µs 151.28 µs]
+                        change: [-30.137% -25.343% -19.489%] (p = 0.00 < 0.05)
+                        Performance has improved.
+Found 2 outliers among 20 measurements (10.00%)
+  2 (10.00%) high mild
+
+locus_eval_sample workload=long_tail contender=mimalloc traces=4 allocated=24064 freed=24064 peak_outstanding=4224 theoretical_peak=4168
+Benchmarking locus_eval_long_tail_mimalloc_w4
+Benchmarking locus_eval_long_tail_mimalloc_w4: Warming up for 1.0000 s
+Benchmarking locus_eval_long_tail_mimalloc_w4: Collecting 20 samples in estimated 3.0199 s (10k iterations)
+Benchmarking locus_eval_long_tail_mimalloc_w4: Analyzing
+locus_eval_long_tail_mimalloc_w4
+                        time:   [278.63 µs 282.95 µs 289.93 µs]
+                        change: [-12.426% -6.6663% -0.8456%] (p = 0.02 < 0.05)
+                        Change within noise threshold.
+Found 3 outliers among 20 measurements (15.00%)
+  2 (10.00%) high mild
+  1 (5.00%) high severe
+
+locus_eval_sample workload=churn_touch contender=mimalloc traces=4 allocated=4096 freed=4096 peak_outstanding=4144 theoretical_peak=4096
+Benchmarking locus_eval_churn_touch_mimalloc_w4
+Benchmarking locus_eval_churn_touch_mimalloc_w4: Warming up for 1.0000 s
+Benchmarking locus_eval_churn_touch_mimalloc_w4: Collecting 20 samples in estimated 3.0189 s (16k iterations)
+Benchmarking locus_eval_churn_touch_mimalloc_w4: Analyzing
+locus_eval_churn_touch_mimalloc_w4
+                        time:   [199.69 µs 201.60 µs 204.00 µs]
+                        change: [-15.960% -12.787% -9.2921%] (p = 0.00 < 0.05)
+                        Performance has improved.
+Found 2 outliers among 20 measurements (10.00%)
+  2 (10.00%) high mild
+

@@ -1,0 +1,47 @@
+    Finished `bench` profile [optimized] target(s) in 0.02s
+     Running benches/locus_eval_system.rs (target/release/deps/locus_eval_system-862aa895d2c2ad3e)
+Gnuplot not found, using plotters backend
+locus_eval_sample workload=steady_decode contender=system traces=4 allocated=10752 freed=10752 peak_outstanding=1499 theoretical_peak=1344
+Benchmarking locus_eval_steady_decode_system_w4
+Benchmarking locus_eval_steady_decode_system_w4: Warming up for 1.0000 s
+Benchmarking locus_eval_steady_decode_system_w4: Collecting 20 samples in estimated 3.0176 s (13k iterations)
+Benchmarking locus_eval_steady_decode_system_w4: Analyzing
+locus_eval_steady_decode_system_w4
+                        time:   [227.46 µs 232.60 µs 239.35 µs]
+                        change: [-0.5812% +1.0601% +2.8722%] (p = 0.26 > 0.05)
+                        No change in performance detected.
+Found 1 outliers among 20 measurements (5.00%)
+  1 (5.00%) high severe
+
+locus_eval_sample workload=burst_storm contender=system traces=4 allocated=10752 freed=10752 peak_outstanding=1616 theoretical_peak=1537
+Benchmarking locus_eval_burst_storm_system_w4
+Benchmarking locus_eval_burst_storm_system_w4: Warming up for 1.0000 s
+Benchmarking locus_eval_burst_storm_system_w4: Collecting 20 samples in estimated 3.0275 s (17k iterations)
+Benchmarking locus_eval_burst_storm_system_w4: Analyzing
+locus_eval_burst_storm_system_w4
+                        time:   [167.83 µs 173.73 µs 186.21 µs]
+                        change: [+0.1182% +4.3132% +10.492%] (p = 0.10 > 0.05)
+                        No change in performance detected.
+Found 3 outliers among 20 measurements (15.00%)
+  3 (15.00%) high severe
+
+locus_eval_sample workload=long_tail contender=system traces=4 allocated=24064 freed=24064 peak_outstanding=4224 theoretical_peak=4168
+Benchmarking locus_eval_long_tail_system_w4
+Benchmarking locus_eval_long_tail_system_w4: Warming up for 1.0000 s
+Benchmarking locus_eval_long_tail_system_w4: Collecting 20 samples in estimated 3.0241 s (6720 iterations)
+Benchmarking locus_eval_long_tail_system_w4: Analyzing
+locus_eval_long_tail_system_w4
+                        time:   [439.50 µs 443.09 µs 446.67 µs]
+                        change: [-4.9337% -2.1184% +0.4338%] (p = 0.15 > 0.05)
+                        No change in performance detected.
+
+locus_eval_sample workload=churn_touch contender=system traces=4 allocated=4096 freed=4096 peak_outstanding=4112 theoretical_peak=4096
+Benchmarking locus_eval_churn_touch_system_w4
+Benchmarking locus_eval_churn_touch_system_w4: Warming up for 1.0000 s
+Benchmarking locus_eval_churn_touch_system_w4: Collecting 20 samples in estimated 3.0364 s (16k iterations)
+Benchmarking locus_eval_churn_touch_system_w4: Analyzing
+locus_eval_churn_touch_system_w4
+                        time:   [191.78 µs 196.12 µs 199.55 µs]
+                        change: [-8.1105% -6.1671% -4.3203%] (p = 0.00 < 0.05)
+                        Performance has improved.
+
