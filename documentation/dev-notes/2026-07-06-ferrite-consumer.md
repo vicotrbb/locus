@@ -14,7 +14,12 @@ benchmark: `KvBlockPool::new_mapped(NodeId(0), block_size, capacity,
 KvReuseOrder::Lifo)` is constructed per inference session, `allocate` is
 called lazily on block boundaries, `block_mut` is used for both reads and
 writes (reinterpreted as `f32` via `bytemuck`, relying on mmap page
-alignment), and `free`/LIFO reuse runs on truncate and session drop.
+alignment), and `free` runs on `truncate`, handing blocks back for LIFO reuse
+within that same session. The pool is owned by the session (via Ferrite's
+`LocusKvStore`, itself owned by `ScalarLlamaSession`), not shared or reused
+across sessions: on session drop the whole pool — every block in it, freed or
+not — is released together (its `MappedRegion` unmaps), rather than being
+freed block-by-block for a later session to reuse.
 
 Ferrite consumed the `locus-alloc` crate as-is via a path dependency. No
 Locus code was changed for this work; the two observations below are backlog
